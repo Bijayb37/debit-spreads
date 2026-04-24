@@ -1,25 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  --background: #efe2ca;
-  --foreground: #28261f;
-  --paper: #f7ecd8;
-  --paper-soft: #f1dfc1;
-  --paper-muted: #e4d0ad;
-  --ink: #28261f;
-  --ink-muted: #6f6757;
-  --ink-line: #cdbb99;
-  --rust: #b75534;
-  --rust-dark: #8f3e2b;
-  --pine: #2f6b4f;
-  --loss: #9f3a32;
+  --background: #fafaf7;
+  --foreground: #0a0a0a;
+  --paper: #fafaf7;
+  --paper-soft: #f1f0e9;
+  --paper-muted: #d4d4cd;
+  --ink: #0a0a0a;
+  --ink-2: #333333;
+  --ink-muted: #7a7a78;
+  --ink-line: #0a0a0a;
+  --hair: #d4d4cd;
+  --red: #e63946;
+  --rust: var(--red);
+  --rust-dark: #c72331;
+  --pine: #2d6a4f;
+  --loss: #e63946;
   --font-serif: Georgia, "Times New Roman", serif;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-space-grotesk);
+  --font-sans: var(--font-ibm-plex-mono);
   --font-mono: var(--font-ibm-plex-mono);
 }
 
@@ -34,7 +37,9 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-serif);
+  font-family: var(--font-ibm-plex-mono), ui-monospace, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 
 input[type="range"]::-webkit-slider-thumb {
@@ -42,17 +47,17 @@ input[type="range"]::-webkit-slider-thumb {
   appearance: none;
   height: 1rem;
   width: 1rem;
-  border-radius: 9999px;
+  border-radius: 0;
   border: 0;
-  background: var(--rust);
-  box-shadow: 0 1px 2px rgb(40 38 31 / 0.25);
+  background: var(--red);
+  box-shadow: none;
 }
 
 input[type="range"]::-moz-range-thumb {
   height: 1rem;
   width: 1rem;
-  border-radius: 9999px;
+  border-radius: 0;
   border: 0;
-  background: var(--rust);
-  box-shadow: 0 1px 2px rgb(40 38 31 / 0.25);
+  background: var(--red);
+  box-shadow: none;
 }
