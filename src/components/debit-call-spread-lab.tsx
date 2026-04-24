@@ -211,11 +211,11 @@ function SectionCard({
         className,
       )}
     >
-      <div className="grid grid-cols-[3.75rem_minmax(0,1fr)] border-b border-[var(--ink-line)]">
-        <div className="flex items-center justify-center border-r border-[var(--ink-line)] font-[family:var(--font-serif)] text-2xl italic text-[var(--ink)]">
+      <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] border-b border-[var(--ink-line)]">
+        <div className="flex items-center justify-center border-r border-[var(--ink-line)] font-[family:var(--font-serif)] text-xl italic text-[var(--ink)]">
           /
         </div>
-        <div className="px-5 py-3">
+        <div className="px-3 py-2">
           {eyebrow ? (
             <p
               className={cn(
@@ -226,23 +226,23 @@ function SectionCard({
               {eyebrow}
             </p>
           ) : null}
-          <h2 className="font-[family:var(--font-serif)] text-3xl font-medium leading-none text-balance text-[var(--ink)]">
+          <h2 className="font-[family:var(--font-serif)] text-2xl font-medium leading-none text-balance text-[var(--ink)]">
             {title}
           </h2>
         </div>
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-3">{children}</div>
     </section>
   );
 }
 
 function MetricCard({ label, value, tone = "default", helper }: MetricCardProps) {
   return (
-    <div className="border border-[var(--ink-line)] bg-[var(--paper)] p-5">
+    <div className="border border-[var(--ink-line)] bg-[var(--paper)] p-3">
       <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">{label}</p>
       <p
         className={cn(
-          "mt-3 font-[family:var(--font-serif)] text-4xl font-medium leading-none tabular-nums",
+          "mt-2 font-[family:var(--font-serif)] text-3xl font-medium leading-none tabular-nums",
           tone === "positive" && "text-[var(--pine)]",
           tone === "negative" && "text-[var(--loss)]",
           tone === "accent" && "text-[var(--red)]",
@@ -251,7 +251,7 @@ function MetricCard({ label, value, tone = "default", helper }: MetricCardProps)
       >
         {value}
       </p>
-      {helper ? <p className="mt-3 border-t border-[var(--hair)] pt-2 text-[11px] text-[var(--ink-muted)] text-pretty">{helper}</p> : null}
+      {helper ? <p className="mt-2 border-t border-[var(--hair)] pt-2 text-[10px] text-[var(--ink-muted)] text-pretty">{helper}</p> : null}
     </div>
   );
 }
@@ -360,7 +360,7 @@ function NumberSliderField({
   };
 
   return (
-    <div className="border border-[var(--hair)] bg-[var(--paper)] p-4">
+    <div className="border border-[var(--hair)] bg-[var(--paper)] p-3">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -373,7 +373,7 @@ function NumberSliderField({
             {help}
           </span>
         </div>
-        <div className="w-28 shrink-0">
+        <div className="w-24 shrink-0">
           <div className="flex items-center border-b border-[var(--ink-line)] bg-transparent px-0 py-1">
             {prefix ? <span className="text-sm text-[var(--ink-muted)]">{prefix}</span> : null}
             <input
@@ -402,9 +402,9 @@ function NumberSliderField({
         aria-labelledby={labelId}
         aria-describedby={helpId}
         onChange={(event) => handleSliderChange(Number(event.target.value))}
-        className="mt-4 h-1 w-full cursor-pointer appearance-none bg-[var(--ink-line)] accent-[var(--red)]"
+        className="mt-3 h-1 w-full cursor-pointer appearance-none bg-[var(--ink-line)] accent-[var(--red)]"
       />
-      <div className="mt-2 flex justify-between font-mono text-xs text-[var(--ink-muted)] tabular-nums">
+      <div className="mt-2 flex justify-between font-mono text-[10px] text-[var(--ink-muted)] tabular-nums">
         <span>
           {prefix}
           {min}
@@ -417,7 +417,7 @@ function NumberSliderField({
         </span>
       </div>
       {quickActions.length > 0 ? (
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="mt-2 grid grid-cols-4 gap-1.5">
           {quickActions.map((action) => (
             <button
               key={action.label}
@@ -1399,17 +1399,17 @@ export default function DebitCallSpreadLab({
 
   return (
     <main className="min-h-dvh bg-[var(--background)] text-[var(--ink)] lg:h-dvh lg:overflow-hidden">
-      <div className="mx-auto flex min-h-dvh w-full max-w-none flex-col lg:h-full lg:min-h-0">
-        <header className="grid border-b border-[var(--ink-line)] bg-[var(--paper)] lg:grid-cols-[24rem_repeat(4,minmax(0,1fr))]">
-          <div className="flex items-center gap-4 border-b border-[var(--ink-line)] px-5 py-4 lg:border-b-0 lg:border-r">
-            <div className="flex size-10 items-center justify-center bg-[var(--ink)] font-[family:var(--font-serif)] text-3xl italic leading-none text-[var(--paper)]">
+      <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-full lg:min-h-0">
+        <header className="grid border border-[var(--ink-line)] bg-[var(--paper)] lg:grid-cols-[22rem_repeat(4,minmax(0,1fr))]">
+          <div className="flex items-center gap-3 border-b border-[var(--ink-line)] px-4 py-3 lg:border-b-0 lg:border-r">
+            <div className="flex size-8 items-center justify-center bg-[var(--ink)] font-[family:var(--font-serif)] text-2xl italic leading-none text-[var(--paper)]">
               d
             </div>
             <div>
-              <h1 className="font-[family:var(--font-serif)] text-3xl font-medium leading-none text-[var(--ink)]">
+              <h1 className="font-[family:var(--font-serif)] text-2xl font-medium leading-none text-[var(--ink)]">
                 Debit Call <i className="text-[var(--red)]">Spread</i> Lab
               </h1>
-              <p className="mt-1 text-[10px] uppercase text-[var(--ink-muted)]">
+              <p className="mt-0.5 text-[10px] uppercase text-[var(--ink-muted)]">
                 Scenario editorial
               </p>
             </div>
@@ -1422,32 +1422,32 @@ export default function DebitCallSpreadLab({
           ].map(([label, value]) => (
             <div
               key={label}
-              className="border-b border-[var(--hair)] px-5 py-3 lg:border-b-0 lg:border-r last:lg:border-r-0"
+              className="border-b border-[var(--hair)] px-3 py-2 lg:border-b-0 lg:border-r last:lg:border-r-0"
             >
               <p className="text-[9px] uppercase text-[var(--ink-muted)]">
                 {label}
               </p>
-              <p className="mt-1 font-mono text-sm font-medium text-[var(--ink)] tabular-nums">
+              <p className="mt-0.5 font-mono text-xs font-medium text-[var(--ink)] tabular-nums">
                 {value}
               </p>
             </div>
           ))}
         </header>
 
-        <div className="grid gap-0 lg:min-h-0 lg:flex-1 lg:grid-cols-[24rem_minmax(0,1fr)]">
-          <aside className="border-b border-[var(--ink-line)] bg-[var(--paper)] lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:border-b-0 lg:border-r">
+        <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[22rem_minmax(0,1fr)]">
+          <aside className="bg-[var(--paper)] lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
             <SectionCard
               title="Inputs"
               eyebrow="01 / Controls"
             >
-              <div className="space-y-4">
-                <label className="block border border-[var(--hair)] bg-[var(--paper)] p-4">
+              <div className="space-y-3">
+                <label className="block border border-[var(--hair)] bg-[var(--paper)] p-3">
                   <span className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Underlying ticker or label</span>
                   <input
                     type="text"
                     value={symbol}
                     onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-                    className="mt-3 w-full border-0 border-b border-[var(--ink-line)] bg-transparent px-0 py-2 font-[family:var(--font-serif)] text-2xl font-medium text-[var(--ink)] outline-none"
+                    className="mt-2 w-full border-0 border-b border-[var(--ink-line)] bg-transparent px-0 py-1.5 font-[family:var(--font-serif)] text-xl font-medium text-[var(--ink)] outline-none"
                     placeholder="AAPL"
                   />
                 </label>
@@ -1508,7 +1508,7 @@ export default function DebitCallSpreadLab({
                   prefix="$"
                 />
 
-                <label className="block border border-[var(--hair)] bg-[var(--paper)] p-4">
+                <label className="block border border-[var(--hair)] bg-[var(--paper)] p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Days to expiration</p>
@@ -1520,7 +1520,7 @@ export default function DebitCallSpreadLab({
                       {formatLongDate(expiryIso)}
                     </span>
                   </div>
-                  <div className="mt-4 flex items-center border-b border-[var(--ink-line)] bg-transparent py-1">
+                  <div className="mt-3 flex items-center border-b border-[var(--ink-line)] bg-transparent py-1">
                     <input
                       type="number"
                       value={expirationDays}
@@ -1537,14 +1537,14 @@ export default function DebitCallSpreadLab({
                       onChange={(event) =>
                         updateExpirationDays(parseNumberInput(event.target.value))
                       }
-                      className="w-full border-0 bg-transparent p-0 font-[family:var(--font-serif)] text-2xl font-medium text-[var(--ink)] outline-none tabular-nums"
+                      className="w-full border-0 bg-transparent p-0 font-[family:var(--font-serif)] text-xl font-medium text-[var(--ink)] outline-none tabular-nums"
                     />
                     <span className="text-sm text-[var(--ink-muted)]">DTE</span>
                   </div>
                 </label>
 
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block border border-[var(--hair)] bg-[var(--paper)] p-4">
+                  <label className="block border border-[var(--hair)] bg-[var(--paper)] p-3">
                     <span className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Risk-free rate</span>
                     <input
                       type="number"
@@ -1559,10 +1559,10 @@ export default function DebitCallSpreadLab({
                       onChange={(event) =>
                         setRatePct(clamp(parseNumberInput(event.target.value), 0, 15))
                       }
-                      className="mt-3 w-full border-0 border-b border-[var(--ink-line)] bg-transparent px-0 py-2 font-[family:var(--font-serif)] text-2xl font-medium text-[var(--ink)] outline-none"
+                      className="mt-2 w-full border-0 border-b border-[var(--ink-line)] bg-transparent px-0 py-1.5 font-[family:var(--font-serif)] text-xl font-medium text-[var(--ink)] outline-none"
                     />
                   </label>
-                  <label className="block border border-[var(--hair)] bg-[var(--paper)] p-4">
+                  <label className="block border border-[var(--hair)] bg-[var(--paper)] p-3">
                     <span className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Dividend yield</span>
                     <input
                       type="number"
@@ -1579,14 +1579,14 @@ export default function DebitCallSpreadLab({
                       onChange={(event) =>
                         setDividendYieldPct(clamp(parseNumberInput(event.target.value), 0, 15))
                       }
-                      className="mt-3 w-full border-0 border-b border-[var(--ink-line)] bg-transparent px-0 py-2 font-[family:var(--font-serif)] text-2xl font-medium text-[var(--ink)] outline-none"
+                      className="mt-2 w-full border-0 border-b border-[var(--ink-line)] bg-transparent px-0 py-1.5 font-[family:var(--font-serif)] text-xl font-medium text-[var(--ink)] outline-none"
                     />
                   </label>
                 </div>
               </div>
             </SectionCard>
 
-            <div className="border-x border-b border-[var(--ink-line)] bg-[var(--paper-soft)] p-4 text-[11px] text-[var(--ink)]">
+            <div className="mt-3 border border-[var(--ink-line)] bg-[var(--paper-soft)] p-3 text-[10px] text-[var(--ink)]">
               <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Model assumptions</p>
               <p className="mt-2 text-pretty">
                 This uses a Black-Scholes estimate with one shared IV for both call legs, a flat rate, and a flat dividend yield. It treats the spread like European-style pricing, which is clean for learning and scenario work.
@@ -1594,8 +1594,8 @@ export default function DebitCallSpreadLab({
             </div>
           </aside>
 
-          <div className="space-y-4 bg-[var(--paper)] p-4 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
-            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="space-y-3 bg-[var(--paper)] lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <MetricCard
                 label="Spread cost today"
                 value={formatCurrency(snapshot.debitPerSpread * 100)}
@@ -1618,14 +1618,14 @@ export default function DebitCallSpreadLab({
               title="Scenario curve"
               eyebrow={`${symbol.trim() || "Underlying"} spread value by stock price`}
             >
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div className="overflow-hidden border border-[var(--ink-line)] bg-[var(--ink-line)]">
                   <div className="grid gap-px sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="flex min-h-32 flex-col items-center justify-center bg-[var(--paper)] p-5 text-center">
+                    <div className="flex min-h-24 flex-col items-center justify-center bg-[var(--paper)] p-4 text-center">
                       <p className="text-[10px] font-semibold uppercase text-[var(--ink-muted)]">
                         Selected scenario
                       </p>
-                      <p className="mt-3 font-[family:var(--font-serif)] text-5xl font-medium leading-none text-[var(--ink)] tabular-nums">
+                      <p className="mt-2 font-[family:var(--font-serif)] text-4xl font-medium leading-none text-[var(--ink)] tabular-nums">
                         {formatCurrency(safeScenarioPrice)}
                       </p>
                       <p className="mt-2 text-[11px] font-medium uppercase text-[var(--ink-muted)]">
@@ -1633,20 +1633,20 @@ export default function DebitCallSpreadLab({
                       </p>
                     </div>
 
-                    <div className="flex min-h-32 flex-col items-center justify-center bg-[var(--paper)] p-5 text-center">
+                    <div className="flex min-h-24 flex-col items-center justify-center bg-[var(--paper)] p-4 text-center">
                       <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">
                         Value on selected date
                       </p>
-                      <p className="mt-3 font-[family:var(--font-serif)] text-5xl font-medium leading-none text-[var(--ink)] tabular-nums">
+                      <p className="mt-2 font-[family:var(--font-serif)] text-4xl font-medium leading-none text-[var(--ink)] tabular-nums">
                         {formatCurrency(snapshot.scenarioPositionValue)}
                       </p>
                     </div>
 
-                    <div className="flex min-h-32 flex-col items-center justify-center bg-[var(--paper)] p-5 text-center">
+                    <div className="flex min-h-24 flex-col items-center justify-center bg-[var(--paper)] p-4 text-center">
                       <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">
                         Max at expiry
                       </p>
-                      <div className="mt-3 grid w-full max-w-56 grid-cols-2 gap-3">
+                      <div className="mt-2 grid w-full max-w-52 grid-cols-2 gap-2">
                         <div>
                           <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">
                             Profit
@@ -1666,13 +1666,13 @@ export default function DebitCallSpreadLab({
                       </div>
                     </div>
 
-                    <div className="flex min-h-32 flex-col items-center justify-center bg-[var(--paper)] p-5 text-center">
+                    <div className="flex min-h-24 flex-col items-center justify-center bg-[var(--paper)] p-4 text-center">
                       <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">
                         Profit or loss then
                       </p>
                       <p
                         className={cn(
-                          "mt-3 font-[family:var(--font-serif)] text-5xl font-medium leading-none tabular-nums",
+                          "mt-2 font-[family:var(--font-serif)] text-4xl font-medium leading-none tabular-nums",
                           snapshot.pnl >= 0 ? "text-[var(--pine)]" : "text-[var(--loss)]",
                         )}
                       >
@@ -1692,8 +1692,8 @@ export default function DebitCallSpreadLab({
                   </div>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="border border-[var(--ink-line)] bg-[var(--paper)] p-4">
+                <div className="grid gap-3 lg:grid-cols-2">
+                  <div className="border border-[var(--ink-line)] bg-[var(--paper)] p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
                         <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Future stock price</p>
@@ -1751,7 +1751,7 @@ export default function DebitCallSpreadLab({
                     </div>
                   </div>
 
-                  <div className="border border-[var(--ink-line)] bg-[var(--paper)] p-4">
+                  <div className="border border-[var(--ink-line)] bg-[var(--paper)] p-3">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
                         <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Valuation date</p>
