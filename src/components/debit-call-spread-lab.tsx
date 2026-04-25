@@ -290,7 +290,11 @@ function replaceShareHash(nextState: string) {
   }
 
   hashParams.set(SHARE_PARAM, nextState);
-  window.location.replace(`#${hashParams.toString()}`);
+  window.history.replaceState(
+    null,
+    "",
+    `${window.location.pathname}${window.location.search}#${hashParams.toString()}`,
+  );
 }
 
 function decodeShareState(value: string | null, defaultExpirationDays: number): ShareState | null {
@@ -803,14 +807,37 @@ function PnlScenarioChart({
     }
     return Math.round(raw);
   };
-  const yTickValues = Array.from(new Set([
-    niceTick(yMin + (yMax - yMin) * 0.1),
-    niceTick(rawMin),
-    0,
-    niceTick(rawMax),
-    niceTick(yMin + (yMax - yMin) * 0.9),
-  ].filter((tick) => tick >= yMin && tick <= yMax)));
-  yTickValues.sort((a, b) => a - b);
+  const yTickCandidates = [
+    { value: 0, priority: 0 },
+    { value: niceTick(rawMax), priority: 1 },
+    { value: niceTick(rawMin), priority: 1 },
+    { value: niceTick(yMin + (yMax - yMin) * 0.5), priority: 2 },
+    { value: niceTick(yMin + (yMax - yMin) * 0.1), priority: 3 },
+    { value: niceTick(yMin + (yMax - yMin) * 0.9), priority: 3 },
+  ].filter((tick) => tick.value >= yMin && tick.value <= yMax);
+
+  const selectedYTicks: number[] = [];
+  const selectedYTickLabels = new Set<string>();
+  const minYTickGap = 24;
+
+  for (const candidate of yTickCandidates.sort((a, b) => a.priority - b.priority)) {
+    const labelKey = `${formatCompactCurrency(candidate.value)}|${formatCompactCurrency(
+      candidate.value + totalCost,
+    )}`;
+    const candidateY = y(candidate.value);
+    const overlapsExistingTick = selectedYTicks.some(
+      (tick) => Math.abs(y(tick) - candidateY) < minYTickGap,
+    );
+
+    if (selectedYTickLabels.has(labelKey) || overlapsExistingTick) {
+      continue;
+    }
+
+    selectedYTicks.push(candidate.value);
+    selectedYTickLabels.add(labelKey);
+  }
+
+  const yTickValues = selectedYTicks.sort((a, b) => a - b);
 
   const priceTicks = [
     minPrice,
@@ -1858,6 +1885,10 @@ export default function DebitCallSpreadLab({
     setLongStrike(nextSpot);
     setShortStrike(getOtmStrike(nextSpot, 10));
   };
+  const updateVolatilityPct = (nextValue: number) => {
+    setVolatilityPct(nextValue);
+    setFutureVolatilityPct(nextValue);
+  };
   const updateExpirationDays = (nextValue: number) => {
     const nextExpirationDays = clamp(Math.round(nextValue), 0, 1095);
 
@@ -2201,10 +2232,10 @@ export default function DebitCallSpreadLab({
     : `${formatCurrency(snapshot.cashLeft)} left over`;
 
   return (
-    <main className="min-h-dvh bg-stone-100 text-slate-900 lg:h-dvh lg:overflow-hidden">
-      <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-full lg:min-h-0">
-        <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[21rem_minmax(0,1fr)]">
-          <aside className="lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
+    <main className="h-dvh overflow-y-auto overscroll-none bg-stone-100 text-slate-900">
+      <div className="mx-auto w-full max-w-7xl px-4 py-3 md:px-6">
+        <div className="grid items-start gap-3 lg:grid-cols-[21rem_minmax(0,1fr)]">
+          <aside className="lg:sticky lg:top-3 lg:max-h-[calc(100dvh-1.5rem)] lg:overflow-y-auto lg:overscroll-none lg:pr-1">
             <h1 className="sr-only">Callculator</h1>
             <SectionCard
               title="Inputs"
@@ -2285,7 +2316,7 @@ export default function DebitCallSpreadLab({
                     max={150}
                     step={1}
                     value={volatilityPct}
-                    onChange={setVolatilityPct}
+                    onChange={updateVolatilityPct}
                     suffix="%"
                   />
                 </div>
@@ -2450,7 +2481,7 @@ export default function DebitCallSpreadLab({
             </SectionCard>
           </aside>
 
-          <div className="space-y-4 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
+          <div className="space-y-4">
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <MetricCard
                 label={strategyCopy.costMetricLabel}
@@ -2477,25 +2508,25 @@ export default function DebitCallSpreadLab({
               <div className="space-y-4">
                 <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                   <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-3">
-                    <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
-                      <div className="flex items-baseline justify-between gap-3">
+                    <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
+                      <div className="grid grid-cols-[minmax(0,1fr)_9rem] items-baseline gap-3">
                         <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
                           At your scenario
                         </p>
-                        <p className="font-mono text-[11px] text-slate-500 tabular-nums">
+                        <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
                           {formatCurrency(safeScenarioPrice)} · {formatLongDate(snapshot.selectedDateIso)}
                         </p>
                       </div>
                       <p
                         className={cn(
-                          "mt-4 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none tabular-nums 2xl:text-4xl",
+                          "overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none tabular-nums",
                           snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
                         )}
                       >
                         {snapshot.pnl >= 0 ? "+" : ""}
                         {formatCurrency(snapshot.pnl)}
                       </p>
-                      <div className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                      <div className="grid grid-cols-[minmax(0,1fr)_10rem] items-baseline gap-3 text-sm">
                         <span className="font-medium text-slate-500">
                           {snapshot.pnl >= 0 ? "Profit" : "Loss"}
                           {" · "}
@@ -2508,81 +2539,81 @@ export default function DebitCallSpreadLab({
                             {snapshot.totalCost > 0 ? formatPercent(snapshot.roi) : "N/A"}
                           </span>
                         </span>
-                        <span className="font-mono text-xs text-slate-500 tabular-nums">
+                        <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
                           Position {formatCurrency(snapshot.scenarioPositionValue)}
                         </span>
                       </div>
                     </div>
 
                     {snapshot.isProfitCapped ? (
-                      <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
-                        <div className="flex items-baseline justify-between gap-3">
+                      <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
+                        <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3">
                           <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
                             Best case at expiry
                           </p>
-                          <p className="font-mono text-[11px] text-slate-500 tabular-nums">
+                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
                             ≥ {formatCurrency(snapshot.breakEvenAtExpiry)}
                           </p>
                         </div>
-                        <p className="mt-4 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-emerald-700 tabular-nums 2xl:text-4xl">
+                        <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-emerald-700 tabular-nums">
                           +{formatCurrency(maxProfitAtExpiry ?? 0)}
                         </p>
-                        <div className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                        <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3 text-sm">
                           <span className="font-medium text-slate-500">
                             Max profit ·{" "}
                             <span className="font-mono font-semibold text-emerald-700 tabular-nums">
                               {maxReturnAtExpiry !== null ? formatPercent(maxReturnAtExpiry) : "N/A"}
                             </span>
                           </span>
-                          <span className="font-mono text-xs text-slate-500 tabular-nums">
+                          <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
                             B/E {formatCurrency(snapshot.breakEvenAtExpiry)}
                           </span>
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
-                        <div className="flex items-baseline justify-between gap-3">
+                      <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
+                        <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3">
                           <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
                             Upside at expiry
                           </p>
-                          <p className="font-mono text-[11px] text-slate-500 tabular-nums">
+                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
                             ≥ {formatCurrency(snapshot.breakEvenAtExpiry)}
                           </p>
                         </div>
-                        <p className="mt-4 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums 2xl:text-3xl">
+                        <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
                           Uncapped
                         </p>
-                        <div className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                        <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3 text-sm">
                           <span className="font-medium text-slate-500">
                             Long calls have no profit ceiling.
                           </span>
-                          <span className="font-mono text-xs text-slate-500 tabular-nums">
+                          <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
                             B/E {formatCurrency(snapshot.breakEvenAtExpiry)}
                           </span>
                         </div>
                       </div>
                     )}
 
-                    <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
-                      <div className="flex items-baseline justify-between gap-3">
+                    <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
+                      <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3">
                         <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
                           Worst case at expiry
                         </p>
-                        <p className="font-mono text-[11px] text-slate-500 tabular-nums">
+                        <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
                           &lt; {formatCurrency(longStrike)}
                         </p>
                       </div>
-                      <p className="mt-4 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-rose-700 tabular-nums 2xl:text-4xl">
+                      <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-rose-700 tabular-nums">
                         {formatCurrency(maxLossAtExpiry)}
                       </p>
-                      <div className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                      <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3 text-sm">
                         <span className="font-medium text-slate-500">
                           Max loss ·{" "}
                           <span className="font-mono font-semibold text-rose-700 tabular-nums">
                             {snapshot.totalCost > 0 ? "-100%" : "N/A"}
                           </span>
                         </span>
-                        <span className="font-mono text-xs text-slate-500 tabular-nums">
+                        <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
                           Cost {formatCurrency(snapshot.totalCost)}
                         </span>
                       </div>

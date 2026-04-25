@@ -3,6 +3,8 @@ const YEAR_DAYS = 365;
 
 export const CONTRACT_MULTIPLIER = 100;
 
+export type OptionStrategy = "debit-call-spread" | "long-call";
+
 type BlackScholesCallInput = {
   spot: number;
   strike: number;
@@ -17,14 +19,21 @@ type PriceDebitCallSpreadInput = Omit<BlackScholesCallInput, "strike"> & {
   shortStrike: number;
 };
 
-export type DebitCallSpreadInputs = {
+type PriceStrategyInput = PriceDebitCallSpreadInput & {
+  strategy: OptionStrategy;
+};
+
+export type StrategyInputs = {
+  strategy: OptionStrategy;
   todayIso: string;
   expiryIso: string;
   spot: number;
   longStrike: number;
   shortStrike: number;
   volatilityPct: number;
+  futureVolatilityPct: number;
   capital: number;
+  allowFractionalContracts: boolean;
   scenarioPrice: number;
   scenarioOffsetDays: number;
   ratePct: number;
@@ -32,20 +41,23 @@ export type DebitCallSpreadInputs = {
 };
 
 export type ScenarioSnapshot = {
+  strategy: OptionStrategy;
   expirationDays: number;
   selectedOffsetDays: number;
   selectedDateIso: string;
   timeNowYears: number;
   timeAtScenarioYears: number;
   width: number;
-  debitPerSpread: number;
+  unitCost: number;
   contracts: number;
+  allowFractionalContracts: boolean;
   totalCost: number;
   cashLeft: number;
-  maxValuePerSpread: number;
-  maxProfitPerSpread: number;
+  maxValuePerUnit: number | null;
+  maxProfitPerUnit: number | null;
+  isProfitCapped: boolean;
   breakEvenAtExpiry: number;
-  scenarioSpreadValue: number;
+  scenarioUnitValue: number;
   scenarioPositionValue: number;
   pnl: number;
   roi: number;
@@ -55,7 +67,7 @@ export type TimelineRow = {
   dateIso: string;
   daysElapsed: number;
   daysRemaining: number;
-  spreadValue: number;
+  unitValue: number;
   positionValue: number;
   intrinsicValue: number;
   pnl: number;
@@ -65,7 +77,7 @@ export type TimelineRow = {
 
 export type PriceLadderRow = {
   price: number;
-  spreadValue: number;
+  unitValue: number;
   intrinsicValue: number;
   positionValue: number;
   pnl: number;
@@ -181,6 +193,10 @@ export function blackScholesCall({
   );
 }
 
+export function priceLongCall(input: BlackScholesCallInput): number {
+  return blackScholesCall(input);
+}
+
 export function priceDebitCallSpread({
   spot,
   longStrike,
@@ -224,19 +240,73 @@ export function priceDebitCallSpread({
   return clamp(longCall - shortCall, 0, width);
 }
 
+function priceStrategy({
+  strategy,
+  spot,
+  longStrike,
+  shortStrike,
+  timeYears,
+  volatility,
+  rate,
+  dividendYield,
+}: PriceStrategyInput): number {
+  if (strategy === "long-call") {
+    return priceLongCall({
+      spot,
+      strike: longStrike,
+      timeYears,
+      volatility,
+      rate,
+      dividendYield,
+    });
+  }
+
+  return priceDebitCallSpread({
+    spot,
+    longStrike,
+    shortStrike,
+    timeYears,
+    volatility,
+    rate,
+    dividendYield,
+  });
+}
+
+function intrinsicStrategyValue(
+  strategy: OptionStrategy,
+  spot: number,
+  longStrike: number,
+  shortStrike: number,
+): number {
+  if (strategy === "long-call") {
+    return Math.max(spot - longStrike, 0);
+  }
+
+  const width = Math.max(shortStrike - longStrike, 0);
+
+  return clamp(
+    Math.max(spot - longStrike, 0) - Math.max(spot - shortStrike, 0),
+    0,
+    width,
+  );
+}
+
 export function createScenarioSnapshot({
+  strategy,
   todayIso,
   expiryIso,
   spot,
   longStrike,
   shortStrike,
   volatilityPct,
+  futureVolatilityPct,
   capital,
+  allowFractionalContracts,
   scenarioPrice,
   scenarioOffsetDays,
   ratePct,
   dividendYieldPct,
-}: DebitCallSpreadInputs): ScenarioSnapshot {
+}: StrategyInputs): ScenarioSnapshot {
   const expirationDays = daysBetween(todayIso, expiryIso);
   const selectedOffsetDays = clamp(
     Math.round(scenarioOffsetDays),
@@ -250,10 +320,12 @@ export function createScenarioSnapshot({
     0,
   );
   const volatility = Math.max(volatilityPct, 0) / 100;
+  const futureVolatility = Math.max(futureVolatilityPct, 0) / 100;
   const rate = ratePct / 100;
   const dividendYield = dividendYieldPct / 100;
-  const width = Math.max(shortStrike - longStrike, 0);
-  const debitPerSpread = priceDebitCallSpread({
+  const width = strategy === "debit-call-spread" ? Math.max(shortStrike - longStrike, 0) : 0;
+  const unitCost = priceStrategy({
+    strategy,
     spot,
     longStrike,
     shortStrike,
@@ -263,39 +335,51 @@ export function createScenarioSnapshot({
     dividendYield,
   });
   const contracts =
-    debitPerSpread > 0
-      ? Math.floor(capital / (debitPerSpread * CONTRACT_MULTIPLIER))
+    unitCost > 0
+      ? allowFractionalContracts
+        ? capital / (unitCost * CONTRACT_MULTIPLIER)
+        : Math.floor(capital / (unitCost * CONTRACT_MULTIPLIER))
       : 0;
-  const totalCost = contracts * debitPerSpread * CONTRACT_MULTIPLIER;
-  const scenarioSpreadValue = priceDebitCallSpread({
+  const totalCost =
+    allowFractionalContracts && contracts > 0
+      ? capital
+      : contracts * unitCost * CONTRACT_MULTIPLIER;
+  const scenarioUnitValue = priceStrategy({
+    strategy,
     spot: scenarioPrice,
     longStrike,
     shortStrike,
     timeYears: timeAtScenarioYears,
-    volatility,
+    volatility: futureVolatility,
     rate,
     dividendYield,
   });
   const scenarioPositionValue =
-    scenarioSpreadValue * CONTRACT_MULTIPLIER * contracts;
+    scenarioUnitValue * CONTRACT_MULTIPLIER * contracts;
   const pnl = scenarioPositionValue - totalCost;
   const roi = totalCost > 0 ? pnl / totalCost : 0;
+  const maxValuePerUnit = strategy === "debit-call-spread" ? width : null;
+  const maxProfitPerUnit =
+    strategy === "debit-call-spread" ? width - unitCost : null;
 
   return {
+    strategy,
     expirationDays,
     selectedOffsetDays,
     selectedDateIso,
     timeNowYears,
     timeAtScenarioYears,
     width,
-    debitPerSpread,
+    unitCost,
     contracts,
+    allowFractionalContracts,
     totalCost,
     cashLeft: capital - totalCost,
-    maxValuePerSpread: width,
-    maxProfitPerSpread: width - debitPerSpread,
-    breakEvenAtExpiry: longStrike + debitPerSpread,
-    scenarioSpreadValue,
+    maxValuePerUnit,
+    maxProfitPerUnit,
+    isProfitCapped: strategy === "debit-call-spread",
+    breakEvenAtExpiry: longStrike + unitCost,
+    scenarioUnitValue,
     scenarioPositionValue,
     pnl,
     roi,
@@ -333,9 +417,9 @@ function buildPriceSteps(
   return [...prices].sort((first, second) => first - second);
 }
 
-export function buildTimelineRows(inputs: DebitCallSpreadInputs): TimelineRow[] {
+export function buildTimelineRows(inputs: StrategyInputs): TimelineRow[] {
   const snapshot = createScenarioSnapshot(inputs);
-  const volatility = Math.max(inputs.volatilityPct, 0) / 100;
+  const futureVolatility = Math.max(inputs.futureVolatilityPct, 0) / 100;
   const rate = inputs.ratePct / 100;
   const dividendYield = inputs.dividendYieldPct / 100;
 
@@ -345,28 +429,29 @@ export function buildTimelineRows(inputs: DebitCallSpreadInputs): TimelineRow[] 
     8,
   ).map((offset) => {
     const timeYears = Math.max((snapshot.expirationDays - offset) / YEAR_DAYS, 0);
-    const spreadValue = priceDebitCallSpread({
+    const unitValue = priceStrategy({
+      strategy: inputs.strategy,
       spot: inputs.scenarioPrice,
       longStrike: inputs.longStrike,
       shortStrike: inputs.shortStrike,
       timeYears,
-      volatility,
+      volatility: futureVolatility,
       rate,
       dividendYield,
     });
-    const positionValue = spreadValue * CONTRACT_MULTIPLIER * snapshot.contracts;
+    const positionValue = unitValue * CONTRACT_MULTIPLIER * snapshot.contracts;
     const pnl = positionValue - snapshot.totalCost;
     return {
       dateIso: addDaysToIso(inputs.todayIso, offset),
       daysElapsed: offset,
       daysRemaining: snapshot.expirationDays - offset,
-      spreadValue,
+      unitValue,
       positionValue,
-      intrinsicValue: clamp(
-        Math.max(inputs.scenarioPrice - inputs.longStrike, 0) -
-          Math.max(inputs.scenarioPrice - inputs.shortStrike, 0),
-        0,
-        snapshot.width,
+      intrinsicValue: intrinsicStrategyValue(
+        inputs.strategy,
+        inputs.scenarioPrice,
+        inputs.longStrike,
+        inputs.shortStrike,
       ),
       pnl,
       roi: snapshot.totalCost > 0 ? pnl / snapshot.totalCost : 0,
@@ -375,37 +460,42 @@ export function buildTimelineRows(inputs: DebitCallSpreadInputs): TimelineRow[] 
   });
 }
 
-export function buildPriceLadderRows(inputs: DebitCallSpreadInputs): PriceLadderRow[] {
+export function buildPriceLadderRows(inputs: StrategyInputs): PriceLadderRow[] {
   const snapshot = createScenarioSnapshot(inputs);
-  const volatility = Math.max(inputs.volatilityPct, 0) / 100;
+  const futureVolatility = Math.max(inputs.futureVolatilityPct, 0) / 100;
   const rate = inputs.ratePct / 100;
   const dividendYield = inputs.dividendYieldPct / 100;
-  const anchorPrice = Math.max(inputs.spot, inputs.scenarioPrice, inputs.shortStrike);
+  const upperStrike = inputs.strategy === "long-call" ? inputs.longStrike : inputs.shortStrike;
+  const anchorPrice = Math.max(inputs.spot, inputs.scenarioPrice, upperStrike);
   const floorPrice = Math.max(1, Math.min(inputs.longStrike, inputs.spot, inputs.scenarioPrice) * 0.7);
-  const ceilingPrice = Math.max(anchorPrice * 1.3, inputs.shortStrike + snapshot.width);
+  const ceilingPrice = Math.max(
+    anchorPrice * 1.3,
+    inputs.strategy === "debit-call-spread" ? inputs.shortStrike + snapshot.width : inputs.longStrike * 1.5,
+  );
 
   return buildPriceSteps(floorPrice, ceilingPrice, inputs.scenarioPrice, 10).map(
     (price) => {
-      const spreadValue = priceDebitCallSpread({
+      const unitValue = priceStrategy({
+        strategy: inputs.strategy,
         spot: price,
         longStrike: inputs.longStrike,
         shortStrike: inputs.shortStrike,
         timeYears: snapshot.timeAtScenarioYears,
-        volatility,
+        volatility: futureVolatility,
         rate,
         dividendYield,
       });
-      const positionValue = spreadValue * CONTRACT_MULTIPLIER * snapshot.contracts;
+      const positionValue = unitValue * CONTRACT_MULTIPLIER * snapshot.contracts;
       const pnl = positionValue - snapshot.totalCost;
 
       return {
         price,
-        spreadValue,
-        intrinsicValue: clamp(
-          Math.max(price - inputs.longStrike, 0) -
-            Math.max(price - inputs.shortStrike, 0),
-          0,
-          snapshot.width,
+        unitValue,
+        intrinsicValue: intrinsicStrategyValue(
+          inputs.strategy,
+          price,
+          inputs.longStrike,
+          inputs.shortStrike,
         ),
         positionValue,
         pnl,
@@ -416,19 +506,23 @@ export function buildPriceLadderRows(inputs: DebitCallSpreadInputs): PriceLadder
   );
 }
 
-export function buildPriceCurve(inputs: DebitCallSpreadInputs): PriceCurvePoint[] {
+export function buildPriceCurve(inputs: StrategyInputs): PriceCurvePoint[] {
   const snapshot = createScenarioSnapshot(inputs);
-  const volatility = Math.max(inputs.volatilityPct, 0) / 100;
+  const futureVolatility = Math.max(inputs.futureVolatilityPct, 0) / 100;
   const rate = inputs.ratePct / 100;
   const dividendYield = inputs.dividendYieldPct / 100;
+  const upperStrike = inputs.strategy === "long-call" ? inputs.longStrike : inputs.shortStrike;
   const ceilingPrice = Math.max(
     inputs.scenarioPrice,
-    inputs.shortStrike,
+    upperStrike,
     inputs.spot,
     inputs.longStrike,
   );
   const minPrice = Math.max(1, Math.min(inputs.longStrike, inputs.spot) * 0.7);
-  const maxPrice = Math.max(ceilingPrice * 1.4, inputs.shortStrike + snapshot.width);
+  const maxPrice = Math.max(
+    ceilingPrice * 1.4,
+    inputs.strategy === "debit-call-spread" ? inputs.shortStrike + snapshot.width : inputs.longStrike * 1.5,
+  );
   const pointCount = 61;
 
   return Array.from({ length: pointCount }, (_, index) => {
@@ -436,21 +530,23 @@ export function buildPriceCurve(inputs: DebitCallSpreadInputs): PriceCurvePoint[
       minPrice + ((maxPrice - minPrice) * index) / Math.max(pointCount - 1, 1),
       2,
     );
-    const selectedSpreadValue = priceDebitCallSpread({
+    const selectedUnitValue = priceStrategy({
+      strategy: inputs.strategy,
       spot: price,
       longStrike: inputs.longStrike,
       shortStrike: inputs.shortStrike,
       timeYears: snapshot.timeAtScenarioYears,
-      volatility,
+      volatility: futureVolatility,
       rate,
       dividendYield,
     });
-    const expirySpreadValue = priceDebitCallSpread({
+    const expiryUnitValue = priceStrategy({
+      strategy: inputs.strategy,
       spot: price,
       longStrike: inputs.longStrike,
       shortStrike: inputs.shortStrike,
       timeYears: 0,
-      volatility,
+      volatility: futureVolatility,
       rate,
       dividendYield,
     });
@@ -458,8 +554,8 @@ export function buildPriceCurve(inputs: DebitCallSpreadInputs): PriceCurvePoint[
     return {
       price,
       selectedDateValue:
-        selectedSpreadValue * CONTRACT_MULTIPLIER * snapshot.contracts,
-      expiryValue: expirySpreadValue * CONTRACT_MULTIPLIER * snapshot.contracts,
+        selectedUnitValue * CONTRACT_MULTIPLIER * snapshot.contracts,
+      expiryValue: expiryUnitValue * CONTRACT_MULTIPLIER * snapshot.contracts,
     };
   });
 }

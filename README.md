@@ -1,6 +1,6 @@
-# Debit Call Spread Lab
+# Callculator
 
-A Next.js app for modeling debit call spreads with editable inputs, scenario charts, and spread value tables.
+A Next.js app for modeling debit call spreads and long calls with editable inputs, scenario charts, and value tables.
 
 ## Run Locally
 
@@ -22,4 +22,4 @@ npm run dev -- -p 3002
 
 - `src/app` contains the app shell.
 - `src/components/debit-call-spread-lab.tsx` contains the main interface.
-- `src/lib/debit-call-spread.ts` contains the spread calculations.
+- `src/lib/debit-call-spread.ts` contains the option strategy calculations.

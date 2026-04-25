@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export default function Home() {
   const todayIso = dateToIso(new Date());
-  const defaultExpiryIso = addDaysToIso(todayIso, 45);
+  const defaultExpiryIso = addDaysToIso(todayIso, 60);
 
   return <DebitCallSpreadLab todayIso={todayIso} defaultExpiryIso={defaultExpiryIso} />;
 }

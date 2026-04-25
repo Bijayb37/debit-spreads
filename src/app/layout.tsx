@@ -15,8 +15,16 @@ const monoFont = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Debit Call Spread Lab",
-  description: "Model debit call spreads over time with live price, IV, date, and capital controls.",
+  title: "Callculator",
+  description: "Model debit call spreads and long calls over time with price, IV, date, and capital controls.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/callculator-icon.svg", type: "image/svg+xml" },
+      { url: "/callculator-icon.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
