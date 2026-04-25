@@ -67,6 +67,7 @@ type PnlScenarioChartProps = {
   spotPrice: number;
   maxProfit: number | null;
   maxLoss: number;
+  totalCost: number;
   showExpiryCurve: boolean;
   scenarioDateLabel: string;
 };
@@ -746,11 +747,14 @@ function PnlScenarioChart({
   spotPrice,
   maxProfit,
   maxLoss,
+  totalCost,
   showExpiryCurve,
   scenarioDateLabel,
 }: PnlScenarioChartProps) {
   const profitClipId = useId();
   const lossClipId = useId();
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [hoverPrice, setHoverPrice] = useState<number | null>(null);
 
   const width = 820;
   const height = 360;
@@ -838,6 +842,49 @@ function PnlScenarioChart({
   const profitFill = "rgba(5, 150, 105, 0.08)";
   const lossFill = "rgba(190, 18, 60, 0.08)";
 
+  const findNearestPoint = (price: number) => {
+    let nearest = points[0];
+    let nearestDistance = Math.abs(points[0].price - price);
+    for (let index = 1; index < points.length; index += 1) {
+      const distance = Math.abs(points[index].price - price);
+      if (distance < nearestDistance) {
+        nearest = points[index];
+        nearestDistance = distance;
+      }
+    }
+    return nearest;
+  };
+  const handleSvgPointerMove = (event: PointerEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const localX = ((event.clientX - rect.left) / rect.width) * width;
+    if (localX < padding.left || localX > width - padding.right) {
+      setHoverPrice(null);
+      return;
+    }
+    const ratio = (localX - padding.left) / Math.max(chartWidth, 1);
+    const price = minPrice + ratio * (maxPrice - minPrice);
+    setHoverPrice(price);
+  };
+  const handlePointerLeave = () => setHoverPrice(null);
+
+  const hoverPoint = hoverPrice !== null ? findNearestPoint(hoverPrice) : null;
+  const hoverX = hoverPoint ? x(hoverPoint.price) : 0;
+  const hoverSelectedY = hoverPoint ? y(hoverPoint.selectedDatePnl) : 0;
+  const hoverExpiryY = hoverPoint ? y(hoverPoint.expiryPnl) : 0;
+  const hoverValue = hoverPoint ? hoverPoint.selectedDatePnl + totalCost : 0;
+  const hoverExpiryValue = hoverPoint ? hoverPoint.expiryPnl + totalCost : 0;
+  const tooltipWidth = 168;
+  const tooltipHeight = showExpiryCurve ? 102 : 78;
+  const tooltipPadding = 12;
+  const tooltipX =
+    hoverPoint && hoverX + tooltipPadding + tooltipWidth > width - padding.right
+      ? hoverX - tooltipPadding - tooltipWidth
+      : hoverX + tooltipPadding;
+  const tooltipY = padding.top + 4;
+
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
@@ -875,14 +922,20 @@ function PnlScenarioChart({
               {selectedPnl >= 0 ? "+" : ""}
               {formatCompactCurrency(selectedPnl)}
             </span>
+            <span className="font-mono text-slate-500 tabular-nums">
+              ({formatCompactCurrency(selectedPnl + totalCost)} value)
+            </span>
           </span>
         </div>
       </div>
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${width} ${height}`}
         className="w-full"
         role="img"
         aria-label={`${title}: ${subtitle}`}
+        onPointerMove={handleSvgPointerMove}
+        onPointerLeave={handlePointerLeave}
       >
         <defs>
           <clipPath id={profitClipId}>
@@ -946,8 +999,35 @@ function PnlScenarioChart({
               {tick > 0 ? "+" : ""}
               {formatCompactCurrency(tick)}
             </text>
+            <text
+              x={width - padding.right + 10}
+              y={y(tick) + 4}
+              textAnchor="start"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[11px]"
+            >
+              {formatCompactCurrency(tick + totalCost)}
+            </text>
           </g>
         ))}
+        <text
+          x={padding.left - 10}
+          y={padding.top - 12}
+          textAnchor="end"
+          fill={CHART_COLORS.inkMuted}
+          className="text-[10px] font-semibold uppercase tracking-wide"
+        >
+          P/L
+        </text>
+        <text
+          x={width - padding.right + 10}
+          y={padding.top - 12}
+          textAnchor="start"
+          fill={CHART_COLORS.inkMuted}
+          className="text-[10px] font-semibold uppercase tracking-wide"
+        >
+          Value
+        </text>
 
         {priceTicks.map((tick, index) => (
           <g key={`pnl-price-${tick}-${index}`}>
@@ -1090,6 +1170,103 @@ function PnlScenarioChart({
         >
           Underlying price
         </text>
+
+        {hoverPoint ? (
+          <g pointerEvents="none">
+            <line
+              x1={hoverX}
+              x2={hoverX}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.ink}
+              strokeOpacity={0.5}
+              strokeWidth={1}
+            />
+            <circle
+              cx={hoverX}
+              cy={hoverSelectedY}
+              r={4}
+              fill={CHART_COLORS.paper}
+              stroke={hoverPoint.selectedDatePnl >= 0 ? profitColor : lossColor}
+              strokeWidth={2}
+            />
+            {showExpiryCurve ? (
+              <circle
+                cx={hoverX}
+                cy={hoverExpiryY}
+                r={3}
+                fill={CHART_COLORS.paper}
+                stroke={hoverPoint.expiryPnl >= 0 ? profitColor : lossColor}
+                strokeWidth={1.5}
+              />
+            ) : null}
+            <rect
+              x={tooltipX}
+              y={tooltipY}
+              width={tooltipWidth}
+              height={tooltipHeight}
+              rx={6}
+              fill={CHART_COLORS.paper}
+              stroke={CHART_COLORS.line}
+              strokeWidth={1}
+            />
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 18}
+              fill={CHART_COLORS.ink}
+              className="font-mono text-[11px] font-semibold"
+            >
+              {formatCurrency(hoverPoint.price)}
+            </text>
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 36}
+              fill={CHART_COLORS.inkMuted}
+              className="text-[10px] font-semibold uppercase tracking-wide"
+            >
+              {scenarioDateLabel}
+            </text>
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 52}
+              fill={CHART_COLORS.ink}
+              className="font-mono text-[11px]"
+            >
+              <tspan>Value </tspan>
+              <tspan className="font-semibold">{formatCurrency(hoverValue)}</tspan>
+            </text>
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 66}
+              fill={hoverPoint.selectedDatePnl >= 0 ? profitColor : lossColor}
+              className="font-mono text-[11px] font-semibold"
+            >
+              {hoverPoint.selectedDatePnl >= 0 ? "+" : ""}
+              {formatCurrency(hoverPoint.selectedDatePnl)}{" "}
+              <tspan fill={CHART_COLORS.inkMuted} className="font-normal">
+                P/L
+              </tspan>
+            </text>
+            {showExpiryCurve ? (
+              <text
+                x={tooltipX + 10}
+                y={tooltipY + 86}
+                fill={CHART_COLORS.inkMuted}
+                className="font-mono text-[10px]"
+              >
+                <tspan>At expiry </tspan>
+                <tspan
+                  fill={hoverPoint.expiryPnl >= 0 ? profitColor : lossColor}
+                  className="font-semibold"
+                >
+                  {hoverPoint.expiryPnl >= 0 ? "+" : ""}
+                  {formatCompactCurrency(hoverPoint.expiryPnl)}
+                </tspan>
+                <tspan> · {formatCompactCurrency(hoverExpiryValue)}</tspan>
+              </text>
+            ) : null}
+          </g>
+        ) : null}
       </svg>
     </div>
   );
@@ -2581,7 +2758,7 @@ export default function DebitCallSpreadLab({
                     title="Profit & loss by stock price"
                     subtitle={`Solid line: value on ${formatLongDate(
                       snapshot.selectedDateIso,
-                    )} at ${futureVolatilityPct}% IV. Dashed: payoff if held to expiry.`}
+                    )} at ${futureVolatilityPct}% IV. Dashed: payoff if held to expiry. Hover the curve to read value and P/L at any price.`}
                     points={pnlCurvePoints}
                     selectedPrice={safeScenarioPrice}
                     selectedPnl={snapshot.pnl}
@@ -2589,6 +2766,7 @@ export default function DebitCallSpreadLab({
                     spotPrice={spot}
                     maxProfit={maxProfitAtExpiry}
                     maxLoss={maxLossAtExpiry}
+                    totalCost={snapshot.totalCost}
                     showExpiryCurve={snapshot.selectedOffsetDays < expirationDays}
                     scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
                   />
