@@ -327,16 +327,16 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
 
   return {
     strategy: strategyToken === "l" ? "long-call" : "debit-call-spread",
-    symbol: decodeShareText(symbolToken, "EWY").toUpperCase(),
-    spot: Math.max(1, Math.round(parseShareNumber(spotToken, 125))),
-    volatilityPct: clamp(Math.round(parseShareNumber(volatilityToken, 65)), 0, 300),
+    symbol: decodeShareText(symbolToken, "NVDA").toUpperCase(),
+    spot: Math.max(1, Math.round(parseShareNumber(spotToken, 100))),
+    volatilityPct: clamp(Math.round(parseShareNumber(volatilityToken, 50)), 0, 300),
     futureVolatilityPct: clamp(
-      Math.round(parseShareNumber(futureVolatilityToken, 65)),
+      Math.round(parseShareNumber(futureVolatilityToken, 50)),
       0,
       300,
     ),
-    longStrike: Math.max(1, Math.round(parseShareNumber(longStrikeToken, 125))),
-    shortStrike: Math.max(1, Math.round(parseShareNumber(shortStrikeToken, 145))),
+    longStrike: Math.max(1, Math.round(parseShareNumber(longStrikeToken, 120))),
+    shortStrike: Math.max(1, Math.round(parseShareNumber(shortStrikeToken, 130))),
     capital: Math.max(0, Math.round(parseShareNumber(capitalToken, 10000))),
     allowFractionalContracts: fractionalToken === "1",
     expirationDays,
@@ -346,7 +346,7 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
       0,
       expirationDays,
     ),
-    ratePct: clamp(parseShareNumber(rateToken, 5), 0, 15),
+    ratePct: clamp(parseShareNumber(rateToken, 4), 0, 15),
     scenarioGraphView: graphToken === "m" ? "map" : "line",
   };
 }
@@ -429,6 +429,14 @@ function handleNumberKeyDown(
     event.preventDefault();
     onChange(Number(event.key));
   }
+}
+
+function SidebarGroupLabel({ children }: { children: ReactNode }) {
+  return (
+    <h3 className="flex items-baseline justify-between gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+      {children}
+    </h3>
+  );
 }
 
 function SectionCard({
@@ -1540,17 +1548,17 @@ export default function DebitCallSpreadLab({
 }: DebitCallSpreadLabProps) {
   const defaultExpirationDays = Math.max(1, daysBetween(todayIso, defaultExpiryIso));
   const [strategy, setStrategy] = useState<OptionStrategy>("debit-call-spread");
-  const [symbol, setSymbol] = useState("EWY");
-  const [spot, setSpot] = useState(125);
-  const [volatilityPct, setVolatilityPct] = useState(65);
-  const [futureVolatilityPct, setFutureVolatilityPct] = useState(65);
-  const [longStrike, setLongStrike] = useState(125);
-  const [shortStrike, setShortStrike] = useState(145);
+  const [symbol, setSymbol] = useState("NVDA");
+  const [spot, setSpot] = useState(100);
+  const [volatilityPct, setVolatilityPct] = useState(50);
+  const [futureVolatilityPct, setFutureVolatilityPct] = useState(50);
+  const [longStrike, setLongStrike] = useState(120);
+  const [shortStrike, setShortStrike] = useState(130);
   const [capital, setCapital] = useState(10000);
   const [allowFractionalContracts, setAllowFractionalContracts] =
     useState(false);
-  const [ratePct, setRatePct] = useState(5);
-  const [ratePctDraft, setRatePctDraft] = useState("5");
+  const [ratePct, setRatePct] = useState(4);
+  const [ratePctDraft, setRatePctDraft] = useState("4");
   const [expirationDays, setExpirationDays] = useState(defaultExpirationDays);
   const [scenarioPrice, setScenarioPrice] = useState(145);
   const [scenarioPriceDraft, setScenarioPriceDraft] = useState<string | null>(
@@ -2026,153 +2034,41 @@ export default function DebitCallSpreadLab({
               eyebrow="Callculator"
               eyebrowClassName="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance"
             >
-              <div className="space-y-3">
-                <div
-                  className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm"
-                  role="group"
-                  aria-label="Option strategy"
-                >
-                  <p className="text-sm font-medium text-slate-900">Strategy</p>
-                  <div className="mt-2 grid gap-2">
+              <div className="space-y-4">
+                <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    Position cost
+                  </p>
+                  <div className="mt-2 flex items-baseline justify-between gap-3">
+                    <span className="font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-slate-950 tabular-nums">
+                      {formatCurrency(snapshot.totalCost)}
+                    </span>
+                    <span className="font-mono text-xs text-slate-500 tabular-nums">
+                      B/E {formatCurrency(snapshot.breakEvenAtExpiry)}
+                    </span>
+                  </div>
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    {contractCountLabel} · {formatCurrency(snapshot.unitCost * CONTRACT_MULTIPLIER)} each
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <SidebarGroupLabel>Position</SidebarGroupLabel>
+                  <div
+                    className="grid grid-cols-2 gap-2"
+                    role="group"
+                    aria-label="Option strategy"
+                  >
                     {STRATEGY_OPTIONS.map((option) => (
                       <button
                         key={option.value}
                         type="button"
                         aria-pressed={strategy === option.value}
+                        title={option.description}
                         onClick={() => setStrategy(option.value)}
                         className={cn(
-                          "rounded-md border border-slate-300 bg-white px-3 py-2 text-left shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
+                          "rounded-md border border-slate-300 bg-white px-3 py-2 text-center text-sm font-semibold text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
                           strategy === option.value &&
-                            "border-amber-600 bg-amber-50 text-slate-950",
-                        )}
-                      >
-                        <span className="block text-sm font-semibold text-slate-900">
-                          {option.label}
-                        </span>
-                        <span className="mt-1 block text-xs leading-5 text-slate-500 text-pretty">
-                          {option.description}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-                  <span className="text-sm font-medium text-slate-900">Underlying ticker or label</span>
-                  <input
-                    type="text"
-                    value={symbol}
-                    onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-                    className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 font-mono text-sm text-slate-950 outline-none"
-                    placeholder="AAPL"
-                  />
-                </label>
-
-                <NumberSliderField
-                  label="Current stock price"
-                  help={`Used to price the ${strategyCopy.unitName} today.`}
-                  min={5}
-                  max={currentPriceSliderMax}
-                  step={1}
-                  value={spot}
-                  onChange={updateSpot}
-                  prefix="$"
-                />
-
-                <NumberSliderField
-                  label="Current IV"
-                  help={`Used to estimate today's ${strategyCopy.unitName} cost.`}
-                  min={5}
-                  max={150}
-                  step={1}
-                  value={volatilityPct}
-                  onChange={setVolatilityPct}
-                  suffix="%"
-                />
-
-                {isDebitCallSpread ? (
-                  <>
-                    <NumberSliderField
-                      label="Long call strike"
-                      help="The strike you buy."
-                      min={5}
-                      max={longStrikeSliderMax}
-                      step={1}
-                      value={longStrike}
-                      onChange={setLongStrike}
-                      prefix="$"
-                    />
-
-                    <NumberSliderField
-                      label="Short call strike"
-                      help="The strike you sell."
-                      min={5}
-                      max={shortStrikeSliderMax}
-                      step={1}
-                      value={shortStrike}
-                      onChange={setShortStrike}
-                      prefix="$"
-                      quickActions={shortStrikeOtmActions}
-                    />
-                  </>
-                ) : (
-                  <NumberSliderField
-                    label="Call strike"
-                    help="The strike price of the call you buy."
-                    min={5}
-                    max={longStrikeSliderMax}
-                    step={1}
-                    value={longStrike}
-                    onChange={setLongStrike}
-                    prefix="$"
-                    quickActions={callStrikeActions}
-                  />
-                )}
-
-                <NumberSliderField
-                  label="Capital to deploy"
-                  help={strategyCopy.capitalHelp}
-                  min={500}
-                  max={100000}
-                  step={100}
-                  value={capital}
-                  onChange={setCapital}
-                  prefix="$"
-                />
-
-                <div
-                  className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm"
-                  role="group"
-                  aria-label="Position sizing"
-                >
-                  <p className="text-sm font-medium text-slate-900">Position sizing</p>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {[
-                      {
-                        label: "Whole",
-                        value: false,
-                      },
-                      {
-                        label: "Fractional",
-                        value: true,
-                      },
-                    ].map((option) => (
-                      <button
-                        key={option.label}
-                        type="button"
-                        aria-pressed={allowFractionalContracts === option.value}
-                        onPointerDown={() => setAllowFractionalContracts(option.value)}
-                        onMouseDown={() => setAllowFractionalContracts(option.value)}
-                        onClick={() => setAllowFractionalContracts(option.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setAllowFractionalContracts(option.value);
-                          }
-                        }}
-                        className={cn(
-                          "rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
-                          allowFractionalContracts === option.value &&
                             "border-amber-600 bg-amber-50 text-slate-950",
                         )}
                       >
@@ -2180,73 +2076,201 @@ export default function DebitCallSpreadLab({
                       </button>
                     ))}
                   </div>
-                  <p className="mt-2 text-xs leading-5 text-slate-500 text-pretty">
-                    Fractional uses the full capital amount instead of rounding down to whole contracts.
-                  </p>
-                </div>
 
-                <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-sm font-medium text-slate-900">Days to expiration</p>
-                      <p className="mt-1 text-xs leading-5 text-slate-500 text-pretty">
-                        The {strategyCopy.unitName} value decays toward intrinsic value as DTE approaches zero.
-                      </p>
-                    </div>
-                    <span className="font-mono text-xs text-slate-600 tabular-nums">
-                      {formatLongDate(expiryIso)}
+                  <label className="flex items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
+                    <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      Ticker
                     </span>
-                  </div>
-                  <div className="mt-3 flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5">
-                    <input
-                      type="number"
-                      value={expirationDays}
-                      min={0}
-                      max={1095}
-                      step={1}
-                      aria-label="Days to expiration"
-                      onKeyDown={(event) =>
-                        handleNumberKeyDown(event, updateExpirationDays)
-                      }
-                      onInput={(event) =>
-                        updateExpirationDays(parseNumberInput(event.currentTarget.value))
-                      }
-                      onChange={(event) =>
-                        updateExpirationDays(parseNumberInput(event.target.value))
-                      }
-                      className="w-full border-0 bg-transparent p-0 font-mono text-sm text-slate-950 outline-none tabular-nums"
-                    />
-                    <span className="text-sm text-slate-500">DTE</span>
-                  </div>
-                </label>
-
-                <div>
-                  <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-                    <span className="text-sm font-medium text-slate-900">Risk-free rate</span>
                     <input
                       type="text"
-                      inputMode="decimal"
-                      value={ratePctDraft}
-                      min={0}
-                      max={15}
-                      pattern="[0-9]*[.]?[0-9]*"
-                      aria-label="Risk-free rate"
-                      onBlur={commitRatePctDraft}
-                      onKeyDown={handleRatePctKeyDown}
-                      onChange={(event) => updateRatePctDraft(event.target.value)}
-                      className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 font-mono text-sm text-slate-950 outline-none"
+                      value={symbol}
+                      onChange={(event) => setSymbol(event.target.value.toUpperCase())}
+                      className="w-full border-0 bg-transparent p-0 font-mono text-sm font-semibold text-slate-950 outline-none"
+                      placeholder="AAPL"
                     />
                   </label>
+
+                  <NumberSliderField
+                    label="Current price"
+                    help={`Used to price the ${strategyCopy.unitName} today.`}
+                    min={5}
+                    max={currentPriceSliderMax}
+                    step={1}
+                    value={spot}
+                    onChange={updateSpot}
+                    prefix="$"
+                  />
+
+                  <NumberSliderField
+                    label="Current IV"
+                    help={`Used to estimate today's ${strategyCopy.unitName} cost.`}
+                    min={5}
+                    max={150}
+                    step={1}
+                    value={volatilityPct}
+                    onChange={setVolatilityPct}
+                    suffix="%"
+                  />
                 </div>
+
+                <div className="space-y-2">
+                  <SidebarGroupLabel>
+                    {isDebitCallSpread ? "Strikes" : "Strike"}
+                    {isDebitCallSpread && shortStrike > longStrike ? (
+                      <span className="font-mono text-[11px] font-medium normal-case tracking-normal text-slate-500 tabular-nums">
+                        {formatCurrency(shortStrike - longStrike)} wide
+                      </span>
+                    ) : null}
+                  </SidebarGroupLabel>
+                  {isDebitCallSpread ? (
+                    <>
+                      <NumberSliderField
+                        label="Long call (buy)"
+                        help="The strike you buy."
+                        min={5}
+                        max={longStrikeSliderMax}
+                        step={1}
+                        value={longStrike}
+                        onChange={setLongStrike}
+                        prefix="$"
+                      />
+
+                      <NumberSliderField
+                        label="Short call (sell)"
+                        help="The strike you sell."
+                        min={5}
+                        max={shortStrikeSliderMax}
+                        step={1}
+                        value={shortStrike}
+                        onChange={setShortStrike}
+                        prefix="$"
+                        quickActions={shortStrikeOtmActions}
+                      />
+                    </>
+                  ) : (
+                    <NumberSliderField
+                      label="Call strike"
+                      help="The strike price of the call you buy."
+                      min={5}
+                      max={longStrikeSliderMax}
+                      step={1}
+                      value={longStrike}
+                      onChange={setLongStrike}
+                      prefix="$"
+                      quickActions={callStrikeActions}
+                    />
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <SidebarGroupLabel>Sizing</SidebarGroupLabel>
+                  <NumberSliderField
+                    label="Capital to deploy"
+                    help={strategyCopy.capitalHelp}
+                    min={500}
+                    max={100000}
+                    step={100}
+                    value={capital}
+                    onChange={setCapital}
+                    prefix="$"
+                  />
+
+                  <div
+                    className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm"
+                    role="group"
+                    aria-label="Position sizing"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium text-slate-900">Contracts</span>
+                      <InfoIcon label="Whole rounds down so the position fits in cash. Fractional uses the full capital amount as if partial contracts were tradable." />
+                    </div>
+                    <div className="inline-flex rounded-md border border-slate-300 bg-white p-0.5">
+                      {[
+                        { label: "Whole", value: false },
+                        { label: "Fractional", value: true },
+                      ].map((option) => (
+                        <button
+                          key={option.label}
+                          type="button"
+                          aria-pressed={allowFractionalContracts === option.value}
+                          onClick={() => setAllowFractionalContracts(option.value)}
+                          className={cn(
+                            "rounded-sm px-2.5 py-1 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
+                            allowFractionalContracts === option.value &&
+                              "bg-amber-100 text-amber-900",
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <SidebarGroupLabel>
+                    Time
+                    <span className="font-mono text-[11px] font-medium normal-case tracking-normal text-slate-500 tabular-nums">
+                      Expires {formatLongDate(expiryIso)}
+                    </span>
+                  </SidebarGroupLabel>
+                  <NumberSliderField
+                    label="Days to expiration"
+                    help={`The ${strategyCopy.unitName} value decays toward intrinsic value as DTE approaches zero.`}
+                    min={0}
+                    max={365}
+                    step={1}
+                    value={expirationDays}
+                    onChange={updateExpirationDays}
+                    suffix=" DTE"
+                    quickActions={[7, 14, 30, 45, 60, 90].map((days) => ({
+                      label: `${days}d`,
+                      value: days,
+                    }))}
+                  />
+                </div>
+
+                <details className="group rounded-md border border-slate-200 bg-slate-50 shadow-sm">
+                  <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium text-slate-700">
+                    <span>Advanced</span>
+                    <span className="text-xs text-slate-500 transition-transform group-open:rotate-180">
+                      ▾
+                    </span>
+                  </summary>
+                  <div className="space-y-3 border-t border-slate-200 px-3 py-3">
+                    <label className="block">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-slate-900">Risk-free rate</span>
+                        <InfoIcon label="Annualized rate used in the Black-Scholes model." />
+                      </div>
+                      <div className="mt-2 flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={ratePctDraft}
+                          min={0}
+                          max={15}
+                          pattern="[0-9]*[.]?[0-9]*"
+                          aria-label="Risk-free rate"
+                          onBlur={commitRatePctDraft}
+                          onKeyDown={handleRatePctKeyDown}
+                          onChange={(event) => updateRatePctDraft(event.target.value)}
+                          className="w-full border-0 bg-transparent p-0 font-mono text-sm text-slate-950 outline-none"
+                        />
+                        <span className="text-sm text-slate-500">%</span>
+                      </div>
+                    </label>
+
+                    <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+                      <p className="font-medium">Model assumptions</p>
+                      <p className="mt-1 leading-5 text-pretty">
+                        {strategyCopy.modelAssumptions}
+                      </p>
+                    </div>
+                  </div>
+                </details>
               </div>
             </SectionCard>
-
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              <p className="font-medium">Model assumptions</p>
-              <p className="mt-1 text-xs leading-5 text-pretty">
-                {strategyCopy.modelAssumptions}
-              </p>
-            </div>
           </aside>
 
           <div className="space-y-4 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
