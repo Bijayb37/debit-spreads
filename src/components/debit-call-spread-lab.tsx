@@ -121,16 +121,16 @@ type TimelineTableRow = TimelineRow & { id: string };
 type PriceTableRow = PriceLadderRow & { id: string };
 
 const CHART_COLORS = {
-  paper: "#fafaf7",
-  paperSoft: "#f1f0e9",
-  paperMuted: "#d4d4cd",
-  ink: "#0a0a0a",
-  inkMuted: "#7a7a78",
-  line: "#0a0a0a",
-  grid: "#d4d4cd",
-  rust: "#e63946",
-  pine: "#2d6a4f",
-  loss: "#e63946",
+  paper: "#ffffff",
+  paperSoft: "#f8fafc",
+  paperMuted: "#e2e8f0",
+  ink: "#0f172a",
+  inkMuted: "#64748b",
+  line: "#cbd5e1",
+  grid: "#f1f5f9",
+  accent: "#d97706",
+  pine: "#059669",
+  loss: "#be123c",
 };
 
 function formatCurrency(value: number): string {
@@ -207,51 +207,48 @@ function SectionCard({
   return (
     <section
       className={cn(
-        "border border-[var(--ink-line)] bg-[var(--paper)]",
+        "rounded-lg border border-slate-200 bg-white p-4 shadow-sm",
         className,
       )}
     >
-      <div className="grid grid-cols-[2.5rem_minmax(0,1fr)] border-b border-[var(--ink-line)]">
-        <div className="flex items-center justify-center border-r border-[var(--ink-line)] font-[family:var(--font-serif)] text-xl italic text-[var(--ink)]">
-          /
-        </div>
-        <div className="px-3 py-2">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+        <div>
           {eyebrow ? (
             <p
               className={cn(
-                "text-[10px] font-medium uppercase text-[var(--ink-muted)]",
+                "text-sm font-medium text-amber-700",
                 eyebrowClassName,
               )}
             >
               {eyebrow}
             </p>
           ) : null}
-          <h2 className="font-[family:var(--font-serif)] text-2xl font-medium leading-none text-balance text-[var(--ink)]">
+          <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance text-slate-950">
             {title}
           </h2>
         </div>
       </div>
-      <div className="p-3">{children}</div>
+      {children}
     </section>
   );
 }
 
 function MetricCard({ label, value, tone = "default", helper }: MetricCardProps) {
   return (
-    <div className="border border-[var(--ink-line)] bg-[var(--paper)] p-3">
-      <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">{label}</p>
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+      <p className="text-sm text-slate-600">{label}</p>
       <p
         className={cn(
-          "mt-2 font-[family:var(--font-serif)] text-3xl font-medium leading-none tabular-nums",
-          tone === "positive" && "text-[var(--pine)]",
-          tone === "negative" && "text-[var(--loss)]",
-          tone === "accent" && "text-[var(--red)]",
-          tone === "default" && "text-[var(--ink)]",
+          "mt-2 font-mono text-2xl font-semibold tabular-nums",
+          tone === "positive" && "text-emerald-700",
+          tone === "negative" && "text-rose-700",
+          tone === "accent" && "text-amber-700",
+          tone === "default" && "text-slate-950",
         )}
       >
         {value}
       </p>
-      {helper ? <p className="mt-2 border-t border-[var(--hair)] pt-2 text-[10px] text-[var(--ink-muted)] text-pretty">{helper}</p> : null}
+      {helper ? <p className="mt-1 text-sm text-slate-500 text-pretty">{helper}</p> : null}
     </div>
   );
 }
@@ -305,7 +302,7 @@ function InfoIcon({ label }: InfoIconProps) {
         }}
         onPointerEnter={() => setIsHovered(true)}
         onPointerLeave={() => setIsHovered(false)}
-        className="inline-flex size-5 items-center justify-center border border-[var(--hair)] bg-[var(--paper)] font-[family:var(--font-serif)] text-xs font-semibold italic text-[var(--ink-muted)] hover:border-[var(--red)] hover:text-[var(--red)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--red)]"
+        className="inline-flex size-5 items-center justify-center rounded-full border border-slate-300 bg-white font-[family:var(--font-space-grotesk)] text-xs font-semibold text-slate-500 shadow-sm hover:border-amber-500 hover:text-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600"
       >
         i
       </button>
@@ -314,7 +311,7 @@ function InfoIcon({ label }: InfoIconProps) {
         role="tooltip"
         aria-hidden={!isOpen}
         className={cn(
-          "invisible absolute right-0 top-7 z-20 w-72 border border-[var(--ink-line)] bg-[var(--paper)] px-3 py-2 text-left text-[11px] font-normal leading-5 text-[var(--ink)] opacity-0 group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100",
+          "invisible absolute right-0 top-7 z-20 w-64 rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-xs font-normal leading-5 text-slate-700 opacity-0 shadow-lg group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100",
           isOpen && "visible opacity-100",
         )}
       >
@@ -360,11 +357,11 @@ function NumberSliderField({
   };
 
   return (
-    <div className="border border-[var(--hair)] bg-[var(--paper)] p-3">
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <p id={labelId} className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">
+            <p id={labelId} className="text-sm font-medium text-slate-900">
               {label}
             </p>
             <InfoIcon label={help} />
@@ -373,9 +370,9 @@ function NumberSliderField({
             {help}
           </span>
         </div>
-        <div className="w-24 shrink-0">
-          <div className="flex items-center border-b border-[var(--ink-line)] bg-transparent px-0 py-1">
-            {prefix ? <span className="text-sm text-[var(--ink-muted)]">{prefix}</span> : null}
+        <div className="w-28 shrink-0">
+          <div className="flex items-center rounded-md border border-slate-300 bg-white px-3 py-2">
+            {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
             <input
               type="number"
               value={inputValue}
@@ -387,9 +384,9 @@ function NumberSliderField({
               onKeyDown={(event) => handleNumberKeyDown(event, onChange)}
               onInput={(event) => handleInputChange(parseNumberInput(event.currentTarget.value))}
               onChange={(event) => handleInputChange(parseNumberInput(event.target.value))}
-              className="w-full border-0 bg-transparent p-0 font-[family:var(--font-serif)] text-right text-xl font-medium leading-none text-[var(--ink)] outline-none tabular-nums"
+              className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none tabular-nums"
             />
-            {suffix ? <span className="text-sm text-[var(--ink-muted)]">{suffix}</span> : null}
+            {suffix ? <span className="text-sm text-slate-500">{suffix}</span> : null}
           </div>
         </div>
       </div>
@@ -402,9 +399,9 @@ function NumberSliderField({
         aria-labelledby={labelId}
         aria-describedby={helpId}
         onChange={(event) => handleSliderChange(Number(event.target.value))}
-        className="mt-3 h-1 w-full cursor-pointer appearance-none bg-[var(--ink-line)] accent-[var(--red)]"
+        className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
       />
-      <div className="mt-2 flex justify-between font-mono text-[10px] text-[var(--ink-muted)] tabular-nums">
+      <div className="mt-2 flex justify-between font-mono text-xs text-slate-500 tabular-nums">
         <span>
           {prefix}
           {min}
@@ -417,13 +414,13 @@ function NumberSliderField({
         </span>
       </div>
       {quickActions.length > 0 ? (
-        <div className="mt-2 grid grid-cols-4 gap-1.5">
+        <div className="mt-3 grid grid-cols-4 gap-2">
           {quickActions.map((action) => (
             <button
               key={action.label}
               type="button"
               onClick={() => onChange(clamp(action.value, 0, max))}
-              className="border border-[var(--hair)] bg-[var(--paper)] px-2 py-1.5 text-[10px] font-medium uppercase text-[var(--ink)] hover:border-[var(--red)] hover:text-[var(--red)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--red)]"
+              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-amber-500 hover:text-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600"
             >
               {action.label}
             </button>
@@ -478,28 +475,28 @@ function SingleLineValueChart({
     .join(" ");
 
   return (
-    <div className="border border-[var(--ink-line)] bg-[var(--paper)] p-4">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-2 border-b border-[var(--hair)] pb-3">
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h3 className="font-[family:var(--font-serif)] text-2xl font-medium leading-none text-[var(--ink)]">{title}</h3>
-          <p className="mt-1 text-[10px] uppercase text-[var(--ink-muted)]">{subtitle}</p>
+          <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
         </div>
-        <div className="flex flex-wrap justify-end gap-x-4 gap-y-2 text-[10px] uppercase text-[var(--ink-muted)]">
+        <div className="flex flex-wrap justify-end gap-x-4 gap-y-2 text-xs text-slate-600">
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[var(--ink-muted)]" />
+            <span className="size-2 rounded-full bg-slate-500" />
             Value curve
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[var(--red)]" />
+            <span className="size-2 rounded-full bg-amber-600" />
             Selected
-            <span className="font-mono font-semibold text-[var(--ink)] tabular-nums">
+            <span className="font-mono font-semibold text-slate-800 tabular-nums">
               {formatCompactCurrency(selectedValue)}
             </span>
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[var(--pine)]" />
+            <span className="size-2 rounded-full bg-emerald-600" />
             Max profit at expiry
-            <span className="font-mono font-semibold text-[var(--ink)] tabular-nums">
+            <span className="font-mono font-semibold text-slate-800 tabular-nums">
               {formatCompactCurrency(maxProfitValue)}
             </span>
           </span>
@@ -581,8 +578,8 @@ function SingleLineValueChart({
         <path
           d={path}
           fill="none"
-          stroke={CHART_COLORS.ink}
-          strokeWidth={2}
+          stroke={CHART_COLORS.inkMuted}
+          strokeWidth={2.5}
           strokeLinecap="round"
           strokeLinejoin="round"
         />
@@ -592,7 +589,7 @@ function SingleLineValueChart({
             cx={x(point.price)}
             cy={y(point.value)}
             r={point.isHighlighted ? 4.5 : 3}
-            fill={point.isHighlighted ? CHART_COLORS.rust : CHART_COLORS.inkMuted}
+            fill={point.isHighlighted ? CHART_COLORS.accent : CHART_COLORS.inkMuted}
             stroke={CHART_COLORS.paper}
             strokeWidth={1.5}
           />
@@ -602,7 +599,7 @@ function SingleLineValueChart({
           x2={selectedX}
           y1={padding.top}
           y2={height - padding.bottom}
-          stroke={CHART_COLORS.rust}
+          stroke={CHART_COLORS.accent}
           strokeDasharray="4 4"
           strokeWidth={1.5}
         />
@@ -611,7 +608,7 @@ function SingleLineValueChart({
           x2={width - padding.right}
           y1={selectedY}
           y2={selectedY}
-          stroke={CHART_COLORS.rust}
+          stroke={CHART_COLORS.accent}
           strokeOpacity={0.45}
           strokeWidth={1}
         />
@@ -619,7 +616,7 @@ function SingleLineValueChart({
           cx={selectedX}
           cy={selectedY}
           r={5}
-          fill={CHART_COLORS.rust}
+          fill={CHART_COLORS.accent}
           stroke={CHART_COLORS.paper}
           strokeWidth={2}
         />
@@ -734,12 +731,12 @@ function ScenarioValueMap({
   const valueColor = (positionValue: number) => {
     const ratio = clamp(positionValue / maxPositionValue, 0, 1);
 
-    if (ratio < 0.14) return CHART_COLORS.paper;
-    if (ratio < 0.28) return CHART_COLORS.paperSoft;
-    if (ratio < 0.42) return CHART_COLORS.paperMuted;
-    if (ratio < 0.56) return "#f5cfd3";
-    if (ratio < 0.7) return "#e63946";
-    if (ratio < 0.84) return "#7ba88e";
+    if (ratio < 0.14) return "#f8fafc";
+    if (ratio < 0.28) return "#e2e8f0";
+    if (ratio < 0.42) return "#cbd5e1";
+    if (ratio < 0.56) return "#fde68a";
+    if (ratio < 0.7) return "#fbbf24";
+    if (ratio < 0.84) return "#34d399";
     return CHART_COLORS.pine;
   };
   const priceTicks = Array.from({ length: 6 }, (_, index) => {
@@ -811,27 +808,27 @@ function ScenarioValueMap({
   };
 
   return (
-    <div className="overflow-hidden border border-[var(--ink-line)] bg-[var(--paper)] p-3">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--hair)] pb-3 text-[10px] uppercase text-[var(--ink-muted)]">
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
         <div className="flex flex-wrap items-center gap-4">
           <span className="inline-flex items-center gap-2">
-            <span className="size-2 rounded-full bg-[var(--red)]" />
+            <span className="size-2 rounded-full bg-amber-600" />
             Selected scenario
           </span>
           <span className="inline-flex items-center gap-2">
-            <span className="size-2 rounded-full bg-[var(--ink-muted)]" />
+            <span className="size-2 rounded-full bg-slate-500" />
             Current stock price
           </span>
           <span className="inline-flex items-center gap-2">
-            <span className="size-2 rounded-sm bg-[var(--pine)]" />
+            <span className="size-2 rounded-sm bg-emerald-600" />
             Higher spread value
           </span>
           <span className="inline-flex items-center gap-2">
-            <span className="size-2 rounded-full bg-[var(--pine)]" />
+            <span className="size-2 rounded-full bg-emerald-600" />
             Max profit at expiry {formatCompactCurrency(maxProfitValue)}
           </span>
         </div>
-        <div className="border border-[var(--hair)] bg-[var(--paper)] px-3 py-2 font-mono text-[10px] text-[var(--ink)] tabular-nums">
+        <div className="rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-sm tabular-nums">
           {scenarioDateLabel} | {formatCurrency(selectedPrice)} |{" "}
           {formatCurrency(selectedValue)}
         </div>
@@ -917,7 +914,7 @@ function ScenarioValueMap({
           x2={selectedX}
           y1={padding.top}
           y2={height - padding.bottom}
-          stroke={CHART_COLORS.rust}
+          stroke={CHART_COLORS.accent}
           strokeWidth={1.5}
         />
         <line
@@ -925,10 +922,10 @@ function ScenarioValueMap({
           x2={width - padding.right}
           y1={selectedY}
           y2={selectedY}
-          stroke={CHART_COLORS.rust}
+          stroke={CHART_COLORS.accent}
           strokeWidth={1.5}
         />
-        <circle cx={selectedX} cy={selectedY} r={5.5} fill={CHART_COLORS.rust} stroke={CHART_COLORS.paper} strokeWidth={2} />
+        <circle cx={selectedX} cy={selectedY} r={5.5} fill={CHART_COLORS.accent} stroke={CHART_COLORS.paper} strokeWidth={2} />
         <text
           x={padding.left + chartWidth / 2}
           y={height - 12}
@@ -954,7 +951,7 @@ function ScenarioValueMap({
             x2={tooltipXAnchor}
             y1={tooltipYAnchor}
             y2={tooltipY + tooltipHeight / 2}
-            stroke={CHART_COLORS.rust}
+            stroke={CHART_COLORS.accent}
             strokeOpacity={0.4}
             strokeWidth={1}
           />
@@ -996,7 +993,7 @@ function ScenarioValueMap({
             y={tooltipY + 80}
             className={cn(
               "font-mono text-[12px]",
-              tooltipPoint.roi >= 0 ? "fill-[var(--pine)]" : "fill-[var(--loss)]",
+              tooltipPoint.roi >= 0 ? "fill-emerald-700" : "fill-rose-700",
             )}
           >
             {formatPercent(tooltipPoint.roi)} gain
@@ -1006,7 +1003,7 @@ function ScenarioValueMap({
             y={tooltipY + 98}
             className={cn(
               "font-mono text-[12px]",
-              tooltipPoint.pnl >= 0 ? "fill-[var(--pine)]" : "fill-[var(--loss)]",
+              tooltipPoint.pnl >= 0 ? "fill-emerald-700" : "fill-rose-700",
             )}
           >
             {formatCurrency(tooltipPoint.pnl)} P/L
@@ -1036,16 +1033,16 @@ function ResultsTable<Row extends { id: string; isHighlighted?: boolean }>({
   rows,
 }: ResultsTableProps<Row>) {
   return (
-    <div className="border border-[var(--ink-line)] bg-[var(--paper)]">
-      <div className="border-b border-[var(--ink-line)] px-5 py-4">
-        <h3 className="font-[family:var(--font-serif)] text-3xl font-medium leading-none text-[var(--ink)]">
+    <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 px-5 py-4">
+        <h3 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950">
           {title}
         </h3>
-        <p className="mt-2 text-[11px] uppercase text-[var(--ink-muted)] text-pretty">{subtitle}</p>
+        <p className="mt-1 text-sm text-slate-500 text-pretty">{subtitle}</p>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full border-collapse text-sm">
-          <thead className="border-b border-[var(--ink-line)] bg-[var(--paper)] text-[10px] uppercase text-[var(--ink-muted)]">
+          <thead className="bg-slate-50 text-slate-600">
             <tr>
               {columns.map((column) => (
                 <th
@@ -1065,17 +1062,17 @@ function ResultsTable<Row extends { id: string; isHighlighted?: boolean }>({
               <tr
                 key={row.id}
                 className={cn(
-                  "border-t border-[var(--hair)]",
-                  row.isHighlighted && "bg-[var(--paper-soft)]",
+                  "border-t border-slate-100",
+                  row.isHighlighted && "bg-amber-50/60",
                 )}
               >
                 {columns.map((column) => (
                   <td
                     key={column.key}
                     className={cn(
-                      "px-4 py-3 align-top font-mono tabular-nums text-[var(--ink)]",
+                      "px-4 py-3 align-top font-mono tabular-nums text-slate-950",
                       column.align === "right" && "text-right",
-                      column.muted && "text-[var(--ink-muted)]",
+                      column.muted && "text-slate-600",
                     )}
                   >
                     {column.render(row)}
@@ -1307,7 +1304,7 @@ export default function DebitCallSpreadLab({
       render: (row) => (
         <div>
           <div>{formatLongDate(row.dateIso)}</div>
-          <div className="mt-1 text-xs text-[var(--ink-muted)]">
+          <div className="mt-1 text-xs text-slate-500">
             {row.daysRemaining} days left
           </div>
         </div>
@@ -1336,7 +1333,7 @@ export default function DebitCallSpreadLab({
       label: "P/L",
       align: "right",
       render: (row) => (
-        <span className={cn(row.pnl >= 0 ? "text-[var(--pine)]" : "text-[var(--loss)]")}>
+        <span className={cn(row.pnl >= 0 ? "text-emerald-700" : "text-rose-700")}>
           {formatCurrency(row.pnl)}
         </span>
       ),
@@ -1346,7 +1343,7 @@ export default function DebitCallSpreadLab({
       label: "Return",
       align: "right",
       render: (row) => (
-        <span className={cn(row.roi >= 0 ? "text-[var(--pine)]" : "text-[var(--loss)]")}>
+        <span className={cn(row.roi >= 0 ? "text-emerald-700" : "text-rose-700")}>
           {formatPercent(row.roi)}
         </span>
       ),
@@ -1376,7 +1373,7 @@ export default function DebitCallSpreadLab({
       label: "P/L",
       align: "right",
       render: (row) => (
-        <span className={cn(row.pnl >= 0 ? "text-[var(--pine)]" : "text-[var(--loss)]")}>
+        <span className={cn(row.pnl >= 0 ? "text-emerald-700" : "text-rose-700")}>
           {formatCurrency(row.pnl)}
         </span>
       ),
@@ -1386,7 +1383,7 @@ export default function DebitCallSpreadLab({
       label: "Return",
       align: "right",
       render: (row) => (
-        <span className={cn(row.roi >= 0 ? "text-[var(--pine)]" : "text-[var(--loss)]")}>
+        <span className={cn(row.roi >= 0 ? "text-emerald-700" : "text-rose-700")}>
           {formatPercent(row.roi)}
         </span>
       ),
@@ -1398,56 +1395,24 @@ export default function DebitCallSpreadLab({
   }));
 
   return (
-    <main className="min-h-dvh bg-[var(--background)] text-[var(--ink)] lg:h-dvh lg:overflow-hidden">
+    <main className="min-h-dvh bg-stone-100 text-slate-900 lg:h-dvh lg:overflow-hidden">
       <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-full lg:min-h-0">
-        <header className="grid border border-[var(--ink-line)] bg-[var(--paper)] lg:grid-cols-[22rem_repeat(4,minmax(0,1fr))]">
-          <div className="flex items-center gap-3 border-b border-[var(--ink-line)] px-4 py-3 lg:border-b-0 lg:border-r">
-            <div className="flex size-8 items-center justify-center bg-[var(--ink)] font-[family:var(--font-serif)] text-2xl italic leading-none text-[var(--paper)]">
-              d
-            </div>
-            <div>
-              <h1 className="font-[family:var(--font-serif)] text-2xl font-medium leading-none text-[var(--ink)]">
-                Debit Call <i className="text-[var(--red)]">Spread</i> Lab
-              </h1>
-              <p className="mt-0.5 text-[10px] uppercase text-[var(--ink-muted)]">
-                Scenario editorial
-              </p>
-            </div>
-          </div>
-          {[
-            ["Underlying", symbol.trim() || "N/A"],
-            ["Spot", formatCurrency(spot)],
-            ["Expiry", `${expirationDays} DTE`],
-            ["Model", "Black-Scholes"],
-          ].map(([label, value]) => (
-            <div
-              key={label}
-              className="border-b border-[var(--hair)] px-3 py-2 lg:border-b-0 lg:border-r last:lg:border-r-0"
-            >
-              <p className="text-[9px] uppercase text-[var(--ink-muted)]">
-                {label}
-              </p>
-              <p className="mt-0.5 font-mono text-xs font-medium text-[var(--ink)] tabular-nums">
-                {value}
-              </p>
-            </div>
-          ))}
-        </header>
-
-        <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[22rem_minmax(0,1fr)]">
-          <aside className="bg-[var(--paper)] lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
+        <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[24rem_minmax(0,1fr)]">
+          <aside className="lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
+            <h1 className="sr-only">Debit Call Spread Lab</h1>
             <SectionCard
               title="Inputs"
-              eyebrow="01 / Controls"
+              eyebrow="Debit Call Spread Lab"
+              eyebrowClassName="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance"
             >
-              <div className="space-y-3">
-                <label className="block border border-[var(--hair)] bg-[var(--paper)] p-3">
-                  <span className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Underlying ticker or label</span>
+              <div className="space-y-4">
+                <label className="block rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                  <span className="text-sm font-medium text-slate-900">Underlying ticker or label</span>
                   <input
                     type="text"
                     value={symbol}
                     onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-                    className="mt-2 w-full border-0 border-b border-[var(--ink-line)] bg-transparent px-0 py-1.5 font-[family:var(--font-serif)] text-xl font-medium text-[var(--ink)] outline-none"
+                    className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 outline-none"
                     placeholder="AAPL"
                   />
                 </label>
@@ -1508,19 +1473,19 @@ export default function DebitCallSpreadLab({
                   prefix="$"
                 />
 
-                <label className="block border border-[var(--hair)] bg-[var(--paper)] p-3">
+                <label className="block rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Days to expiration</p>
-                      <p className="mt-1 text-[11px] text-[var(--ink-muted)] text-pretty">
+                      <p className="text-sm font-medium text-slate-900">Days to expiration</p>
+                      <p className="mt-1 text-sm text-slate-500 text-pretty">
                         The spread value decays toward intrinsic value as DTE approaches zero.
                       </p>
                     </div>
-                    <span className="font-mono text-sm text-[var(--ink-muted)] tabular-nums">
+                    <span className="font-mono text-sm text-slate-600 tabular-nums">
                       {formatLongDate(expiryIso)}
                     </span>
                   </div>
-                  <div className="mt-3 flex items-center border-b border-[var(--ink-line)] bg-transparent py-1">
+                  <div className="mt-4 flex items-center rounded-md border border-slate-300 bg-white px-3 py-2">
                     <input
                       type="number"
                       value={expirationDays}
@@ -1537,15 +1502,15 @@ export default function DebitCallSpreadLab({
                       onChange={(event) =>
                         updateExpirationDays(parseNumberInput(event.target.value))
                       }
-                      className="w-full border-0 bg-transparent p-0 font-[family:var(--font-serif)] text-xl font-medium text-[var(--ink)] outline-none tabular-nums"
+                      className="w-full border-0 bg-transparent p-0 font-mono text-sm text-slate-950 outline-none tabular-nums"
                     />
-                    <span className="text-sm text-[var(--ink-muted)]">DTE</span>
+                    <span className="text-sm text-slate-500">DTE</span>
                   </div>
                 </label>
 
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block border border-[var(--hair)] bg-[var(--paper)] p-3">
-                    <span className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Risk-free rate</span>
+                  <label className="block rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                    <span className="text-sm font-medium text-slate-900">Risk-free rate</span>
                     <input
                       type="number"
                       value={ratePct}
@@ -1559,11 +1524,11 @@ export default function DebitCallSpreadLab({
                       onChange={(event) =>
                         setRatePct(clamp(parseNumberInput(event.target.value), 0, 15))
                       }
-                      className="mt-2 w-full border-0 border-b border-[var(--ink-line)] bg-transparent px-0 py-1.5 font-[family:var(--font-serif)] text-xl font-medium text-[var(--ink)] outline-none"
+                      className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 outline-none"
                     />
                   </label>
-                  <label className="block border border-[var(--hair)] bg-[var(--paper)] p-3">
-                    <span className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Dividend yield</span>
+                  <label className="block rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                    <span className="text-sm font-medium text-slate-900">Dividend yield</span>
                     <input
                       type="number"
                       value={dividendYieldPct}
@@ -1579,23 +1544,23 @@ export default function DebitCallSpreadLab({
                       onChange={(event) =>
                         setDividendYieldPct(clamp(parseNumberInput(event.target.value), 0, 15))
                       }
-                      className="mt-2 w-full border-0 border-b border-[var(--ink-line)] bg-transparent px-0 py-1.5 font-[family:var(--font-serif)] text-xl font-medium text-[var(--ink)] outline-none"
+                      className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 outline-none"
                     />
                   </label>
                 </div>
               </div>
             </SectionCard>
 
-            <div className="mt-3 border border-[var(--ink-line)] bg-[var(--paper-soft)] p-3 text-[10px] text-[var(--ink)]">
-              <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Model assumptions</p>
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-medium">Model assumptions</p>
               <p className="mt-2 text-pretty">
                 This uses a Black-Scholes estimate with one shared IV for both call legs, a flat rate, and a flat dividend yield. It treats the spread like European-style pricing, which is clean for learning and scenario work.
               </p>
             </div>
           </aside>
 
-          <div className="space-y-3 bg-[var(--paper)] lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
-            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="space-y-4 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
+            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <MetricCard
                 label="Spread cost today"
                 value={formatCurrency(snapshot.debitPerSpread * 100)}
@@ -1618,62 +1583,62 @@ export default function DebitCallSpreadLab({
               title="Scenario curve"
               eyebrow={`${symbol.trim() || "Underlying"} spread value by stock price`}
             >
-              <div className="space-y-3">
-                <div className="overflow-hidden border border-[var(--ink-line)] bg-[var(--ink-line)]">
+              <div className="space-y-4">
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-200 shadow-sm">
                   <div className="grid gap-px sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="flex min-h-24 flex-col items-center justify-center bg-[var(--paper)] p-4 text-center">
-                      <p className="text-[10px] font-semibold uppercase text-[var(--ink-muted)]">
+                    <div className="flex min-h-32 flex-col items-center justify-center bg-white p-5 text-center">
+                      <p className="text-sm font-semibold text-slate-600">
                         Selected scenario
                       </p>
-                      <p className="mt-2 font-[family:var(--font-serif)] text-4xl font-medium leading-none text-[var(--ink)] tabular-nums">
+                      <p className="mt-3 font-[family:var(--font-space-grotesk)] text-3xl font-semibold text-slate-950 tabular-nums xl:text-4xl">
                         {formatCurrency(safeScenarioPrice)}
                       </p>
-                      <p className="mt-2 text-[11px] font-medium uppercase text-[var(--ink-muted)]">
+                      <p className="mt-1 text-sm font-medium text-slate-500">
                         {formatLongDate(snapshot.selectedDateIso)}
                       </p>
                     </div>
 
-                    <div className="flex min-h-24 flex-col items-center justify-center bg-[var(--paper)] p-4 text-center">
-                      <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">
+                    <div className="flex min-h-32 flex-col items-center justify-center bg-white p-5 text-center">
+                      <p className="text-sm font-medium text-slate-600">
                         Value on selected date
                       </p>
-                      <p className="mt-2 font-[family:var(--font-serif)] text-4xl font-medium leading-none text-[var(--ink)] tabular-nums">
+                      <p className="mt-3 font-mono text-3xl font-semibold text-slate-950 tabular-nums xl:text-4xl">
                         {formatCurrency(snapshot.scenarioPositionValue)}
                       </p>
                     </div>
 
-                    <div className="flex min-h-24 flex-col items-center justify-center bg-[var(--paper)] p-4 text-center">
-                      <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">
+                    <div className="flex min-h-32 flex-col items-center justify-center bg-white p-5 text-center">
+                      <p className="text-sm font-medium text-slate-600">
                         Max at expiry
                       </p>
-                      <div className="mt-2 grid w-full max-w-52 grid-cols-2 gap-2">
+                      <div className="mt-3 grid w-full max-w-56 grid-cols-2 gap-3">
                         <div>
-                          <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">
+                          <p className="text-xs font-medium text-slate-500">
                             Profit
                           </p>
-                          <p className="mt-1 font-mono text-lg font-semibold text-[var(--pine)] tabular-nums">
+                          <p className="mt-1 font-mono text-lg font-semibold text-emerald-700 tabular-nums">
                             {formatCurrency(maxProfitAtExpiry)}
                           </p>
                         </div>
                         <div>
-                          <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">
+                          <p className="text-xs font-medium text-slate-500">
                             Return
                           </p>
-                          <p className="mt-1 font-mono text-lg font-semibold text-[var(--pine)] tabular-nums">
+                          <p className="mt-1 font-mono text-lg font-semibold text-emerald-700 tabular-nums">
                             {formatPercent(maxReturnAtExpiry)}
                           </p>
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex min-h-24 flex-col items-center justify-center bg-[var(--paper)] p-4 text-center">
-                      <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">
+                    <div className="flex min-h-32 flex-col items-center justify-center bg-white p-5 text-center">
+                      <p className="text-sm font-medium text-slate-600">
                         Profit or loss then
                       </p>
                       <p
                         className={cn(
-                          "mt-2 font-[family:var(--font-serif)] text-4xl font-medium leading-none tabular-nums",
-                          snapshot.pnl >= 0 ? "text-[var(--pine)]" : "text-[var(--loss)]",
+                          "mt-3 font-mono text-3xl font-semibold tabular-nums xl:text-4xl",
+                          snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
                         )}
                       >
                         {formatCurrency(snapshot.pnl)}
@@ -1681,7 +1646,7 @@ export default function DebitCallSpreadLab({
                       <p
                         className={cn(
                           "mt-2 font-mono text-lg font-semibold tabular-nums",
-                          snapshot.roi >= 0 ? "text-[var(--pine)]" : "text-[var(--loss)]",
+                          snapshot.roi >= 0 ? "text-emerald-700" : "text-rose-700",
                         )}
                       >
                         {snapshot.totalCost > 0
@@ -1692,16 +1657,16 @@ export default function DebitCallSpreadLab({
                   </div>
                 </div>
 
-                <div className="grid gap-3 lg:grid-cols-2">
-                  <div className="border border-[var(--ink-line)] bg-[var(--paper)] p-3">
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
-                        <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Future stock price</p>
+                        <p className="text-sm font-medium text-slate-900">Future stock price</p>
                         <InfoIcon label="The stock price to test on the selected future date." />
                       </div>
                       <div className="w-28 shrink-0">
-                        <div className="flex items-center border-b border-[var(--ink-line)] bg-transparent py-1">
-                          <span className="text-sm text-[var(--ink-muted)]">$</span>
+                        <div className="flex items-center rounded-md border border-slate-300 bg-white px-3 py-2">
+                          <span className="text-sm text-slate-500">$</span>
                           <input
                             type="number"
                             value={displayedScenarioPriceInputValue}
@@ -1722,7 +1687,7 @@ export default function DebitCallSpreadLab({
                             onChange={(event) =>
                               updateScenarioPriceDraft(event.target.value)
                             }
-                            className="w-full border-0 bg-transparent p-0 font-[family:var(--font-serif)] text-right text-xl font-medium leading-none text-[var(--ink)] outline-none tabular-nums"
+                            className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none tabular-nums"
                           />
                         </div>
                       </div>
@@ -1743,25 +1708,25 @@ export default function DebitCallSpreadLab({
                           ),
                         )
                       }
-                      className="mt-4 h-1 w-full cursor-pointer appearance-none bg-[var(--ink-line)] accent-[var(--red)]"
+                      className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
                     />
-                    <div className="mt-2 flex justify-between font-mono text-[10px] text-[var(--ink-muted)] tabular-nums">
+                    <div className="mt-2 flex justify-between font-mono text-xs text-slate-500 tabular-nums">
                       <span>{formatCurrency(scenarioPriceSliderMin)}</span>
                       <span>{formatCurrency(scenarioPriceSliderMax)}</span>
                     </div>
                   </div>
 
-                  <div className="border border-[var(--ink-line)] bg-[var(--paper)] p-3">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-2">
-                        <p className="text-[10px] font-medium uppercase text-[var(--ink-muted)]">Valuation date</p>
+                        <p className="text-sm font-medium text-slate-900">Valuation date</p>
                         <InfoIcon label="The date used to estimate what the spread could be worth before expiration." />
                       </div>
                       <div className="text-right">
-                        <div className="font-mono text-sm text-[var(--ink)] tabular-nums">
+                        <div className="font-mono text-sm text-slate-950 tabular-nums">
                           {formatLongDate(snapshot.selectedDateIso)}
                         </div>
-                        <div className="mt-1 text-xs text-[var(--ink-muted)]">
+                        <div className="mt-1 text-xs text-slate-500">
                           {snapshot.selectedOffsetDays} days from today
                         </div>
                       </div>
@@ -1779,9 +1744,9 @@ export default function DebitCallSpreadLab({
                           clamp(Number(event.target.value), 0, expirationDays),
                         )
                       }
-                      className="mt-4 h-1 w-full cursor-pointer appearance-none bg-[var(--ink-line)] accent-[var(--red)]"
+                      className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
                     />
-                    <div className="mt-2 flex justify-between font-mono text-[10px] text-[var(--ink-muted)] tabular-nums">
+                    <div className="mt-2 flex justify-between font-mono text-xs text-slate-500 tabular-nums">
                       <span>{formatLongDate(todayIso)}</span>
                       <span>{formatLongDate(expiryIso)}</span>
                     </div>
@@ -1790,7 +1755,7 @@ export default function DebitCallSpreadLab({
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div
-                    className="flex flex-wrap border border-[var(--ink-line)] bg-[var(--paper)]"
+                    className="flex flex-wrap rounded-lg border border-slate-200 bg-slate-100 p-1"
                     aria-label="Scenario graph view"
                   >
                     {[
@@ -1811,16 +1776,16 @@ export default function DebitCallSpreadLab({
                           setScenarioGraphView(option.value as ScenarioGraphView)
                         }
                         className={cn(
-                          "border-r border-[var(--hair)] px-4 py-2 text-[10px] font-medium uppercase text-[var(--ink-muted)] last:border-r-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--red)]",
+                          "rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
                           scenarioGraphView === option.value &&
-                            "bg-[var(--ink)] text-[var(--paper)]",
+                            "bg-white text-slate-950 shadow-sm",
                         )}
                       >
                         {option.label}
                       </button>
                     ))}
                   </div>
-                  <div className="font-mono text-[10px] uppercase text-[var(--ink-muted)] tabular-nums">
+                  <div className="font-mono text-xs text-slate-500 tabular-nums">
                     {formatLongDate(snapshot.selectedDateIso)} |{" "}
                     {formatCurrency(safeScenarioPrice)} |{" "}
                     {formatCurrency(snapshot.scenarioPositionValue)}
@@ -1828,8 +1793,8 @@ export default function DebitCallSpreadLab({
                 </div>
 
                 {validationMessages.length > 0 ? (
-                  <div className="border border-[var(--loss)] bg-[var(--paper-soft)] p-4 text-sm text-[var(--loss)]">
-                    <p className="text-[10px] font-medium uppercase">Fix these inputs first</p>
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
+                    <p className="font-medium">Fix these inputs first</p>
                     <ul className="mt-2 space-y-1">
                       {validationMessages.map((message) => (
                         <li key={message}>{message}</li>
@@ -1870,7 +1835,7 @@ export default function DebitCallSpreadLab({
                 ) : null}
 
                 {!canModel ? (
-                  <div className="border border-dashed border-[var(--ink-line)] bg-[var(--paper-soft)] p-8 text-center text-[var(--ink-muted)]">
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-slate-500">
                     Clean up the inputs and the curve will appear here.
                   </div>
                 ) : null}
