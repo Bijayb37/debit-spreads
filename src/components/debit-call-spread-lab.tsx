@@ -55,8 +55,6 @@ type SingleLineValueChartProps = {
   points: LineValuePoint[];
   selectedPrice: number;
   selectedValue: number;
-  maxProfitValue: number;
-  maxExpiryValue: number;
 };
 
 type NumberSliderFieldProps = {
@@ -83,8 +81,6 @@ type ScenarioValueMapProps = {
   selectedValue: number;
   selectedPnl: number;
   selectedRoi: number;
-  maxProfitValue: number;
-  maxExpiryValue: number;
   currentSpot: number;
   expirationDays: number;
   todayIso: string;
@@ -175,6 +171,10 @@ function getSliderMax(...values: number[]): number {
 function parseNumberInput(value: string): number {
   const nextValue = Number(value);
   return Number.isFinite(nextValue) ? Math.round(nextValue) : 0;
+}
+
+function getOtmStrike(spotPrice: number, percent: number): number {
+  return Math.round(spotPrice * (1 + percent / 100));
 }
 
 function handleNumberKeyDown(
@@ -336,7 +336,11 @@ function NumberSliderField({
   const fieldId = useId();
   const labelId = `${fieldId}-label`;
   const helpId = `${fieldId}-help`;
+  const dragMaxRef = useRef<number | null>(null);
+  const [dragMax, setDragMax] = useState<number | null>(null);
+  const sliderMax = dragMax ?? max;
   const safeValue = clamp(value, min, max);
+  const safeSliderValue = clamp(value, min, sliderMax);
   const inputValue =
     Number.isFinite(value) && (value < min || value > max) ? value : safeValue;
   const handleInputChange = (nextValue: number) => {
@@ -348,18 +352,28 @@ function NumberSliderField({
     onChange(Math.max(nextValue, 0));
   };
   const handleSliderChange = (nextValue: number) => {
+    const activeSliderMax = dragMaxRef.current ?? sliderMax;
+
     if (!Number.isFinite(nextValue)) {
       onChange(min);
       return;
     }
 
-    onChange(clamp(nextValue, min, max));
+    onChange(clamp(nextValue, min, activeSliderMax));
+  };
+  const beginSliderDrag = () => {
+    dragMaxRef.current = max;
+    setDragMax(max);
+  };
+  const endSliderDrag = () => {
+    dragMaxRef.current = null;
+    setDragMax(null);
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p id={labelId} className="text-sm font-medium text-slate-900">
               {label}
@@ -370,8 +384,8 @@ function NumberSliderField({
             {help}
           </span>
         </div>
-        <div className="w-28 shrink-0">
-          <div className="flex items-center rounded-md border border-slate-300 bg-white px-3 py-2">
+        <div className="w-full shrink-0 sm:w-24">
+          <div className="flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5">
             {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
             <input
               type="number"
@@ -393,13 +407,17 @@ function NumberSliderField({
       <input
         type="range"
         min={min}
-        max={max}
+        max={sliderMax}
         step={step}
-        value={safeValue}
+        value={safeSliderValue}
         aria-labelledby={labelId}
         aria-describedby={helpId}
+        onBlur={endSliderDrag}
         onChange={(event) => handleSliderChange(Number(event.target.value))}
-        className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
+        onPointerCancel={endSliderDrag}
+        onPointerDown={beginSliderDrag}
+        onPointerUp={endSliderDrag}
+        className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
       />
       <div className="mt-2 flex justify-between font-mono text-xs text-slate-500 tabular-nums">
         <span>
@@ -414,13 +432,13 @@ function NumberSliderField({
         </span>
       </div>
       {quickActions.length > 0 ? (
-        <div className="mt-3 grid grid-cols-4 gap-2">
+        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {quickActions.map((action) => (
             <button
               key={action.label}
               type="button"
               onClick={() => onChange(clamp(action.value, 0, max))}
-              className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-amber-500 hover:text-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600"
+              className="whitespace-nowrap rounded-md border border-slate-300 bg-white px-1.5 py-1.5 text-[11px] font-medium text-slate-700 shadow-sm hover:border-amber-500 hover:text-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600"
             >
               {action.label}
             </button>
@@ -437,8 +455,6 @@ function SingleLineValueChart({
   points,
   selectedPrice,
   selectedValue,
-  maxProfitValue,
-  maxExpiryValue,
 }: SingleLineValueChartProps) {
   const width = 820;
   const height = 320;
@@ -450,7 +466,6 @@ function SingleLineValueChart({
   const maxPrice = Math.max(...prices, minPrice + 1);
   const maxValue = Math.max(
     selectedValue,
-    maxExpiryValue,
     ...points.map((point) => point.value),
     1,
   );
@@ -466,7 +481,6 @@ function SingleLineValueChart({
   const priceTicks = [minPrice, Math.round((minPrice + maxPrice) / 2), maxPrice];
   const selectedX = x(selectedPrice);
   const selectedY = y(selectedValue);
-  const maxExpiryY = y(maxExpiryValue);
   const path = points
     .map(
       (point, index) =>
@@ -491,13 +505,6 @@ function SingleLineValueChart({
             Selected
             <span className="font-mono font-semibold text-slate-800 tabular-nums">
               {formatCompactCurrency(selectedValue)}
-            </span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-emerald-600" />
-            Max profit at expiry
-            <span className="font-mono font-semibold text-slate-800 tabular-nums">
-              {formatCompactCurrency(maxProfitValue)}
             </span>
           </span>
         </div>
@@ -557,24 +564,6 @@ function SingleLineValueChart({
             </text>
           </g>
         ))}
-        <line
-          x1={padding.left}
-          x2={width - padding.right}
-          y1={maxExpiryY}
-          y2={maxExpiryY}
-          stroke={CHART_COLORS.pine}
-          strokeDasharray="5 4"
-          strokeWidth={1.5}
-        />
-        <text
-          x={width - padding.right - 8}
-          y={Math.max(padding.top + 12, maxExpiryY - 6)}
-          textAnchor="end"
-          fill={CHART_COLORS.pine}
-          className="font-mono text-[11px] font-semibold"
-        >
-          Expiry value {formatCompactCurrency(maxExpiryValue)}
-        </text>
         <path
           d={path}
           fill="none"
@@ -642,8 +631,6 @@ function ScenarioValueMap({
   selectedValue,
   selectedPnl,
   selectedRoi,
-  maxProfitValue,
-  maxExpiryValue,
   currentSpot,
   expirationDays,
   todayIso,
@@ -724,7 +711,6 @@ function ScenarioValueMap({
   );
   const maxPositionValue = Math.max(
     selectedValue,
-    maxExpiryValue,
     ...cells.map((cell) => cell.positionValue),
     1,
   );
@@ -822,10 +808,6 @@ function ScenarioValueMap({
           <span className="inline-flex items-center gap-2">
             <span className="size-2 rounded-sm bg-emerald-600" />
             Higher spread value
-          </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="size-2 rounded-full bg-emerald-600" />
-            Max profit at expiry {formatCompactCurrency(maxProfitValue)}
           </span>
         </div>
         <div className="rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-sm tabular-nums">
@@ -1132,6 +1114,13 @@ export default function DebitCallSpreadLab({
   const shortStrikeSliderMax = Math.max(baseStrikeSliderMax + 20, longStrike + 5);
   const expiryIso = addDaysToIso(todayIso, expirationDays);
   const safeScenarioOffsetDays = clamp(scenarioOffsetDays, 0, expirationDays);
+  const updateSpot = (nextValue: number) => {
+    const nextSpot = Math.round(nextValue);
+
+    setSpot(nextSpot);
+    setLongStrike(nextSpot);
+    setShortStrike(getOtmStrike(nextSpot, 10));
+  };
   const updateExpirationDays = (nextValue: number) => {
     const nextExpirationDays = clamp(Math.round(nextValue), 0, 1095);
 
@@ -1239,7 +1228,6 @@ export default function DebitCallSpreadLab({
   const snapshot = useMemo(() => createScenarioSnapshot(inputs), [inputs]);
   const maxProfitAtExpiry =
     snapshot.maxProfitPerSpread * snapshot.contracts * 100;
-  const maxPositionValueAtExpiry = snapshot.totalCost + maxProfitAtExpiry;
   const maxReturnAtExpiry =
     snapshot.totalCost > 0 ? maxProfitAtExpiry / snapshot.totalCost : 0;
   const canModel = validationMessages.length === 0 && snapshot.debitPerSpread > 0;
@@ -1391,13 +1379,13 @@ export default function DebitCallSpreadLab({
   ];
   const shortStrikeOtmActions = [5, 10, 20, 30].map((percent) => ({
     label: `${percent}% OTM`,
-    value: Math.round(spot * (1 + percent / 100)),
+    value: getOtmStrike(spot, percent),
   }));
 
   return (
     <main className="min-h-dvh bg-stone-100 text-slate-900 lg:h-dvh lg:overflow-hidden">
       <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-full lg:min-h-0">
-        <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[24rem_minmax(0,1fr)]">
+        <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[21rem_minmax(0,1fr)]">
           <aside className="lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
             <h1 className="sr-only">Debit Call Spread Lab</h1>
             <SectionCard
@@ -1405,14 +1393,14 @@ export default function DebitCallSpreadLab({
               eyebrow="Debit Call Spread Lab"
               eyebrowClassName="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance"
             >
-              <div className="space-y-4">
-                <label className="block rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+              <div className="space-y-3">
+                <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
                   <span className="text-sm font-medium text-slate-900">Underlying ticker or label</span>
                   <input
                     type="text"
                     value={symbol}
                     onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-                    className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 outline-none"
+                    className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 font-mono text-sm text-slate-950 outline-none"
                     placeholder="AAPL"
                   />
                 </label>
@@ -1424,7 +1412,7 @@ export default function DebitCallSpreadLab({
                   max={currentPriceSliderMax}
                   step={1}
                   value={spot}
-                  onChange={setSpot}
+                  onChange={updateSpot}
                   prefix="$"
                 />
 
@@ -1473,19 +1461,19 @@ export default function DebitCallSpreadLab({
                   prefix="$"
                 />
 
-                <label className="block rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
-                  <div className="flex items-start justify-between gap-3">
+                <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
+                  <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="text-sm font-medium text-slate-900">Days to expiration</p>
-                      <p className="mt-1 text-sm text-slate-500 text-pretty">
+                      <p className="mt-1 text-xs leading-5 text-slate-500 text-pretty">
                         The spread value decays toward intrinsic value as DTE approaches zero.
                       </p>
                     </div>
-                    <span className="font-mono text-sm text-slate-600 tabular-nums">
+                    <span className="font-mono text-xs text-slate-600 tabular-nums">
                       {formatLongDate(expiryIso)}
                     </span>
                   </div>
-                  <div className="mt-4 flex items-center rounded-md border border-slate-300 bg-white px-3 py-2">
+                  <div className="mt-3 flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5">
                     <input
                       type="number"
                       value={expirationDays}
@@ -1508,8 +1496,8 @@ export default function DebitCallSpreadLab({
                   </div>
                 </label>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
                     <span className="text-sm font-medium text-slate-900">Risk-free rate</span>
                     <input
                       type="number"
@@ -1524,10 +1512,10 @@ export default function DebitCallSpreadLab({
                       onChange={(event) =>
                         setRatePct(clamp(parseNumberInput(event.target.value), 0, 15))
                       }
-                      className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 outline-none"
+                      className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 font-mono text-sm text-slate-950 outline-none"
                     />
                   </label>
-                  <label className="block rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+                  <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
                     <span className="text-sm font-medium text-slate-900">Dividend yield</span>
                     <input
                       type="number"
@@ -1544,16 +1532,16 @@ export default function DebitCallSpreadLab({
                       onChange={(event) =>
                         setDividendYieldPct(clamp(parseNumberInput(event.target.value), 0, 15))
                       }
-                      className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 outline-none"
+                      className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 font-mono text-sm text-slate-950 outline-none"
                     />
                   </label>
                 </div>
               </div>
             </SectionCard>
 
-            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               <p className="font-medium">Model assumptions</p>
-              <p className="mt-2 text-pretty">
+              <p className="mt-1 text-xs leading-5 text-pretty">
                 This uses a Black-Scholes estimate with one shared IV for both call legs, a flat rate, and a flat dividend yield. It treats the spread like European-style pricing, which is clean for learning and scenario work.
               </p>
             </div>
@@ -1584,75 +1572,88 @@ export default function DebitCallSpreadLab({
               eyebrow={`${symbol.trim() || "Underlying"} spread value by stock price`}
             >
               <div className="space-y-4">
-                <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-200 shadow-sm">
-                  <div className="grid gap-px sm:grid-cols-2 xl:grid-cols-4">
-                    <div className="flex min-h-32 flex-col items-center justify-center bg-white p-5 text-center">
-                      <p className="text-sm font-semibold text-slate-600">
+                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                  <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+                    <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
+                      <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
                         Selected scenario
                       </p>
-                      <p className="mt-3 font-[family:var(--font-space-grotesk)] text-3xl font-semibold text-slate-950 tabular-nums xl:text-4xl">
+                      <p className="mt-5 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-slate-950 tabular-nums 2xl:text-4xl">
                         {formatCurrency(safeScenarioPrice)}
                       </p>
-                      <p className="mt-1 text-sm font-medium text-slate-500">
+                      <p className="mt-3 text-sm font-medium text-slate-500">
                         {formatLongDate(snapshot.selectedDateIso)}
                       </p>
                     </div>
 
-                    <div className="flex min-h-32 flex-col items-center justify-center bg-white p-5 text-center">
-                      <p className="text-sm font-medium text-slate-600">
+                    <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
+                      <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
                         Value on selected date
                       </p>
-                      <p className="mt-3 font-mono text-3xl font-semibold text-slate-950 tabular-nums xl:text-4xl">
+                      <p className="mt-5 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-slate-950 tabular-nums 2xl:text-4xl">
                         {formatCurrency(snapshot.scenarioPositionValue)}
                       </p>
+                      <p className="mt-3 text-sm font-medium text-slate-500">
+                        Position value
+                      </p>
                     </div>
 
-                    <div className="flex min-h-32 flex-col items-center justify-center bg-white p-5 text-center">
-                      <p className="text-sm font-medium text-slate-600">
+                    <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
+                      <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
                         Max at expiry
                       </p>
-                      <div className="mt-3 grid w-full max-w-56 grid-cols-2 gap-3">
-                        <div>
-                          <p className="text-xs font-medium text-slate-500">
+                      <dl className="mt-4 grid gap-3">
+                        <div className="flex min-w-0 items-baseline justify-between gap-4">
+                          <dt className="text-xs font-semibold uppercase text-slate-500">
                             Profit
-                          </p>
-                          <p className="mt-1 font-mono text-lg font-semibold text-emerald-700 tabular-nums">
+                          </dt>
+                          <dd className="whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
                             {formatCurrency(maxProfitAtExpiry)}
-                          </p>
+                          </dd>
                         </div>
-                        <div>
-                          <p className="text-xs font-medium text-slate-500">
+                        <div className="flex min-w-0 items-baseline justify-between gap-4">
+                          <dt className="text-xs font-semibold uppercase text-slate-500">
                             Return
-                          </p>
-                          <p className="mt-1 font-mono text-lg font-semibold text-emerald-700 tabular-nums">
+                          </dt>
+                          <dd className="whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
                             {formatPercent(maxReturnAtExpiry)}
-                          </p>
+                          </dd>
                         </div>
-                      </div>
+                      </dl>
                     </div>
 
-                    <div className="flex min-h-32 flex-col items-center justify-center bg-white p-5 text-center">
-                      <p className="text-sm font-medium text-slate-600">
+                    <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
+                      <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
                         Profit or loss then
                       </p>
-                      <p
-                        className={cn(
-                          "mt-3 font-mono text-3xl font-semibold tabular-nums xl:text-4xl",
-                          snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
-                        )}
-                      >
-                        {formatCurrency(snapshot.pnl)}
-                      </p>
-                      <p
-                        className={cn(
-                          "mt-2 font-mono text-lg font-semibold tabular-nums",
-                          snapshot.roi >= 0 ? "text-emerald-700" : "text-rose-700",
-                        )}
-                      >
-                        {snapshot.totalCost > 0
-                          ? formatPercent(snapshot.roi)
-                          : "No position purchased yet."}
-                      </p>
+                      <dl className="mt-4 grid gap-3">
+                        <div className="flex min-w-0 items-baseline justify-between gap-4">
+                          <dt className="text-xs font-semibold uppercase text-slate-500">
+                            {snapshot.pnl >= 0 ? "Profit" : "Loss"}
+                          </dt>
+                          <dd
+                            className={cn(
+                              "whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none tabular-nums",
+                              snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
+                            )}
+                          >
+                            {formatCurrency(snapshot.pnl)}
+                          </dd>
+                        </div>
+                        <div className="flex min-w-0 items-baseline justify-between gap-4">
+                          <dt className="text-xs font-semibold uppercase text-slate-500">
+                            Return
+                          </dt>
+                          <dd
+                            className={cn(
+                              "whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none tabular-nums",
+                              snapshot.roi >= 0 ? "text-emerald-700" : "text-rose-700",
+                            )}
+                          >
+                            {snapshot.totalCost > 0 ? formatPercent(snapshot.roi) : "N/A"}
+                          </dd>
+                        </div>
+                      </dl>
                     </div>
                   </div>
                 </div>
@@ -1810,8 +1811,6 @@ export default function DebitCallSpreadLab({
                     points={lineChartPoints}
                     selectedPrice={safeScenarioPrice}
                     selectedValue={snapshot.scenarioPositionValue}
-                    maxProfitValue={maxProfitAtExpiry}
-                    maxExpiryValue={maxPositionValueAtExpiry}
                   />
                 ) : null}
 
@@ -1824,8 +1823,6 @@ export default function DebitCallSpreadLab({
                     selectedValue={snapshot.scenarioPositionValue}
                     selectedPnl={snapshot.pnl}
                     selectedRoi={snapshot.roi}
-                    maxProfitValue={maxProfitAtExpiry}
-                    maxExpiryValue={maxPositionValueAtExpiry}
                     currentSpot={spot}
                     expirationDays={expirationDays}
                     todayIso={todayIso}
