@@ -1,10 +1,12 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent, ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import {
+  CONTRACT_MULTIPLIER,
   addDaysToIso,
+  buildPriceCurve,
   buildPriceLadderRows,
   buildTimelineRows,
   clamp,
@@ -14,8 +16,10 @@ import {
   roundTo,
 } from "@/lib/debit-call-spread";
 import type {
-  DebitCallSpreadInputs,
+  OptionStrategy,
+  PriceCurvePoint,
   PriceLadderRow,
+  StrategyInputs,
   TimelineRow,
 } from "@/lib/debit-call-spread";
 
@@ -40,21 +44,31 @@ type InfoIconProps = {
   label: string;
 };
 
-type ScenarioGraphView = "line" | "map";
-
-type LineValuePoint = {
-  id: string;
-  price: number;
-  value: number;
-  isHighlighted?: boolean;
+type TooltipPosition = {
+  left: number;
+  top: number;
 };
 
-type SingleLineValueChartProps = {
+type ScenarioGraphView = "line" | "map";
+
+type PnlCurvePoint = {
+  price: number;
+  selectedDatePnl: number;
+  expiryPnl: number;
+};
+
+type PnlScenarioChartProps = {
   title: string;
   subtitle: string;
-  points: LineValuePoint[];
+  points: PnlCurvePoint[];
   selectedPrice: number;
-  selectedValue: number;
+  selectedPnl: number;
+  breakEvenPrice: number;
+  spotPrice: number;
+  maxProfit: number | null;
+  maxLoss: number;
+  showExpiryCurve: boolean;
+  scenarioDateLabel: string;
 };
 
 type NumberSliderFieldProps = {
@@ -71,9 +85,13 @@ type NumberSliderFieldProps = {
     label: string;
     value: number;
   }>;
+  className?: string;
+  headerClassName?: string;
+  sliderClassName?: string;
 };
 
 type ScenarioValueMapProps = {
+  unitName: string;
   minPrice: number;
   maxPrice: number;
   selectedPrice: number;
@@ -116,6 +134,34 @@ type DebitCallSpreadLabProps = {
 type TimelineTableRow = TimelineRow & { id: string };
 type PriceTableRow = PriceLadderRow & { id: string };
 
+type StrategyCopy = {
+  unitName: string;
+  unitTitle: string;
+  contractName: string;
+  contractPlural: string;
+  costMetricLabel: string;
+  unitColumnLabel: string;
+  modelAssumptions: string;
+  capitalHelp: string;
+};
+
+type ShareState = {
+  strategy: OptionStrategy;
+  symbol: string;
+  spot: number;
+  volatilityPct: number;
+  futureVolatilityPct: number;
+  longStrike: number;
+  shortStrike: number;
+  capital: number;
+  allowFractionalContracts: boolean;
+  expirationDays: number;
+  scenarioPrice: number;
+  scenarioOffsetDays: number;
+  ratePct: number;
+  scenarioGraphView: ScenarioGraphView;
+};
+
 const CHART_COLORS = {
   paper: "#ffffff",
   paperSoft: "#f8fafc",
@@ -128,6 +174,182 @@ const CHART_COLORS = {
   pine: "#059669",
   loss: "#be123c",
 };
+
+const STRATEGY_OPTIONS: Array<{
+  value: OptionStrategy;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "debit-call-spread",
+    label: "Debit call spread",
+    description: "Buy one call and sell a higher-strike call.",
+  },
+  {
+    value: "long-call",
+    label: "Long call",
+    description: "Buy one call with uncapped upside.",
+  },
+];
+
+const STRATEGY_COPY: Record<OptionStrategy, StrategyCopy> = {
+  "debit-call-spread": {
+    unitName: "spread",
+    unitTitle: "Spread",
+    contractName: "1x1 spread",
+    contractPlural: "full spreads",
+    costMetricLabel: "Spread cost today",
+    unitColumnLabel: "Spread / 1 spread",
+    modelAssumptions:
+      "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. Both call legs share the same IV in each estimate.",
+    capitalHelp: "The app buys as many full 1x1 spreads as this amount allows.",
+  },
+  "long-call": {
+    unitName: "call",
+    unitTitle: "Call",
+    contractName: "call contract",
+    contractPlural: "call contracts",
+    costMetricLabel: "Call cost today",
+    unitColumnLabel: "Call / 1 contract",
+    modelAssumptions:
+      "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. It treats the call like European-style pricing.",
+    capitalHelp: "The app buys as many full call contracts as this amount allows.",
+  },
+};
+
+const SHARE_PARAM = "s";
+const SHARE_VERSION = "1";
+
+function compactNumber(value: number): string {
+  return String(roundTo(value, 2)).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+}
+
+function parseShareNumber(value: string | undefined, fallback: number): number {
+  if (!value) {
+    return fallback;
+  }
+
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue) ? nextValue : fallback;
+}
+
+function decodeShareText(value: string | undefined, fallback: string): string {
+  if (!value) {
+    return fallback;
+  }
+
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function encodeShareState(state: ShareState): string {
+  const parts = [
+    SHARE_VERSION,
+    state.strategy === "long-call" ? "l" : "d",
+    encodeURIComponent(state.symbol),
+    compactNumber(state.spot),
+    compactNumber(state.volatilityPct),
+    compactNumber(state.futureVolatilityPct),
+    compactNumber(state.longStrike),
+    compactNumber(state.shortStrike),
+    compactNumber(state.capital),
+    state.allowFractionalContracts ? "1" : "0",
+    compactNumber(state.expirationDays),
+    compactNumber(state.scenarioPrice),
+    compactNumber(state.scenarioOffsetDays),
+    compactNumber(state.ratePct),
+    state.scenarioGraphView === "map" ? "m" : "l",
+  ];
+
+  return parts.join("~");
+}
+
+function getShareStateFromUrl(defaultExpirationDays: number): ShareState | null {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const hashState = decodeShareState(hashParams.get(SHARE_PARAM), defaultExpirationDays);
+
+  if (hashState) {
+    return hashState;
+  }
+
+  return decodeShareState(
+    new URLSearchParams(window.location.search).get(SHARE_PARAM),
+    defaultExpirationDays,
+  );
+}
+
+function replaceShareHash(nextState: string) {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+
+  if (hashParams.get(SHARE_PARAM) === nextState) {
+    return;
+  }
+
+  hashParams.set(SHARE_PARAM, nextState);
+  window.location.replace(`#${hashParams.toString()}`);
+}
+
+function decodeShareState(value: string | null, defaultExpirationDays: number): ShareState | null {
+  if (!value) {
+    return null;
+  }
+
+  const [
+    version,
+    strategyToken,
+    symbolToken,
+    spotToken,
+    volatilityToken,
+    futureVolatilityToken,
+    longStrikeToken,
+    shortStrikeToken,
+    capitalToken,
+    fractionalToken,
+    expirationDaysToken,
+    scenarioPriceToken,
+    scenarioOffsetDaysToken,
+    rateToken,
+    graphToken,
+  ] = value.split("~");
+
+  if (version !== SHARE_VERSION) {
+    return null;
+  }
+
+  const expirationDays = clamp(
+    Math.round(parseShareNumber(expirationDaysToken, defaultExpirationDays)),
+    0,
+    1095,
+  );
+
+  return {
+    strategy: strategyToken === "l" ? "long-call" : "debit-call-spread",
+    symbol: decodeShareText(symbolToken, "EWY").toUpperCase(),
+    spot: Math.max(1, Math.round(parseShareNumber(spotToken, 125))),
+    volatilityPct: clamp(Math.round(parseShareNumber(volatilityToken, 65)), 0, 300),
+    futureVolatilityPct: clamp(
+      Math.round(parseShareNumber(futureVolatilityToken, 65)),
+      0,
+      300,
+    ),
+    longStrike: Math.max(1, Math.round(parseShareNumber(longStrikeToken, 125))),
+    shortStrike: Math.max(1, Math.round(parseShareNumber(shortStrikeToken, 145))),
+    capital: Math.max(0, Math.round(parseShareNumber(capitalToken, 10000))),
+    allowFractionalContracts: fractionalToken === "1",
+    expirationDays,
+    scenarioPrice: Math.max(1, Math.round(parseShareNumber(scenarioPriceToken, 145))),
+    scenarioOffsetDays: clamp(
+      Math.round(parseShareNumber(scenarioOffsetDaysToken, Math.round(expirationDays / 2))),
+      0,
+      expirationDays,
+    ),
+    ratePct: clamp(parseShareNumber(rateToken, 5), 0, 15),
+    scenarioGraphView: graphToken === "m" ? "map" : "line",
+  };
+}
 
 function formatCurrency(value: number): string {
   const roundedValue = Math.round(value);
@@ -164,6 +386,13 @@ function formatPercent(value: number): string {
   return `${safeValue >= 0 ? "+" : ""}${safeValue}%`;
 }
 
+function formatQuantity(value: number): string {
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(Object.is(value, -0) ? 0 : value);
+}
+
 function getSliderMax(...values: number[]): number {
   return Math.ceil((Math.max(...values, 50) * 1.8) / 5) * 5;
 }
@@ -171,6 +400,11 @@ function getSliderMax(...values: number[]): number {
 function parseNumberInput(value: string): number {
   const nextValue = Number(value);
   return Number.isFinite(nextValue) ? Math.round(nextValue) : 0;
+}
+
+function parseDecimalInput(value: string): number {
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue) ? nextValue : 0;
 }
 
 function getOtmStrike(spotPrice: number, percent: number): number {
@@ -258,12 +492,36 @@ function InfoIcon({ label }: InfoIconProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
+  const [tooltipPosition, setTooltipPosition] = useState<TooltipPosition>({
+    left: 12,
+    top: 12,
+  });
   const handledPointerActivation = useRef(false);
   const isOpen = isHovered || isFocused || isPinned;
-  const togglePinned = () => setIsPinned((currentValue) => !currentValue);
+  const updateTooltipPosition = (element: HTMLElement) => {
+    const tooltipWidth = 256;
+    const viewportPadding = 12;
+    const rect = element.getBoundingClientRect();
+    const left = clamp(
+      rect.right - tooltipWidth,
+      viewportPadding,
+      Math.max(viewportPadding, window.innerWidth - tooltipWidth - viewportPadding),
+    );
+    const top = clamp(
+      rect.bottom + 8,
+      viewportPadding,
+      Math.max(viewportPadding, window.innerHeight - 112),
+    );
+
+    setTooltipPosition({ left, top });
+  };
+  const togglePinned = (element: HTMLElement) => {
+    updateTooltipPosition(element);
+    setIsPinned((currentValue) => !currentValue);
+  };
 
   return (
-    <span className="group relative inline-flex">
+    <span className="inline-flex">
       <button
         type="button"
         aria-label={`More information: ${label}`}
@@ -276,16 +534,19 @@ function InfoIcon({ label }: InfoIconProps) {
           }
 
           event.preventDefault();
-          togglePinned();
+          togglePinned(event.currentTarget);
         }}
         onBlur={() => {
           setIsFocused(false);
           setIsPinned(false);
         }}
-        onFocus={() => setIsFocused(true)}
+        onFocus={(event) => {
+          updateTooltipPosition(event.currentTarget);
+          setIsFocused(true);
+        }}
         onMouseDown={(event) => {
           handledPointerActivation.current = true;
-          togglePinned();
+          togglePinned(event.currentTarget);
         }}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -297,10 +558,13 @@ function InfoIcon({ label }: InfoIconProps) {
         onPointerDown={(event) => {
           if (event.pointerType !== "mouse") {
             handledPointerActivation.current = true;
-            togglePinned();
+            togglePinned(event.currentTarget);
           }
         }}
-        onPointerEnter={() => setIsHovered(true)}
+        onPointerEnter={(event) => {
+          updateTooltipPosition(event.currentTarget);
+          setIsHovered(true);
+        }}
         onPointerLeave={() => setIsHovered(false)}
         className="inline-flex size-5 items-center justify-center rounded-full border border-slate-300 bg-white font-[family:var(--font-space-grotesk)] text-xs font-semibold text-slate-500 shadow-sm hover:border-amber-500 hover:text-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600"
       >
@@ -310,8 +574,12 @@ function InfoIcon({ label }: InfoIconProps) {
         id={tooltipId}
         role="tooltip"
         aria-hidden={!isOpen}
+        style={{
+          left: tooltipPosition.left,
+          top: tooltipPosition.top,
+        }}
         className={cn(
-          "invisible absolute right-0 top-7 z-20 w-64 rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-xs font-normal leading-5 text-slate-700 opacity-0 shadow-lg group-focus-within:visible group-focus-within:opacity-100 group-hover:visible group-hover:opacity-100",
+          "pointer-events-none invisible fixed z-50 w-64 rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-xs font-normal leading-5 text-slate-700 opacity-0 shadow-lg",
           isOpen && "visible opacity-100",
         )}
       >
@@ -332,6 +600,9 @@ function NumberSliderField({
   suffix = "",
   prefix = "",
   quickActions = [],
+  className,
+  headerClassName,
+  sliderClassName,
 }: NumberSliderFieldProps) {
   const fieldId = useId();
   const labelId = `${fieldId}-label`;
@@ -371,8 +642,13 @@ function NumberSliderField({
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+    <div className={cn("rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm", className)}>
+      <div
+        className={cn(
+          "flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between",
+          headerClassName,
+        )}
+      >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p id={labelId} className="text-sm font-medium text-slate-900">
@@ -417,7 +693,10 @@ function NumberSliderField({
         onPointerCancel={endSliderDrag}
         onPointerDown={beginSliderDrag}
         onPointerUp={endSliderDrag}
-        className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
+        className={cn(
+          "mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600",
+          sliderClassName,
+        )}
       />
       <div className="mt-2 flex justify-between font-mono text-xs text-slate-500 tabular-nums">
         <span>
@@ -449,26 +728,50 @@ function NumberSliderField({
   );
 }
 
-function SingleLineValueChart({
+function PnlScenarioChart({
   title,
   subtitle,
   points,
   selectedPrice,
-  selectedValue,
-}: SingleLineValueChartProps) {
+  selectedPnl,
+  breakEvenPrice,
+  spotPrice,
+  maxProfit,
+  maxLoss,
+  showExpiryCurve,
+  scenarioDateLabel,
+}: PnlScenarioChartProps) {
+  const profitClipId = useId();
+  const lossClipId = useId();
+
   const width = 820;
-  const height = 320;
-  const padding = { top: 32, right: 32, bottom: 58, left: 84 };
+  const height = 360;
+  const padding = { top: 28, right: 96, bottom: 58, left: 84 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
-  const prices = [selectedPrice, ...points.map((point) => point.price)];
-  const minPrice = Math.min(...prices);
-  const maxPrice = Math.max(...prices, minPrice + 1);
-  const maxValue = Math.max(
-    selectedValue,
-    ...points.map((point) => point.value),
-    1,
-  );
+
+  if (points.length < 2) {
+    return null;
+  }
+
+  const allPrices = [selectedPrice, breakEvenPrice, spotPrice, ...points.map((p) => p.price)];
+  const minPrice = Math.min(...allPrices);
+  const maxPrice = Math.max(...allPrices, minPrice + 1);
+
+  const pnlValues = [
+    selectedPnl,
+    maxLoss,
+    ...(maxProfit !== null ? [maxProfit] : []),
+    ...points.flatMap((p) =>
+      showExpiryCurve ? [p.selectedDatePnl, p.expiryPnl] : [p.selectedDatePnl],
+    ),
+  ];
+  const rawMin = Math.min(...pnlValues);
+  const rawMax = Math.max(...pnlValues);
+  const span = Math.max(rawMax - rawMin, 1);
+  const yMin = rawMin - span * 0.08;
+  const yMax = rawMax + span * 0.08;
+
   const x = (price: number) =>
     padding.left +
     ((clamp(price, minPrice, maxPrice) - minPrice) /
@@ -476,17 +779,56 @@ function SingleLineValueChart({
       chartWidth;
   const y = (value: number) =>
     padding.top +
-    ((maxValue - clamp(value, 0, maxValue)) / Math.max(maxValue, 1)) * chartHeight;
-  const yTicks = [0, Math.round(maxValue / 2), Math.round(maxValue)];
-  const priceTicks = [minPrice, Math.round((minPrice + maxPrice) / 2), maxPrice];
+    ((yMax - clamp(value, yMin, yMax)) / Math.max(yMax - yMin, 1)) * chartHeight;
+
+  const niceTick = (raw: number) => {
+    const abs = Math.abs(raw);
+    if (abs >= 1000) {
+      return Math.round(raw / 1000) * 1000;
+    }
+    if (abs >= 100) {
+      return Math.round(raw / 100) * 100;
+    }
+    return Math.round(raw);
+  };
+  const yTickValues = Array.from(new Set([
+    niceTick(yMin + (yMax - yMin) * 0.1),
+    niceTick(rawMin),
+    0,
+    niceTick(rawMax),
+    niceTick(yMin + (yMax - yMin) * 0.9),
+  ].filter((tick) => tick >= yMin && tick <= yMax)));
+  yTickValues.sort((a, b) => a - b);
+
+  const priceTicks = [
+    minPrice,
+    Math.round((minPrice + (minPrice + maxPrice) / 2) / 2),
+    Math.round((minPrice + maxPrice) / 2),
+    Math.round(((minPrice + maxPrice) / 2 + maxPrice) / 2),
+    maxPrice,
+  ];
+
+  const buildPath = (key: "selectedDatePnl" | "expiryPnl") =>
+    points
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${x(point.price)} ${y(point[key])}`)
+      .join(" ");
+
+  const selectedPath = buildPath("selectedDatePnl");
+  const expiryPath = buildPath("expiryPnl");
+
+  const zeroY = y(0);
+
   const selectedX = x(selectedPrice);
-  const selectedY = y(selectedValue);
-  const path = points
-    .map(
-      (point, index) =>
-        `${index === 0 ? "M" : "L"} ${x(point.price)} ${y(point.value)}`,
-    )
-    .join(" ");
+  const selectedY = y(selectedPnl);
+  const breakEvenX = x(breakEvenPrice);
+  const spotX = x(spotPrice);
+  const showSpotMarker = spotPrice >= minPrice && spotPrice <= maxPrice;
+  const showBreakEvenMarker = breakEvenPrice >= minPrice && breakEvenPrice <= maxPrice;
+
+  const profitColor = "#059669";
+  const lossColor = "#be123c";
+  const profitFill = "rgba(5, 150, 105, 0.08)";
+  const lossFill = "rgba(190, 18, 60, 0.08)";
 
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
@@ -495,16 +837,35 @@ function SingleLineValueChart({
           <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
           <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
         </div>
-        <div className="flex flex-wrap justify-end gap-x-4 gap-y-2 text-xs text-slate-600">
+        <div className="flex flex-wrap justify-end gap-x-4 gap-y-1.5 text-xs text-slate-600">
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-slate-500" />
-            Value curve
+            <span className="h-0.5 w-4 rounded-full bg-slate-700" />
+            On {scenarioDateLabel}
           </span>
+          {showExpiryCurve ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="h-0.5 w-4 rounded-full"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(to right, #64748b 50%, transparent 50%)",
+                  backgroundSize: "6px 2px",
+                }}
+              />
+              At expiry
+            </span>
+          ) : null}
           <span className="inline-flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-amber-600" />
             Selected
-            <span className="font-mono font-semibold text-slate-800 tabular-nums">
-              {formatCompactCurrency(selectedValue)}
+            <span
+              className={cn(
+                "font-mono font-semibold tabular-nums",
+                selectedPnl >= 0 ? "text-emerald-700" : "text-rose-700",
+              )}
+            >
+              {selectedPnl >= 0 ? "+" : ""}
+              {formatCompactCurrency(selectedPnl)}
             </span>
           </span>
         </div>
@@ -515,6 +876,25 @@ function SingleLineValueChart({
         role="img"
         aria-label={`${title}: ${subtitle}`}
       >
+        <defs>
+          <clipPath id={profitClipId}>
+            <rect
+              x={padding.left}
+              y={padding.top}
+              width={chartWidth}
+              height={Math.max(zeroY - padding.top, 0)}
+            />
+          </clipPath>
+          <clipPath id={lossClipId}>
+            <rect
+              x={padding.left}
+              y={zeroY}
+              width={chartWidth}
+              height={Math.max(height - padding.bottom - zeroY, 0)}
+            />
+          </clipPath>
+        </defs>
+
         <rect
           x={padding.left}
           y={padding.top}
@@ -522,29 +902,47 @@ function SingleLineValueChart({
           height={chartHeight}
           fill={CHART_COLORS.paper}
         />
-        {yTicks.map((tick, index) => (
-          <g key={`line-y-${tick}-${index}`}>
+
+        <rect
+          x={padding.left}
+          y={padding.top}
+          width={chartWidth}
+          height={Math.max(zeroY - padding.top, 0)}
+          fill={profitFill}
+        />
+        <rect
+          x={padding.left}
+          y={zeroY}
+          width={chartWidth}
+          height={Math.max(height - padding.bottom - zeroY, 0)}
+          fill={lossFill}
+        />
+
+        {yTickValues.map((tick, index) => (
+          <g key={`pnl-y-${tick}-${index}`}>
             <line
               x1={padding.left}
               x2={width - padding.right}
               y1={y(tick)}
               y2={y(tick)}
-              stroke={CHART_COLORS.line}
-              strokeWidth={1}
+              stroke={tick === 0 ? CHART_COLORS.inkMuted : CHART_COLORS.line}
+              strokeWidth={tick === 0 ? 1.25 : 1}
             />
             <text
               x={padding.left - 10}
               y={y(tick) + 4}
               textAnchor="end"
-              fill={CHART_COLORS.inkMuted}
+              fill={tick === 0 ? CHART_COLORS.ink : CHART_COLORS.inkMuted}
               className="font-mono text-[11px]"
             >
+              {tick > 0 ? "+" : ""}
               {formatCompactCurrency(tick)}
             </text>
           </g>
         ))}
+
         {priceTicks.map((tick, index) => (
-          <g key={`line-price-${tick}-${index}`}>
+          <g key={`pnl-price-${tick}-${index}`}>
             <line
               x1={x(tick)}
               x2={x(tick)}
@@ -564,25 +962,99 @@ function SingleLineValueChart({
             </text>
           </g>
         ))}
+
+        {showExpiryCurve ? (
+          <>
+            <path
+              d={expiryPath}
+              fill="none"
+              stroke={profitColor}
+              strokeWidth={2}
+              strokeDasharray="6 5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              clipPath={`url(#${profitClipId})`}
+            />
+            <path
+              d={expiryPath}
+              fill="none"
+              stroke={lossColor}
+              strokeWidth={2}
+              strokeDasharray="6 5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              clipPath={`url(#${lossClipId})`}
+            />
+          </>
+        ) : null}
+
         <path
-          d={path}
+          d={selectedPath}
           fill="none"
-          stroke={CHART_COLORS.inkMuted}
-          strokeWidth={2.5}
+          stroke={profitColor}
+          strokeWidth={2.75}
           strokeLinecap="round"
           strokeLinejoin="round"
+          clipPath={`url(#${profitClipId})`}
         />
-        {points.map((point, index) => (
-          <circle
-            key={`${point.id}-${index}`}
-            cx={x(point.price)}
-            cy={y(point.value)}
-            r={point.isHighlighted ? 4.5 : 3}
-            fill={point.isHighlighted ? CHART_COLORS.accent : CHART_COLORS.inkMuted}
-            stroke={CHART_COLORS.paper}
-            strokeWidth={1.5}
-          />
-        ))}
+        <path
+          d={selectedPath}
+          fill="none"
+          stroke={lossColor}
+          strokeWidth={2.75}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          clipPath={`url(#${lossClipId})`}
+        />
+
+        {showSpotMarker ? (
+          <g>
+            <line
+              x1={spotX}
+              x2={spotX}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.inkMuted}
+              strokeOpacity={0.55}
+              strokeWidth={1}
+              strokeDasharray="3 3"
+            />
+            <text
+              x={spotX}
+              y={padding.top - 8}
+              textAnchor="middle"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[10px]"
+            >
+              Spot {formatCurrency(spotPrice)}
+            </text>
+          </g>
+        ) : null}
+
+        {showBreakEvenMarker ? (
+          <g>
+            <line
+              x1={breakEvenX}
+              x2={breakEvenX}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.ink}
+              strokeOpacity={0.45}
+              strokeWidth={1}
+              strokeDasharray="2 4"
+            />
+            <text
+              x={breakEvenX}
+              y={height - padding.bottom + 38}
+              textAnchor="middle"
+              fill={CHART_COLORS.ink}
+              className="font-mono text-[10px] font-semibold"
+            >
+              B/E {formatCurrency(breakEvenPrice)}
+            </text>
+          </g>
+        ) : null}
+
         <line
           x1={selectedX}
           x2={selectedX}
@@ -592,23 +1064,15 @@ function SingleLineValueChart({
           strokeDasharray="4 4"
           strokeWidth={1.5}
         />
-        <line
-          x1={padding.left}
-          x2={width - padding.right}
-          y1={selectedY}
-          y2={selectedY}
-          stroke={CHART_COLORS.accent}
-          strokeOpacity={0.45}
-          strokeWidth={1}
-        />
         <circle
           cx={selectedX}
           cy={selectedY}
-          r={5}
+          r={5.5}
           fill={CHART_COLORS.accent}
           stroke={CHART_COLORS.paper}
           strokeWidth={2}
         />
+
         <text
           x={padding.left + chartWidth / 2}
           y={height - 10}
@@ -624,6 +1088,7 @@ function SingleLineValueChart({
 }
 
 function ScenarioValueMap({
+  unitName,
   minPrice,
   maxPrice,
   selectedPrice,
@@ -807,7 +1272,7 @@ function ScenarioValueMap({
           </span>
           <span className="inline-flex items-center gap-2">
             <span className="size-2 rounded-sm bg-emerald-600" />
-            Higher spread value
+            Higher {unitName} value
           </span>
         </div>
         <div className="rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-sm tabular-nums">
@@ -1073,15 +1538,19 @@ export default function DebitCallSpreadLab({
   todayIso,
   defaultExpiryIso,
 }: DebitCallSpreadLabProps) {
+  const defaultExpirationDays = Math.max(1, daysBetween(todayIso, defaultExpiryIso));
+  const [strategy, setStrategy] = useState<OptionStrategy>("debit-call-spread");
   const [symbol, setSymbol] = useState("EWY");
   const [spot, setSpot] = useState(125);
   const [volatilityPct, setVolatilityPct] = useState(65);
+  const [futureVolatilityPct, setFutureVolatilityPct] = useState(65);
   const [longStrike, setLongStrike] = useState(125);
   const [shortStrike, setShortStrike] = useState(145);
   const [capital, setCapital] = useState(10000);
+  const [allowFractionalContracts, setAllowFractionalContracts] =
+    useState(false);
   const [ratePct, setRatePct] = useState(5);
-  const [dividendYieldPct, setDividendYieldPct] = useState(0);
-  const defaultExpirationDays = Math.max(1, daysBetween(todayIso, defaultExpiryIso));
+  const [ratePctDraft, setRatePctDraft] = useState("5");
   const [expirationDays, setExpirationDays] = useState(defaultExpirationDays);
   const [scenarioPrice, setScenarioPrice] = useState(145);
   const [scenarioPriceDraft, setScenarioPriceDraft] = useState<string | null>(
@@ -1092,11 +1561,15 @@ export default function DebitCallSpreadLab({
   const [scenarioOffsetDays, setScenarioOffsetDays] = useState(
     Math.round(defaultExpirationDays / 2),
   );
+  const [isUrlStateReady, setIsUrlStateReady] = useState(false);
+  const isDebitCallSpread = strategy === "debit-call-spread";
+  const strategyCopy = STRATEGY_COPY[strategy];
+  const upperStrike = isDebitCallSpread ? shortStrike : longStrike;
 
   const scenarioPriceSliderMin = Math.max(1, Math.floor(spot * 0.7));
   const scenarioPriceSliderMax = Math.max(
     scenarioPriceSliderMin,
-    Math.ceil(shortStrike * 1.3),
+    Math.ceil(upperStrike * 1.3),
   );
   const safeScenarioPrice = Math.round(
     clamp(scenarioPrice, scenarioPriceSliderMin, scenarioPriceSliderMax),
@@ -1108,12 +1581,91 @@ export default function DebitCallSpreadLab({
       : safeScenarioPrice;
   const displayedScenarioPriceInputValue =
     scenarioPriceDraft ?? String(scenarioPriceInputValue);
-  const currentPriceSliderMax = getSliderMax(spot, safeScenarioPrice, longStrike, shortStrike);
-  const baseStrikeSliderMax = getSliderMax(spot, safeScenarioPrice, longStrike, shortStrike);
-  const longStrikeSliderMax = Math.max(baseStrikeSliderMax, shortStrike + 20);
+  const currentPriceSliderMax = getSliderMax(spot, safeScenarioPrice, longStrike, upperStrike);
+  const baseStrikeSliderMax = getSliderMax(spot, safeScenarioPrice, longStrike, upperStrike);
+  const longStrikeSliderMax = Math.max(
+    baseStrikeSliderMax,
+    isDebitCallSpread ? shortStrike + 20 : longStrike + 20,
+  );
   const shortStrikeSliderMax = Math.max(baseStrikeSliderMax + 20, longStrike + 5);
   const expiryIso = addDaysToIso(todayIso, expirationDays);
   const safeScenarioOffsetDays = clamp(scenarioOffsetDays, 0, expirationDays);
+
+  useEffect(() => {
+    let isActive = true;
+    const sharedState = getShareStateFromUrl(defaultExpirationDays);
+
+    queueMicrotask(() => {
+      if (!isActive) {
+        return;
+      }
+
+      if (sharedState) {
+        setStrategy(sharedState.strategy);
+        setSymbol(sharedState.symbol);
+        setSpot(sharedState.spot);
+        setVolatilityPct(sharedState.volatilityPct);
+        setFutureVolatilityPct(sharedState.futureVolatilityPct);
+        setLongStrike(sharedState.longStrike);
+        setShortStrike(sharedState.shortStrike);
+        setCapital(sharedState.capital);
+        setAllowFractionalContracts(sharedState.allowFractionalContracts);
+        setExpirationDays(sharedState.expirationDays);
+        setScenarioPrice(sharedState.scenarioPrice);
+        setScenarioPriceDraft(null);
+        setScenarioGraphView(sharedState.scenarioGraphView);
+        setScenarioOffsetDays(sharedState.scenarioOffsetDays);
+        setRatePct(sharedState.ratePct);
+        setRatePctDraft(compactNumber(sharedState.ratePct));
+      }
+
+      setIsUrlStateReady(true);
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [defaultExpirationDays]);
+
+  useEffect(() => {
+    if (!isUrlStateReady) {
+      return;
+    }
+
+    const nextState = encodeShareState({
+      strategy,
+      symbol,
+      spot,
+      volatilityPct,
+      futureVolatilityPct,
+      longStrike,
+      shortStrike,
+      capital,
+      allowFractionalContracts,
+      expirationDays,
+      scenarioPrice: safeScenarioPrice,
+      scenarioOffsetDays: safeScenarioOffsetDays,
+      ratePct,
+      scenarioGraphView,
+    });
+    replaceShareHash(nextState);
+  }, [
+    allowFractionalContracts,
+    capital,
+    expirationDays,
+    futureVolatilityPct,
+    longStrike,
+    ratePct,
+    safeScenarioOffsetDays,
+    safeScenarioPrice,
+    scenarioGraphView,
+    shortStrike,
+    spot,
+    strategy,
+    symbol,
+    volatilityPct,
+    isUrlStateReady,
+  ]);
   const updateSpot = (nextValue: number) => {
     const nextSpot = Math.round(nextValue);
 
@@ -1172,6 +1724,49 @@ export default function DebitCallSpreadLab({
       setScenarioPrice(Number(event.key));
     }
   };
+  const updateRatePctDraft = (nextValue: string) => {
+    if (!/^\d*\.?\d*$/.test(nextValue)) {
+      return;
+    }
+
+    setRatePctDraft(nextValue);
+
+    if (!nextValue.trim() || nextValue === ".") {
+      setRatePct(0);
+      return;
+    }
+
+    setRatePct(clamp(parseDecimalInput(nextValue), 0, 15));
+  };
+  const commitRatePctDraft = () => {
+    const nextRate = clamp(parseDecimalInput(ratePctDraft), 0, 15);
+
+    setRatePct(nextRate);
+    setRatePctDraft(String(roundTo(nextRate, 2)));
+  };
+  const handleRatePctKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey) {
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.currentTarget.blur();
+      return;
+    }
+
+    if (event.key === "Backspace" && /^\d$/.test(event.currentTarget.value)) {
+      event.preventDefault();
+      setRatePctDraft("0");
+      setRatePct(0);
+      return;
+    }
+
+    if (/^\d$/.test(event.key) && event.currentTarget.value === "0") {
+      event.preventDefault();
+      setRatePctDraft(event.key);
+      setRatePct(Number(event.key));
+    }
+  };
 
   const validationMessages: string[] = [];
   if (!symbol.trim()) {
@@ -1181,12 +1776,19 @@ export default function DebitCallSpreadLab({
     validationMessages.push("Current stock price has to be greater than zero.");
   }
   if (volatilityPct < 0) {
-    validationMessages.push("Implied volatility cannot be negative.");
+    validationMessages.push("Current IV cannot be negative.");
   }
-  if (longStrike <= 0 || shortStrike <= 0) {
-    validationMessages.push("Strike prices have to be greater than zero.");
+  if (futureVolatilityPct < 0) {
+    validationMessages.push("Future IV cannot be negative.");
   }
-  if (shortStrike <= longStrike) {
+  if (longStrike <= 0 || (isDebitCallSpread && shortStrike <= 0)) {
+    validationMessages.push(
+      isDebitCallSpread
+        ? "Strike prices have to be greater than zero."
+        : "Call strike has to be greater than zero.",
+    );
+  }
+  if (isDebitCallSpread && shortStrike <= longStrike) {
     validationMessages.push("For a debit call spread, the short strike must be above the long strike.");
   }
   if (capital <= 0) {
@@ -1196,41 +1798,50 @@ export default function DebitCallSpreadLab({
     validationMessages.push("Set the expiration after today so the app can model time value.");
   }
 
-  const inputs = useMemo<DebitCallSpreadInputs>(
+  const inputs = useMemo<StrategyInputs>(
     () => ({
+      strategy,
       todayIso,
       expiryIso,
       spot,
       longStrike,
       shortStrike,
       volatilityPct,
+      futureVolatilityPct,
       capital,
+      allowFractionalContracts,
       scenarioPrice: safeScenarioPrice,
       scenarioOffsetDays: safeScenarioOffsetDays,
       ratePct,
-      dividendYieldPct,
+      dividendYieldPct: 0,
     }),
     [
+      allowFractionalContracts,
       capital,
-      dividendYieldPct,
       expiryIso,
+      futureVolatilityPct,
       longStrike,
       ratePct,
       safeScenarioOffsetDays,
       safeScenarioPrice,
       shortStrike,
       spot,
+      strategy,
       todayIso,
       volatilityPct,
     ],
   );
 
   const snapshot = useMemo(() => createScenarioSnapshot(inputs), [inputs]);
-  const maxProfitAtExpiry =
-    snapshot.maxProfitPerSpread * snapshot.contracts * 100;
+  const maxProfitAtExpiry = snapshot.maxProfitPerUnit !== null
+    ? snapshot.maxProfitPerUnit * snapshot.contracts * CONTRACT_MULTIPLIER
+    : null;
   const maxReturnAtExpiry =
-    snapshot.totalCost > 0 ? maxProfitAtExpiry / snapshot.totalCost : 0;
-  const canModel = validationMessages.length === 0 && snapshot.debitPerSpread > 0;
+    maxProfitAtExpiry !== null && snapshot.totalCost > 0
+      ? maxProfitAtExpiry / snapshot.totalCost
+      : null;
+  const maxLossAtExpiry = -snapshot.totalCost;
+  const canModel = validationMessages.length === 0 && snapshot.unitCost > 0;
   const timelineRows = useMemo<TimelineTableRow[]>(
     () =>
       canModel
@@ -1251,16 +1862,18 @@ export default function DebitCallSpreadLab({
         : [],
     [canModel, inputs],
   );
-  const lineChartPoints = useMemo<LineValuePoint[]>(
-    () =>
-      priceRows.map((row) => ({
-        id: row.id,
-        price: row.price,
-        value: row.positionValue,
-        isHighlighted: row.isHighlighted,
-      })),
-    [priceRows],
-  );
+  const pnlCurvePoints = useMemo<PnlCurvePoint[]>(() => {
+    if (!canModel) {
+      return [];
+    }
+
+    const totalCost = snapshot.totalCost;
+    return buildPriceCurve(inputs).map((point: PriceCurvePoint) => ({
+      price: point.price,
+      selectedDatePnl: point.selectedDateValue - totalCost,
+      expiryPnl: point.expiryValue - totalCost,
+    }));
+  }, [canModel, inputs, snapshot.totalCost]);
   const scenarioMapRange = useMemo(() => {
     const minMapPrice = Math.max(1, Math.floor(spot * 0.7));
     const maxMapPrice = Math.max(scenarioPriceSliderMax, Math.ceil(spot * 1.05));
@@ -1299,10 +1912,10 @@ export default function DebitCallSpreadLab({
       ),
     },
     {
-      key: "spreadValue",
-      label: "Spread / 1 lot",
+      key: "unitValue",
+      label: strategyCopy.unitColumnLabel,
       align: "right",
-      render: (row) => formatCurrency(row.spreadValue * 100),
+      render: (row) => formatCurrency(row.unitValue * CONTRACT_MULTIPLIER),
     },
     {
       key: "positionValue",
@@ -1345,10 +1958,10 @@ export default function DebitCallSpreadLab({
       render: (row) => formatCurrency(row.price),
     },
     {
-      key: "spreadValue",
-      label: "Spread / 1 lot",
+      key: "unitValue",
+      label: strategyCopy.unitColumnLabel,
       align: "right",
-      render: (row) => formatCurrency(row.spreadValue * 100),
+      render: (row) => formatCurrency(row.unitValue * CONTRACT_MULTIPLIER),
     },
     {
       key: "positionValue",
@@ -1381,19 +1994,69 @@ export default function DebitCallSpreadLab({
     label: `${percent}% OTM`,
     value: getOtmStrike(spot, percent),
   }));
+  const callStrikeActions = [
+    {
+      label: "ATM",
+      value: Math.round(spot),
+    },
+    ...[5, 10, 20].map((percent) => ({
+      label: `${percent}% OTM`,
+      value: getOtmStrike(spot, percent),
+    })),
+  ];
+  const contractUnitLabel =
+    snapshot.contracts === 1
+      ? strategyCopy.contractName
+      : snapshot.allowFractionalContracts && strategy === "debit-call-spread"
+        ? "spreads"
+        : strategyCopy.contractPlural;
+  const contractCountLabel = `${formatQuantity(snapshot.contracts)} ${contractUnitLabel}`;
+  const cashLeftLabel = snapshot.allowFractionalContracts && snapshot.contracts > 0
+    ? "no cash left over"
+    : `${formatCurrency(snapshot.cashLeft)} left over`;
 
   return (
     <main className="min-h-dvh bg-stone-100 text-slate-900 lg:h-dvh lg:overflow-hidden">
       <div className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col gap-3 px-4 py-3 md:px-6 lg:h-full lg:min-h-0">
         <div className="grid gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[21rem_minmax(0,1fr)]">
           <aside className="lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
-            <h1 className="sr-only">Debit Call Spread Lab</h1>
+            <h1 className="sr-only">Callculator</h1>
             <SectionCard
               title="Inputs"
-              eyebrow="Debit Call Spread Lab"
+              eyebrow="Callculator"
               eyebrowClassName="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance"
             >
               <div className="space-y-3">
+                <div
+                  className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm"
+                  role="group"
+                  aria-label="Option strategy"
+                >
+                  <p className="text-sm font-medium text-slate-900">Strategy</p>
+                  <div className="mt-2 grid gap-2">
+                    {STRATEGY_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={strategy === option.value}
+                        onClick={() => setStrategy(option.value)}
+                        className={cn(
+                          "rounded-md border border-slate-300 bg-white px-3 py-2 text-left shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
+                          strategy === option.value &&
+                            "border-amber-600 bg-amber-50 text-slate-950",
+                        )}
+                      >
+                        <span className="block text-sm font-semibold text-slate-900">
+                          {option.label}
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 text-slate-500 text-pretty">
+                          {option.description}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
                   <span className="text-sm font-medium text-slate-900">Underlying ticker or label</span>
                   <input
@@ -1407,7 +2070,7 @@ export default function DebitCallSpreadLab({
 
                 <NumberSliderField
                   label="Current stock price"
-                  help="Used to price the spread today."
+                  help={`Used to price the ${strategyCopy.unitName} today.`}
                   min={5}
                   max={currentPriceSliderMax}
                   step={1}
@@ -1417,8 +2080,8 @@ export default function DebitCallSpreadLab({
                 />
 
                 <NumberSliderField
-                  label="Implied volatility"
-                  help="Single-volatility assumption for both call legs."
+                  label="Current IV"
+                  help={`Used to estimate today's ${strategyCopy.unitName} cost.`}
                   min={5}
                   max={150}
                   step={1}
@@ -1427,32 +2090,48 @@ export default function DebitCallSpreadLab({
                   suffix="%"
                 />
 
-                <NumberSliderField
-                  label="Long call strike"
-                  help="The strike you buy."
-                  min={5}
-                  max={longStrikeSliderMax}
-                  step={1}
-                  value={longStrike}
-                  onChange={setLongStrike}
-                  prefix="$"
-                />
+                {isDebitCallSpread ? (
+                  <>
+                    <NumberSliderField
+                      label="Long call strike"
+                      help="The strike you buy."
+                      min={5}
+                      max={longStrikeSliderMax}
+                      step={1}
+                      value={longStrike}
+                      onChange={setLongStrike}
+                      prefix="$"
+                    />
 
-                <NumberSliderField
-                  label="Short call strike"
-                  help="The strike you sell."
-                  min={5}
-                  max={shortStrikeSliderMax}
-                  step={1}
-                  value={shortStrike}
-                  onChange={setShortStrike}
-                  prefix="$"
-                  quickActions={shortStrikeOtmActions}
-                />
+                    <NumberSliderField
+                      label="Short call strike"
+                      help="The strike you sell."
+                      min={5}
+                      max={shortStrikeSliderMax}
+                      step={1}
+                      value={shortStrike}
+                      onChange={setShortStrike}
+                      prefix="$"
+                      quickActions={shortStrikeOtmActions}
+                    />
+                  </>
+                ) : (
+                  <NumberSliderField
+                    label="Call strike"
+                    help="The strike price of the call you buy."
+                    min={5}
+                    max={longStrikeSliderMax}
+                    step={1}
+                    value={longStrike}
+                    onChange={setLongStrike}
+                    prefix="$"
+                    quickActions={callStrikeActions}
+                  />
+                )}
 
                 <NumberSliderField
                   label="Capital to deploy"
-                  help="The app buys as many full 1x1 spreads as this amount allows."
+                  help={strategyCopy.capitalHelp}
                   min={500}
                   max={100000}
                   step={100}
@@ -1461,12 +2140,57 @@ export default function DebitCallSpreadLab({
                   prefix="$"
                 />
 
+                <div
+                  className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm"
+                  role="group"
+                  aria-label="Position sizing"
+                >
+                  <p className="text-sm font-medium text-slate-900">Position sizing</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {[
+                      {
+                        label: "Whole",
+                        value: false,
+                      },
+                      {
+                        label: "Fractional",
+                        value: true,
+                      },
+                    ].map((option) => (
+                      <button
+                        key={option.label}
+                        type="button"
+                        aria-pressed={allowFractionalContracts === option.value}
+                        onPointerDown={() => setAllowFractionalContracts(option.value)}
+                        onMouseDown={() => setAllowFractionalContracts(option.value)}
+                        onClick={() => setAllowFractionalContracts(option.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setAllowFractionalContracts(option.value);
+                          }
+                        }}
+                        className={cn(
+                          "rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
+                          allowFractionalContracts === option.value &&
+                            "border-amber-600 bg-amber-50 text-slate-950",
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-slate-500 text-pretty">
+                    Fractional uses the full capital amount instead of rounding down to whole contracts.
+                  </p>
+                </div>
+
                 <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="text-sm font-medium text-slate-900">Days to expiration</p>
                       <p className="mt-1 text-xs leading-5 text-slate-500 text-pretty">
-                        The spread value decays toward intrinsic value as DTE approaches zero.
+                        The {strategyCopy.unitName} value decays toward intrinsic value as DTE approaches zero.
                       </p>
                     </div>
                     <span className="font-mono text-xs text-slate-600 tabular-nums">
@@ -1496,42 +2220,20 @@ export default function DebitCallSpreadLab({
                   </div>
                 </label>
 
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div>
                   <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
                     <span className="text-sm font-medium text-slate-900">Risk-free rate</span>
                     <input
-                      type="number"
-                      value={ratePct}
+                      type="text"
+                      inputMode="decimal"
+                      value={ratePctDraft}
                       min={0}
                       max={15}
-                      step={1}
-                      onKeyDown={(event) => handleNumberKeyDown(event, setRatePct)}
-                      onInput={(event) =>
-                        setRatePct(clamp(parseNumberInput(event.currentTarget.value), 0, 15))
-                      }
-                      onChange={(event) =>
-                        setRatePct(clamp(parseNumberInput(event.target.value), 0, 15))
-                      }
-                      className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 font-mono text-sm text-slate-950 outline-none"
-                    />
-                  </label>
-                  <label className="block rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-                    <span className="text-sm font-medium text-slate-900">Dividend yield</span>
-                    <input
-                      type="number"
-                      value={dividendYieldPct}
-                      min={0}
-                      max={15}
-                      step={1}
-                      onKeyDown={(event) => handleNumberKeyDown(event, setDividendYieldPct)}
-                      onInput={(event) =>
-                        setDividendYieldPct(
-                          clamp(parseNumberInput(event.currentTarget.value), 0, 15),
-                        )
-                      }
-                      onChange={(event) =>
-                        setDividendYieldPct(clamp(parseNumberInput(event.target.value), 0, 15))
-                      }
+                      pattern="[0-9]*[.]?[0-9]*"
+                      aria-label="Risk-free rate"
+                      onBlur={commitRatePctDraft}
+                      onKeyDown={handleRatePctKeyDown}
+                      onChange={(event) => updateRatePctDraft(event.target.value)}
                       className="mt-2 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 font-mono text-sm text-slate-950 outline-none"
                     />
                   </label>
@@ -1542,7 +2244,7 @@ export default function DebitCallSpreadLab({
             <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
               <p className="font-medium">Model assumptions</p>
               <p className="mt-1 text-xs leading-5 text-pretty">
-                This uses a Black-Scholes estimate with one shared IV for both call legs, a flat rate, and a flat dividend yield. It treats the spread like European-style pricing, which is clean for learning and scenario work.
+                {strategyCopy.modelAssumptions}
               </p>
             </div>
           </aside>
@@ -1550,15 +2252,15 @@ export default function DebitCallSpreadLab({
           <div className="space-y-4 lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               <MetricCard
-                label="Spread cost today"
-                value={formatCurrency(snapshot.debitPerSpread * 100)}
+                label={strategyCopy.costMetricLabel}
+                value={formatCurrency(snapshot.unitCost * CONTRACT_MULTIPLIER)}
                 tone="accent"
-                helper="Cost for one 1x1 spread."
+                helper={`Cost for one ${strategyCopy.contractName}.`}
               />
               <MetricCard
                 label="Total cash deployed"
                 value={formatCurrency(snapshot.totalCost)}
-                helper={`${snapshot.contracts} full spreads, ${formatCurrency(snapshot.cashLeft)} left over.`}
+                helper={`${contractCountLabel}, ${cashLeftLabel}.`}
               />
               <MetricCard
                 label="Break-even at expiry"
@@ -1569,104 +2271,133 @@ export default function DebitCallSpreadLab({
 
             <SectionCard
               title="Scenario curve"
-              eyebrow={`${symbol.trim() || "Underlying"} spread value by stock price`}
+              eyebrow={`${symbol.trim() || "Underlying"} profit & loss by stock price`}
             >
               <div className="space-y-4">
                 <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                  <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+                  <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-3">
                     <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
-                      <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
-                        Selected scenario
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+                          At your scenario
+                        </p>
+                        <p className="font-mono text-[11px] text-slate-500 tabular-nums">
+                          {formatCurrency(safeScenarioPrice)} · {formatLongDate(snapshot.selectedDateIso)}
+                        </p>
+                      </div>
+                      <p
+                        className={cn(
+                          "mt-4 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none tabular-nums 2xl:text-4xl",
+                          snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
+                        )}
+                      >
+                        {snapshot.pnl >= 0 ? "+" : ""}
+                        {formatCurrency(snapshot.pnl)}
                       </p>
-                      <p className="mt-5 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-slate-950 tabular-nums 2xl:text-4xl">
-                        {formatCurrency(safeScenarioPrice)}
-                      </p>
-                      <p className="mt-3 text-sm font-medium text-slate-500">
-                        {formatLongDate(snapshot.selectedDateIso)}
-                      </p>
-                    </div>
-
-                    <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
-                      <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
-                        Value on selected date
-                      </p>
-                      <p className="mt-5 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-slate-950 tabular-nums 2xl:text-4xl">
-                        {formatCurrency(snapshot.scenarioPositionValue)}
-                      </p>
-                      <p className="mt-3 text-sm font-medium text-slate-500">
-                        Position value
-                      </p>
-                    </div>
-
-                    <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
-                      <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
-                        Max at expiry
-                      </p>
-                      <dl className="mt-4 grid gap-3">
-                        <div className="flex min-w-0 items-baseline justify-between gap-4">
-                          <dt className="text-xs font-semibold uppercase text-slate-500">
-                            Profit
-                          </dt>
-                          <dd className="whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
-                            {formatCurrency(maxProfitAtExpiry)}
-                          </dd>
-                        </div>
-                        <div className="flex min-w-0 items-baseline justify-between gap-4">
-                          <dt className="text-xs font-semibold uppercase text-slate-500">
-                            Return
-                          </dt>
-                          <dd className="whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
-                            {formatPercent(maxReturnAtExpiry)}
-                          </dd>
-                        </div>
-                      </dl>
-                    </div>
-
-                    <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
-                      <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
-                        Profit or loss then
-                      </p>
-                      <dl className="mt-4 grid gap-3">
-                        <div className="flex min-w-0 items-baseline justify-between gap-4">
-                          <dt className="text-xs font-semibold uppercase text-slate-500">
-                            {snapshot.pnl >= 0 ? "Profit" : "Loss"}
-                          </dt>
-                          <dd
+                      <div className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                        <span className="font-medium text-slate-500">
+                          {snapshot.pnl >= 0 ? "Profit" : "Loss"}
+                          {" · "}
+                          <span
                             className={cn(
-                              "whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none tabular-nums",
-                              snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
-                            )}
-                          >
-                            {formatCurrency(snapshot.pnl)}
-                          </dd>
-                        </div>
-                        <div className="flex min-w-0 items-baseline justify-between gap-4">
-                          <dt className="text-xs font-semibold uppercase text-slate-500">
-                            Return
-                          </dt>
-                          <dd
-                            className={cn(
-                              "whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none tabular-nums",
+                              "font-mono font-semibold tabular-nums",
                               snapshot.roi >= 0 ? "text-emerald-700" : "text-rose-700",
                             )}
                           >
                             {snapshot.totalCost > 0 ? formatPercent(snapshot.roi) : "N/A"}
-                          </dd>
+                          </span>
+                        </span>
+                        <span className="font-mono text-xs text-slate-500 tabular-nums">
+                          Position {formatCurrency(snapshot.scenarioPositionValue)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {snapshot.isProfitCapped ? (
+                      <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+                            Best case at expiry
+                          </p>
+                          <p className="font-mono text-[11px] text-slate-500 tabular-nums">
+                            ≥ {formatCurrency(snapshot.breakEvenAtExpiry)}
+                          </p>
                         </div>
-                      </dl>
+                        <p className="mt-4 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-emerald-700 tabular-nums 2xl:text-4xl">
+                          +{formatCurrency(maxProfitAtExpiry ?? 0)}
+                        </p>
+                        <div className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                          <span className="font-medium text-slate-500">
+                            Max profit ·{" "}
+                            <span className="font-mono font-semibold text-emerald-700 tabular-nums">
+                              {maxReturnAtExpiry !== null ? formatPercent(maxReturnAtExpiry) : "N/A"}
+                            </span>
+                          </span>
+                          <span className="font-mono text-xs text-slate-500 tabular-nums">
+                            B/E {formatCurrency(snapshot.breakEvenAtExpiry)}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+                            Upside at expiry
+                          </p>
+                          <p className="font-mono text-[11px] text-slate-500 tabular-nums">
+                            ≥ {formatCurrency(snapshot.breakEvenAtExpiry)}
+                          </p>
+                        </div>
+                        <p className="mt-4 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums 2xl:text-3xl">
+                          Uncapped
+                        </p>
+                        <div className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                          <span className="font-medium text-slate-500">
+                            Long calls have no profit ceiling.
+                          </span>
+                          <span className="font-mono text-xs text-slate-500 tabular-nums">
+                            B/E {formatCurrency(snapshot.breakEvenAtExpiry)}
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="flex min-h-32 min-w-0 flex-col justify-between p-4 sm:p-5">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+                          Worst case at expiry
+                        </p>
+                        <p className="font-mono text-[11px] text-slate-500 tabular-nums">
+                          &lt; {formatCurrency(longStrike)}
+                        </p>
+                      </div>
+                      <p className="mt-4 whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-rose-700 tabular-nums 2xl:text-4xl">
+                        {formatCurrency(maxLossAtExpiry)}
+                      </p>
+                      <div className="mt-3 flex items-baseline justify-between gap-3 text-sm">
+                        <span className="font-medium text-slate-500">
+                          Max loss ·{" "}
+                          <span className="font-mono font-semibold text-rose-700 tabular-nums">
+                            {snapshot.totalCost > 0 ? "-100%" : "N/A"}
+                          </span>
+                        </span>
+                        <span className="font-mono text-xs text-slate-500 tabular-nums">
+                          Cost {formatCurrency(snapshot.totalCost)}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
-                    <div className="flex items-center justify-between gap-3">
+                <div className="grid gap-4 lg:grid-cols-3">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
+                    <div className="flex min-h-14 items-start justify-between gap-3">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium text-slate-900">Future stock price</p>
                         <InfoIcon label="The stock price to test on the selected future date." />
                       </div>
-                      <div className="w-28 shrink-0">
-                        <div className="flex items-center rounded-md border border-slate-300 bg-white px-3 py-2">
+                      <div className="w-24 shrink-0">
+                        <div className="flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5">
                           <span className="text-sm text-slate-500">$</span>
                           <input
                             type="number"
@@ -1709,19 +2440,28 @@ export default function DebitCallSpreadLab({
                           ),
                         )
                       }
-                      className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
+                      className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
                     />
-                    <div className="mt-2 flex justify-between font-mono text-xs text-slate-500 tabular-nums">
+                    <div className="mt-2 flex items-center justify-between font-mono text-xs text-slate-500 tabular-nums">
                       <span>{formatCurrency(scenarioPriceSliderMin)}</span>
+                      <span className="text-slate-600">
+                        {spot > 0
+                          ? `${safeScenarioPrice >= spot ? "+" : ""}${Math.round(
+                              ((safeScenarioPrice - spot) / spot) * 100,
+                            )}% vs spot ${formatCurrency(spot)}`
+                          : ""}
+                      </span>
                       <span>{formatCurrency(scenarioPriceSliderMax)}</span>
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
-                    <div className="flex items-center justify-between gap-3">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
+                    <div className="flex min-h-14 items-start justify-between gap-3">
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-medium text-slate-900">Valuation date</p>
-                        <InfoIcon label="The date used to estimate what the spread could be worth before expiration." />
+                        <InfoIcon
+                          label={`The date used to estimate what the ${strategyCopy.unitName} could be worth before expiration.`}
+                        />
                       </div>
                       <div className="text-right">
                         <div className="font-mono text-sm text-slate-950 tabular-nums">
@@ -1745,13 +2485,26 @@ export default function DebitCallSpreadLab({
                           clamp(Number(event.target.value), 0, expirationDays),
                         )
                       }
-                      className="mt-4 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
+                      className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
                     />
                     <div className="mt-2 flex justify-between font-mono text-xs text-slate-500 tabular-nums">
                       <span>{formatLongDate(todayIso)}</span>
                       <span>{formatLongDate(expiryIso)}</span>
                     </div>
                   </div>
+
+                  <NumberSliderField
+                    label="Future IV"
+                    help={`Used to estimate the ${strategyCopy.unitName} value on the selected future date.`}
+                    min={0}
+                    max={150}
+                    step={1}
+                    value={futureVolatilityPct}
+                    onChange={setFutureVolatilityPct}
+                    suffix="%"
+                    className="p-3"
+                    headerClassName="min-h-14"
+                  />
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1760,7 +2513,7 @@ export default function DebitCallSpreadLab({
                     aria-label="Scenario graph view"
                   >
                     {[
-                      { value: "line", label: "Line chart" },
+                      { value: "line", label: "P/L curve" },
                       { value: "map", label: "Heat map" },
                     ].map((option) => (
                       <button
@@ -1786,11 +2539,6 @@ export default function DebitCallSpreadLab({
                       </button>
                     ))}
                   </div>
-                  <div className="font-mono text-xs text-slate-500 tabular-nums">
-                    {formatLongDate(snapshot.selectedDateIso)} |{" "}
-                    {formatCurrency(safeScenarioPrice)} |{" "}
-                    {formatCurrency(snapshot.scenarioPositionValue)}
-                  </div>
                 </div>
 
                 {validationMessages.length > 0 ? (
@@ -1805,17 +2553,26 @@ export default function DebitCallSpreadLab({
                 ) : null}
 
                 {canModel && scenarioGraphView === "line" ? (
-                  <SingleLineValueChart
-                    title="Spread value by stock price"
-                    subtitle={`On ${formatLongDate(snapshot.selectedDateIso)}`}
-                    points={lineChartPoints}
+                  <PnlScenarioChart
+                    title="Profit & loss by stock price"
+                    subtitle={`Solid line: value on ${formatLongDate(
+                      snapshot.selectedDateIso,
+                    )} at ${futureVolatilityPct}% IV. Dashed: payoff if held to expiry.`}
+                    points={pnlCurvePoints}
                     selectedPrice={safeScenarioPrice}
-                    selectedValue={snapshot.scenarioPositionValue}
+                    selectedPnl={snapshot.pnl}
+                    breakEvenPrice={snapshot.breakEvenAtExpiry}
+                    spotPrice={spot}
+                    maxProfit={maxProfitAtExpiry}
+                    maxLoss={maxLossAtExpiry}
+                    showExpiryCurve={snapshot.selectedOffsetDays < expirationDays}
+                    scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
                   />
                 ) : null}
 
                 {canModel && scenarioGraphView === "map" ? (
                   <ScenarioValueMap
+                    unitName={strategyCopy.unitName}
                     minPrice={scenarioMapRange.minPrice}
                     maxPrice={scenarioMapRange.maxPrice}
                     selectedPrice={safeScenarioPrice}
@@ -1840,7 +2597,7 @@ export default function DebitCallSpreadLab({
             </SectionCard>
 
             <ResultsTable
-              title="Value over time at the selected stock price"
+              title={`${strategyCopy.unitTitle} value over time at the selected stock price`}
               subtitle={`These rows keep ${symbol.trim() || "the stock"} fixed at ${formatCurrency(
                 safeScenarioPrice,
               )} and move the date toward expiry.`}
@@ -1849,7 +2606,7 @@ export default function DebitCallSpreadLab({
             />
 
             <ResultsTable
-              title="Value by stock price on the selected date"
+              title={`${strategyCopy.unitTitle} value by stock price on the selected date`}
               subtitle={`These rows keep the date fixed at ${formatLongDate(
                 snapshot.selectedDateIso,
               )} and move the underlying price.`}
