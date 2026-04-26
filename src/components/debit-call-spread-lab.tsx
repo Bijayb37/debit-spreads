@@ -49,7 +49,45 @@ type TooltipPosition = {
   top: number;
 };
 
-type ScenarioGraphView = "line" | "map";
+type ScenarioGraphView = "line" | "decay" | "overlay" | "map";
+
+type TimeDecayPoint = {
+  offsetDays: number;
+  dateIso: string;
+  positionValue: number;
+  pnl: number;
+};
+
+type TimeDecayChartProps = {
+  title: string;
+  subtitle: string;
+  points: TimeDecayPoint[];
+  expirationDays: number;
+  selectedOffsetDays: number;
+  selectedPositionValue: number;
+  selectedPnl: number;
+  totalCost: number;
+  scenarioPriceLabel: string;
+};
+
+type OverlayCurve = {
+  id: string;
+  label: string;
+  offsetDays: number;
+  isExpiry: boolean;
+  points: Array<{ price: number; pnl: number }>;
+};
+
+type MultiDateOverlayChartProps = {
+  title: string;
+  subtitle: string;
+  curves: OverlayCurve[];
+  selectedPrice: number;
+  selectedOffsetDays: number;
+  breakEvenPrice: number;
+  spotPrice: number;
+  totalCost: number;
+};
 
 type PnlCurvePoint = {
   price: number;
@@ -262,7 +300,13 @@ function encodeShareState(state: ShareState): string {
     compactNumber(state.scenarioPrice),
     compactNumber(state.scenarioOffsetDays),
     compactNumber(state.ratePct),
-    state.scenarioGraphView === "map" ? "m" : "l",
+    state.scenarioGraphView === "map"
+      ? "m"
+      : state.scenarioGraphView === "decay"
+        ? "t"
+        : state.scenarioGraphView === "overlay"
+          ? "o"
+          : "l",
   ];
 
   return parts.join("~");
@@ -352,7 +396,14 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
       expirationDays,
     ),
     ratePct: clamp(parseShareNumber(rateToken, 4), 0, 15),
-    scenarioGraphView: graphToken === "m" ? "map" : "line",
+    scenarioGraphView:
+      graphToken === "m"
+        ? "map"
+        : graphToken === "t"
+          ? "decay"
+          : graphToken === "o"
+            ? "overlay"
+            : "line",
   };
 }
 
@@ -1299,6 +1350,817 @@ function PnlScenarioChart({
   );
 }
 
+function TimeDecayChart({
+  title,
+  subtitle,
+  points,
+  expirationDays,
+  selectedOffsetDays,
+  selectedPositionValue,
+  selectedPnl,
+  totalCost,
+  scenarioPriceLabel,
+}: TimeDecayChartProps) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [hoverOffset, setHoverOffset] = useState<number | null>(null);
+
+  const width = 820;
+  const height = 340;
+  const padding = { top: 28, right: 96, bottom: 58, left: 84 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  if (points.length < 2 || expirationDays <= 0) {
+    return null;
+  }
+
+  const minOffset = 0;
+  const maxOffset = expirationDays;
+  const valueValues = points.map((p) => p.positionValue);
+  const pnlValuesAll = points.map((p) => p.pnl);
+  const valueMax = Math.max(...valueValues, selectedPositionValue, totalCost);
+  const valueMin = Math.min(...valueValues, 0);
+  const valueSpan = Math.max(valueMax - valueMin, 1);
+  const yMin = valueMin - valueSpan * 0.06;
+  const yMax = valueMax + valueSpan * 0.08;
+
+  const x = (offset: number) =>
+    padding.left +
+    ((clamp(offset, minOffset, maxOffset) - minOffset) /
+      Math.max(maxOffset - minOffset, 1)) *
+      chartWidth;
+  const y = (value: number) =>
+    padding.top +
+    ((yMax - clamp(value, yMin, yMax)) / Math.max(yMax - yMin, 1)) * chartHeight;
+
+  const niceTick = (raw: number) => {
+    const abs = Math.abs(raw);
+    if (abs >= 1000) return Math.round(raw / 1000) * 1000;
+    if (abs >= 100) return Math.round(raw / 100) * 100;
+    return Math.round(raw);
+  };
+  const yTickValues = Array.from(new Set([
+    niceTick(yMin + (yMax - yMin) * 0.1),
+    niceTick(valueMin),
+    niceTick(totalCost),
+    niceTick(valueMax),
+    niceTick(yMin + (yMax - yMin) * 0.9),
+  ].filter((tick) => tick >= yMin && tick <= yMax)));
+  yTickValues.sort((a, b) => a - b);
+
+  const dteTicks = Array.from(
+    new Set([0, Math.round(maxOffset * 0.25), Math.round(maxOffset * 0.5), Math.round(maxOffset * 0.75), maxOffset]),
+  ).sort((a, b) => a - b);
+
+  const path = points
+    .map((point, index) => `${index === 0 ? "M" : "L"} ${x(point.offsetDays)} ${y(point.positionValue)}`)
+    .join(" ");
+  const costLineY = y(totalCost);
+
+  const findNearest = (offset: number) => {
+    let nearest = points[0];
+    let nearestDistance = Math.abs(points[0].offsetDays - offset);
+    for (let index = 1; index < points.length; index += 1) {
+      const distance = Math.abs(points[index].offsetDays - offset);
+      if (distance < nearestDistance) {
+        nearest = points[index];
+        nearestDistance = distance;
+      }
+    }
+    return nearest;
+  };
+  const handleMove = (event: PointerEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const localX = ((event.clientX - rect.left) / rect.width) * width;
+    if (localX < padding.left || localX > width - padding.right) {
+      setHoverOffset(null);
+      return;
+    }
+    const ratio = (localX - padding.left) / Math.max(chartWidth, 1);
+    const offset = minOffset + ratio * (maxOffset - minOffset);
+    setHoverOffset(offset);
+  };
+  const handleLeave = () => setHoverOffset(null);
+
+  const hoverPoint = hoverOffset !== null ? findNearest(hoverOffset) : null;
+  const hoverX = hoverPoint ? x(hoverPoint.offsetDays) : 0;
+  const hoverY = hoverPoint ? y(hoverPoint.positionValue) : 0;
+  const tooltipWidth = 168;
+  const tooltipHeight = 88;
+  const tooltipPadding = 12;
+  const tooltipX =
+    hoverPoint && hoverX + tooltipPadding + tooltipWidth > width - padding.right
+      ? hoverX - tooltipPadding - tooltipWidth
+      : hoverX + tooltipPadding;
+  const tooltipY = padding.top + 4;
+
+  const selectedX = x(selectedOffsetDays);
+  const selectedY = y(selectedPositionValue);
+  const profitColor = "#059669";
+  const lossColor = "#be123c";
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-x-4 gap-y-1.5 text-xs text-slate-600">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="h-0.5 w-4 rounded-full bg-slate-700" />
+            Stock at {scenarioPriceLabel}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span
+              className="h-0.5 w-4 rounded-full"
+              style={{
+                backgroundImage:
+                  "linear-gradient(to right, #94a3b8 50%, transparent 50%)",
+                backgroundSize: "6px 2px",
+              }}
+            />
+            Cost basis
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="size-2 rounded-full bg-amber-600" />
+            Selected
+            <span
+              className={cn(
+                "font-mono font-semibold tabular-nums",
+                selectedPnl >= 0 ? "text-emerald-700" : "text-rose-700",
+              )}
+            >
+              {formatCompactCurrency(selectedPositionValue)}
+            </span>
+          </span>
+        </div>
+      </div>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full"
+        role="img"
+        aria-label={`${title}: ${subtitle}`}
+        onPointerMove={handleMove}
+        onPointerLeave={handleLeave}
+      >
+        <rect
+          x={padding.left}
+          y={padding.top}
+          width={chartWidth}
+          height={chartHeight}
+          fill={CHART_COLORS.paper}
+        />
+
+        {yTickValues.map((tick) => (
+          <g key={`decay-y-${tick}`}>
+            <line
+              x1={padding.left}
+              x2={width - padding.right}
+              y1={y(tick)}
+              y2={y(tick)}
+              stroke={CHART_COLORS.line}
+              strokeWidth={1}
+            />
+            <text
+              x={padding.left - 10}
+              y={y(tick) + 4}
+              textAnchor="end"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[11px]"
+            >
+              {formatCompactCurrency(tick)}
+            </text>
+            <text
+              x={width - padding.right + 10}
+              y={y(tick) + 4}
+              textAnchor="start"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[11px]"
+            >
+              {(tick - totalCost) >= 0 ? "+" : ""}
+              {formatCompactCurrency(tick - totalCost)}
+            </text>
+          </g>
+        ))}
+        <text
+          x={padding.left - 10}
+          y={padding.top - 12}
+          textAnchor="end"
+          fill={CHART_COLORS.inkMuted}
+          className="text-[10px] font-semibold uppercase tracking-wide"
+        >
+          Value
+        </text>
+        <text
+          x={width - padding.right + 10}
+          y={padding.top - 12}
+          textAnchor="start"
+          fill={CHART_COLORS.inkMuted}
+          className="text-[10px] font-semibold uppercase tracking-wide"
+        >
+          P/L
+        </text>
+
+        {dteTicks.map((tick) => (
+          <g key={`decay-dte-${tick}`}>
+            <line
+              x1={x(tick)}
+              x2={x(tick)}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.grid}
+              strokeWidth={1}
+            />
+            <text
+              x={x(tick)}
+              y={height - padding.bottom + 20}
+              textAnchor="middle"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[11px]"
+            >
+              {tick === 0 ? "Today" : tick === maxOffset ? "Expiry" : `+${tick}d`}
+            </text>
+          </g>
+        ))}
+
+        <line
+          x1={padding.left}
+          x2={width - padding.right}
+          y1={costLineY}
+          y2={costLineY}
+          stroke={CHART_COLORS.inkMuted}
+          strokeOpacity={0.6}
+          strokeDasharray="4 4"
+          strokeWidth={1}
+        />
+        <text
+          x={width - padding.right - 4}
+          y={costLineY - 4}
+          textAnchor="end"
+          fill={CHART_COLORS.inkMuted}
+          className="font-mono text-[10px]"
+        >
+          Cost {formatCompactCurrency(totalCost)}
+        </text>
+
+        <path
+          d={path}
+          fill="none"
+          stroke={selectedPnl >= 0 ? profitColor : lossColor}
+          strokeWidth={2.75}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+
+        <line
+          x1={selectedX}
+          x2={selectedX}
+          y1={padding.top}
+          y2={height - padding.bottom}
+          stroke={CHART_COLORS.accent}
+          strokeDasharray="4 4"
+          strokeWidth={1.5}
+        />
+        <circle
+          cx={selectedX}
+          cy={selectedY}
+          r={5.5}
+          fill={CHART_COLORS.accent}
+          stroke={CHART_COLORS.paper}
+          strokeWidth={2}
+        />
+
+        <text
+          x={padding.left + chartWidth / 2}
+          y={height - 10}
+          textAnchor="middle"
+          fill={CHART_COLORS.inkMuted}
+          className="text-[11px] font-medium"
+        >
+          Days from today
+        </text>
+
+        {hoverPoint ? (
+          <g pointerEvents="none">
+            <line
+              x1={hoverX}
+              x2={hoverX}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.ink}
+              strokeOpacity={0.5}
+              strokeWidth={1}
+            />
+            <circle
+              cx={hoverX}
+              cy={hoverY}
+              r={4}
+              fill={CHART_COLORS.paper}
+              stroke={hoverPoint.pnl >= 0 ? profitColor : lossColor}
+              strokeWidth={2}
+            />
+            <rect
+              x={tooltipX}
+              y={tooltipY}
+              width={tooltipWidth}
+              height={tooltipHeight}
+              rx={6}
+              fill={CHART_COLORS.paper}
+              stroke={CHART_COLORS.line}
+              strokeWidth={1}
+            />
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 18}
+              fill={CHART_COLORS.ink}
+              className="font-mono text-[11px] font-semibold"
+            >
+              {formatLongDate(hoverPoint.dateIso)}
+            </text>
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 36}
+              fill={CHART_COLORS.inkMuted}
+              className="text-[10px] font-semibold uppercase tracking-wide"
+            >
+              {hoverPoint.offsetDays === 0
+                ? "Today"
+                : hoverPoint.offsetDays === maxOffset
+                  ? "At expiry"
+                  : `+${hoverPoint.offsetDays} days`}
+            </text>
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 54}
+              fill={CHART_COLORS.ink}
+              className="font-mono text-[11px]"
+            >
+              <tspan>Value </tspan>
+              <tspan className="font-semibold">{formatCurrency(hoverPoint.positionValue)}</tspan>
+            </text>
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 72}
+              fill={hoverPoint.pnl >= 0 ? profitColor : lossColor}
+              className="font-mono text-[11px] font-semibold"
+            >
+              {hoverPoint.pnl >= 0 ? "+" : ""}
+              {formatCurrency(hoverPoint.pnl)}{" "}
+              <tspan fill={CHART_COLORS.inkMuted} className="font-normal">
+                P/L
+              </tspan>
+            </text>
+          </g>
+        ) : null}
+      </svg>
+    </div>
+  );
+}
+
+function MultiDateOverlayChart({
+  title,
+  subtitle,
+  curves,
+  selectedPrice,
+  selectedOffsetDays,
+  breakEvenPrice,
+  spotPrice,
+  totalCost,
+}: MultiDateOverlayChartProps) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [hoverPrice, setHoverPrice] = useState<number | null>(null);
+  const profitClipId = useId();
+  const lossClipId = useId();
+
+  const width = 820;
+  const height = 360;
+  const padding = { top: 28, right: 96, bottom: 58, left: 84 };
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+
+  if (curves.length === 0 || curves[0].points.length < 2) {
+    return null;
+  }
+
+  const allPrices = [
+    selectedPrice,
+    breakEvenPrice,
+    spotPrice,
+    ...curves.flatMap((curve) => curve.points.map((p) => p.price)),
+  ];
+  const minPrice = Math.min(...allPrices);
+  const maxPrice = Math.max(...allPrices, minPrice + 1);
+
+  const allPnls = curves.flatMap((curve) => curve.points.map((p) => p.pnl));
+  const rawMin = Math.min(...allPnls);
+  const rawMax = Math.max(...allPnls);
+  const span = Math.max(rawMax - rawMin, 1);
+  const yMin = rawMin - span * 0.08;
+  const yMax = rawMax + span * 0.08;
+
+  const x = (price: number) =>
+    padding.left +
+    ((clamp(price, minPrice, maxPrice) - minPrice) /
+      Math.max(maxPrice - minPrice, 1)) *
+      chartWidth;
+  const y = (value: number) =>
+    padding.top +
+    ((yMax - clamp(value, yMin, yMax)) / Math.max(yMax - yMin, 1)) * chartHeight;
+
+  const niceTick = (raw: number) => {
+    const abs = Math.abs(raw);
+    if (abs >= 1000) return Math.round(raw / 1000) * 1000;
+    if (abs >= 100) return Math.round(raw / 100) * 100;
+    return Math.round(raw);
+  };
+  const yTickValues = Array.from(new Set([
+    niceTick(yMin + (yMax - yMin) * 0.1),
+    niceTick(rawMin),
+    0,
+    niceTick(rawMax),
+    niceTick(yMin + (yMax - yMin) * 0.9),
+  ].filter((tick) => tick >= yMin && tick <= yMax)));
+  yTickValues.sort((a, b) => a - b);
+
+  const priceTicks = [
+    minPrice,
+    Math.round((minPrice * 3 + maxPrice) / 4),
+    Math.round((minPrice + maxPrice) / 2),
+    Math.round((minPrice + maxPrice * 3) / 4),
+    maxPrice,
+  ];
+
+  const zeroY = y(0);
+
+  const curveColors = ["#0f172a", "#475569", "#94a3b8", "#cbd5e1", "#059669"];
+  const colorFor = (index: number, isExpiry: boolean) =>
+    isExpiry ? "#059669" : curveColors[Math.min(index, curveColors.length - 2)];
+
+  const buildCurvePath = (curvePoints: OverlayCurve["points"]) =>
+    curvePoints
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${x(point.price)} ${y(point.pnl)}`)
+      .join(" ");
+
+  const findNearest = (curve: OverlayCurve, price: number) => {
+    let nearest = curve.points[0];
+    let nearestDistance = Math.abs(curve.points[0].price - price);
+    for (let index = 1; index < curve.points.length; index += 1) {
+      const distance = Math.abs(curve.points[index].price - price);
+      if (distance < nearestDistance) {
+        nearest = curve.points[index];
+        nearestDistance = distance;
+      }
+    }
+    return nearest;
+  };
+  const handleMove = (event: PointerEvent<SVGSVGElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const localX = ((event.clientX - rect.left) / rect.width) * width;
+    if (localX < padding.left || localX > width - padding.right) {
+      setHoverPrice(null);
+      return;
+    }
+    const ratio = (localX - padding.left) / Math.max(chartWidth, 1);
+    setHoverPrice(minPrice + ratio * (maxPrice - minPrice));
+  };
+  const handleLeave = () => setHoverPrice(null);
+
+  const hoverX = hoverPrice !== null ? x(hoverPrice) : 0;
+  const hoverPriceValue = hoverPrice !== null ? curves[0].points.length > 0 ? findNearest(curves[0], hoverPrice).price : 0 : 0;
+  const tooltipWidth = 198;
+  const tooltipLineHeight = 14;
+  const tooltipHeaderHeight = 36;
+  const tooltipHeight = hoverPrice !== null
+    ? tooltipHeaderHeight + curves.length * tooltipLineHeight + 8
+    : 0;
+  const tooltipX =
+    hoverPrice !== null && hoverX + 12 + tooltipWidth > width - padding.right
+      ? hoverX - 12 - tooltipWidth
+      : hoverX + 12;
+  const tooltipY = padding.top + 4;
+
+  const breakEvenX = x(breakEvenPrice);
+  const spotX = x(spotPrice);
+  const selectedX = x(selectedPrice);
+  const showBreakEvenMarker = breakEvenPrice >= minPrice && breakEvenPrice <= maxPrice;
+  const showSpotMarker = spotPrice >= minPrice && spotPrice <= maxPrice;
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+        </div>
+        <div className="flex flex-wrap justify-end gap-x-3 gap-y-1.5 text-xs text-slate-600">
+          {curves.map((curve, index) => (
+            <span key={curve.id} className="inline-flex items-center gap-1.5">
+              <span
+                className="h-0.5 w-4 rounded-full"
+                style={{ backgroundColor: colorFor(index, curve.isExpiry) }}
+              />
+              {curve.label}
+            </span>
+          ))}
+        </div>
+      </div>
+      <svg
+        ref={svgRef}
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full"
+        role="img"
+        aria-label={`${title}: ${subtitle}`}
+        onPointerMove={handleMove}
+        onPointerLeave={handleLeave}
+      >
+        <defs>
+          <clipPath id={profitClipId}>
+            <rect
+              x={padding.left}
+              y={padding.top}
+              width={chartWidth}
+              height={Math.max(zeroY - padding.top, 0)}
+            />
+          </clipPath>
+          <clipPath id={lossClipId}>
+            <rect
+              x={padding.left}
+              y={zeroY}
+              width={chartWidth}
+              height={Math.max(height - padding.bottom - zeroY, 0)}
+            />
+          </clipPath>
+        </defs>
+
+        <rect
+          x={padding.left}
+          y={padding.top}
+          width={chartWidth}
+          height={chartHeight}
+          fill={CHART_COLORS.paper}
+        />
+        <rect
+          x={padding.left}
+          y={padding.top}
+          width={chartWidth}
+          height={Math.max(zeroY - padding.top, 0)}
+          fill="rgba(5, 150, 105, 0.06)"
+        />
+        <rect
+          x={padding.left}
+          y={zeroY}
+          width={chartWidth}
+          height={Math.max(height - padding.bottom - zeroY, 0)}
+          fill="rgba(190, 18, 60, 0.06)"
+        />
+
+        {yTickValues.map((tick) => (
+          <g key={`overlay-y-${tick}`}>
+            <line
+              x1={padding.left}
+              x2={width - padding.right}
+              y1={y(tick)}
+              y2={y(tick)}
+              stroke={tick === 0 ? CHART_COLORS.inkMuted : CHART_COLORS.line}
+              strokeWidth={tick === 0 ? 1.25 : 1}
+            />
+            <text
+              x={padding.left - 10}
+              y={y(tick) + 4}
+              textAnchor="end"
+              fill={tick === 0 ? CHART_COLORS.ink : CHART_COLORS.inkMuted}
+              className="font-mono text-[11px]"
+            >
+              {tick > 0 ? "+" : ""}
+              {formatCompactCurrency(tick)}
+            </text>
+            <text
+              x={width - padding.right + 10}
+              y={y(tick) + 4}
+              textAnchor="start"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[11px]"
+            >
+              {formatCompactCurrency(tick + totalCost)}
+            </text>
+          </g>
+        ))}
+        <text
+          x={padding.left - 10}
+          y={padding.top - 12}
+          textAnchor="end"
+          fill={CHART_COLORS.inkMuted}
+          className="text-[10px] font-semibold uppercase tracking-wide"
+        >
+          P/L
+        </text>
+        <text
+          x={width - padding.right + 10}
+          y={padding.top - 12}
+          textAnchor="start"
+          fill={CHART_COLORS.inkMuted}
+          className="text-[10px] font-semibold uppercase tracking-wide"
+        >
+          Value
+        </text>
+
+        {priceTicks.map((tick) => (
+          <g key={`overlay-px-${tick}`}>
+            <line
+              x1={x(tick)}
+              x2={x(tick)}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.grid}
+              strokeWidth={1}
+            />
+            <text
+              x={x(tick)}
+              y={height - padding.bottom + 20}
+              textAnchor="middle"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[11px]"
+            >
+              {formatCurrency(tick)}
+            </text>
+          </g>
+        ))}
+
+        {curves.map((curve, index) => (
+          <g key={curve.id}>
+            <path
+              d={buildCurvePath(curve.points)}
+              fill="none"
+              stroke={colorFor(index, curve.isExpiry)}
+              strokeWidth={curve.isExpiry ? 2 : 2.25}
+              strokeDasharray={curve.isExpiry ? "6 5" : undefined}
+              strokeOpacity={curve.offsetDays === selectedOffsetDays ? 1 : 0.85}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </g>
+        ))}
+
+        {showSpotMarker ? (
+          <g>
+            <line
+              x1={spotX}
+              x2={spotX}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.inkMuted}
+              strokeOpacity={0.5}
+              strokeDasharray="3 3"
+              strokeWidth={1}
+            />
+            <text
+              x={spotX}
+              y={padding.top - 8}
+              textAnchor="middle"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[10px]"
+            >
+              Spot {formatCurrency(spotPrice)}
+            </text>
+          </g>
+        ) : null}
+        {showBreakEvenMarker ? (
+          <g>
+            <line
+              x1={breakEvenX}
+              x2={breakEvenX}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.ink}
+              strokeOpacity={0.45}
+              strokeDasharray="2 4"
+              strokeWidth={1}
+            />
+            <text
+              x={breakEvenX}
+              y={height - padding.bottom + 38}
+              textAnchor="middle"
+              fill={CHART_COLORS.ink}
+              className="font-mono text-[10px] font-semibold"
+            >
+              B/E {formatCurrency(breakEvenPrice)}
+            </text>
+          </g>
+        ) : null}
+
+        <line
+          x1={selectedX}
+          x2={selectedX}
+          y1={padding.top}
+          y2={height - padding.bottom}
+          stroke={CHART_COLORS.accent}
+          strokeDasharray="4 4"
+          strokeWidth={1.5}
+        />
+
+        <text
+          x={padding.left + chartWidth / 2}
+          y={height - 10}
+          textAnchor="middle"
+          fill={CHART_COLORS.inkMuted}
+          className="text-[11px] font-medium"
+        >
+          Underlying price
+        </text>
+
+        {hoverPrice !== null ? (
+          <g pointerEvents="none">
+            <line
+              x1={hoverX}
+              x2={hoverX}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.ink}
+              strokeOpacity={0.5}
+              strokeWidth={1}
+            />
+            {curves.map((curve, index) => {
+              const point = findNearest(curve, hoverPrice);
+              return (
+                <circle
+                  key={`overlay-hover-${curve.id}`}
+                  cx={hoverX}
+                  cy={y(point.pnl)}
+                  r={3.5}
+                  fill={CHART_COLORS.paper}
+                  stroke={colorFor(index, curve.isExpiry)}
+                  strokeWidth={2}
+                />
+              );
+            })}
+            <rect
+              x={tooltipX}
+              y={tooltipY}
+              width={tooltipWidth}
+              height={tooltipHeight}
+              rx={6}
+              fill={CHART_COLORS.paper}
+              stroke={CHART_COLORS.line}
+              strokeWidth={1}
+            />
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 18}
+              fill={CHART_COLORS.ink}
+              className="font-mono text-[11px] font-semibold"
+            >
+              {formatCurrency(hoverPriceValue)}
+            </text>
+            {curves.map((curve, index) => {
+              const point = findNearest(curve, hoverPrice);
+              const lineY = tooltipY + tooltipHeaderHeight + index * tooltipLineHeight + 2;
+              const value = point.pnl + totalCost;
+              return (
+                <g key={`overlay-tip-${curve.id}`}>
+                  <rect
+                    x={tooltipX + 10}
+                    y={lineY - 8}
+                    width={8}
+                    height={2}
+                    fill={colorFor(index, curve.isExpiry)}
+                  />
+                  <text
+                    x={tooltipX + 24}
+                    y={lineY}
+                    fill={CHART_COLORS.ink}
+                    className="font-mono text-[10px]"
+                  >
+                    <tspan>{curve.label} </tspan>
+                    <tspan
+                      fill={point.pnl >= 0 ? "#059669" : "#be123c"}
+                      className="font-semibold"
+                    >
+                      {point.pnl >= 0 ? "+" : ""}
+                      {formatCompactCurrency(point.pnl)}
+                    </tspan>
+                    <tspan fill={CHART_COLORS.inkMuted}>
+                      {" · "}
+                      {formatCompactCurrency(value)}
+                    </tspan>
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+        ) : null}
+      </svg>
+    </div>
+  );
+}
+
 function ScenarioValueMap({
   unitName,
   minPrice,
@@ -2090,6 +2952,83 @@ export default function DebitCallSpreadLab({
       expiryPnl: point.expiryValue - totalCost,
     }));
   }, [canModel, inputs, snapshot.totalCost]);
+  const decayPoints = useMemo<TimeDecayPoint[]>(() => {
+    if (!canModel || expirationDays <= 0) {
+      return [];
+    }
+
+    const sampleCount = Math.min(Math.max(expirationDays + 1, 12), 80);
+    const offsets = Array.from({ length: sampleCount }, (_, index) =>
+      Math.round((expirationDays * index) / Math.max(sampleCount - 1, 1)),
+    );
+    const seenOffsets = new Set<number>();
+    return offsets.flatMap((offset) => {
+      if (seenOffsets.has(offset)) return [];
+      seenOffsets.add(offset);
+      const decaySnapshot = createScenarioSnapshot({
+        ...inputs,
+        scenarioOffsetDays: clamp(offset, 0, expirationDays),
+      });
+      return [{
+        offsetDays: offset,
+        dateIso: decaySnapshot.selectedDateIso,
+        positionValue: decaySnapshot.scenarioPositionValue,
+        pnl: decaySnapshot.pnl,
+      }];
+    });
+  }, [canModel, expirationDays, inputs]);
+  const overlayCurves = useMemo<OverlayCurve[]>(() => {
+    if (!canModel) {
+      return [];
+    }
+
+    const totalCost = snapshot.totalCost;
+    const offsets = expirationDays > 0
+      ? [
+          { offsetDays: 0, label: "Today" },
+          { offsetDays: Math.round(expirationDays * 0.33), label: `+${Math.round(expirationDays * 0.33)}d` },
+          { offsetDays: Math.round(expirationDays * 0.66), label: `+${Math.round(expirationDays * 0.66)}d` },
+          { offsetDays: snapshot.selectedOffsetDays, label: `Selected (+${snapshot.selectedOffsetDays}d)` },
+        ]
+      : [{ offsetDays: 0, label: "Today" }];
+    const dedupedOffsets: Array<{ offsetDays: number; label: string }> = [];
+    const seen = new Set<number>();
+    offsets.forEach((entry) => {
+      if (seen.has(entry.offsetDays)) return;
+      seen.add(entry.offsetDays);
+      dedupedOffsets.push(entry);
+    });
+    const result: OverlayCurve[] = dedupedOffsets.map((entry) => {
+      const curve = buildPriceCurve({
+        ...inputs,
+        scenarioOffsetDays: clamp(entry.offsetDays, 0, expirationDays),
+      });
+      return {
+        id: `overlay-${entry.offsetDays}`,
+        label: entry.label,
+        offsetDays: entry.offsetDays,
+        isExpiry: false,
+        points: curve.map((point) => ({
+          price: point.price,
+          pnl: point.selectedDateValue - totalCost,
+        })),
+      };
+    });
+    if (expirationDays > 0 && !seen.has(expirationDays)) {
+      const expiryCurve = buildPriceCurve(inputs);
+      result.push({
+        id: "overlay-expiry",
+        label: "At expiry",
+        offsetDays: expirationDays,
+        isExpiry: true,
+        points: expiryCurve.map((point) => ({
+          price: point.price,
+          pnl: point.expiryValue - totalCost,
+        })),
+      });
+    }
+    return result;
+  }, [canModel, expirationDays, inputs, snapshot.totalCost, snapshot.selectedOffsetDays]);
   const scenarioMapRange = useMemo(() => {
     const minMapPrice = Math.max(1, Math.floor(spot * 0.7));
     const maxMapPrice = Math.max(scenarioPriceSliderMax, Math.ceil(spot * 1.05));
@@ -2746,6 +3685,8 @@ export default function DebitCallSpreadLab({
                   >
                     {[
                       { value: "line", label: "P/L curve" },
+                      { value: "decay", label: "Decay" },
+                      { value: "overlay", label: "Multi-date" },
                       { value: "map", label: "Heat map" },
                     ].map((option) => (
                       <button
@@ -2800,6 +3741,35 @@ export default function DebitCallSpreadLab({
                     totalCost={snapshot.totalCost}
                     showExpiryCurve={snapshot.selectedOffsetDays < expirationDays}
                     scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
+                  />
+                ) : null}
+
+                {canModel && scenarioGraphView === "decay" ? (
+                  <TimeDecayChart
+                    title="Spread value decay over time"
+                    subtitle={`At a fixed underlying price of ${formatCurrency(
+                      safeScenarioPrice,
+                    )} and ${futureVolatilityPct}% IV. Hover to read the spread's value and P/L on any date.`}
+                    points={decayPoints}
+                    expirationDays={expirationDays}
+                    selectedOffsetDays={safeScenarioOffsetDays}
+                    selectedPositionValue={snapshot.scenarioPositionValue}
+                    selectedPnl={snapshot.pnl}
+                    totalCost={snapshot.totalCost}
+                    scenarioPriceLabel={formatCurrency(safeScenarioPrice)}
+                  />
+                ) : null}
+
+                {canModel && scenarioGraphView === "overlay" ? (
+                  <MultiDateOverlayChart
+                    title="P/L by stock price across valuation dates"
+                    subtitle={`Each curve fixes the date and walks the underlying. Solid: intermediate dates at ${futureVolatilityPct}% IV. Dashed: payoff at expiry.`}
+                    curves={overlayCurves}
+                    selectedPrice={safeScenarioPrice}
+                    selectedOffsetDays={safeScenarioOffsetDays}
+                    breakEvenPrice={snapshot.breakEvenAtExpiry}
+                    spotPrice={spot}
+                    totalCost={snapshot.totalCost}
                   />
                 ) : null}
 
