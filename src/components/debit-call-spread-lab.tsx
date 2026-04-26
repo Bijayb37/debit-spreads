@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent, PointerEvent, ReactNode } from "react";
+import DebitSpreadScenarioVisualizer from "@/components/debit-spread-scenario-visualizer";
 import { cn } from "@/lib/cn";
 import {
   CONTRACT_MULTIPLIER,
@@ -29,6 +30,7 @@ type SectionCardProps = {
   children: ReactNode;
   className?: string;
   eyebrowClassName?: string;
+  action?: ReactNode;
 };
 
 type MetricTone = "default" | "positive" | "negative" | "accent";
@@ -152,7 +154,6 @@ type ScenarioValueMapProps = {
   breakEvenPrice: number;
   totalCost: number;
   maxProfit: number | null;
-  priceMarkers: PriceMarker[];
   getScenarioTooltipPoint: (price: number, offsetDays: number) => {
     dateLabel: string;
     positionValue: number;
@@ -446,6 +447,59 @@ function formatCompactCurrency(value: number): string {
   return `${sign}$${absValue}`;
 }
 
+function getStockPriceTickStep(
+  minPrice: number,
+  maxPrice: number,
+  referencePrice: number,
+): number {
+  const rangeStep = Math.max(maxPrice - minPrice, 1) / 5;
+  const priceStep = Math.max(Math.abs(referencePrice) * 0.05, 1);
+  const rawStep = Math.max(rangeStep, priceStep);
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const normalizedStep = rawStep / magnitude;
+  const niceMultiplier =
+    normalizedStep <= 1
+      ? 1
+      : normalizedStep <= 2
+        ? 2
+        : normalizedStep <= 2.5
+          ? 2.5
+          : normalizedStep <= 5
+            ? 5
+            : 10;
+
+  return Math.max(1, niceMultiplier * magnitude);
+}
+
+function buildStockPriceAxisTicks(
+  minPrice: number,
+  maxPrice: number,
+  referencePrice: number,
+): number[] {
+  const safeMin = Math.max(0, Math.floor(Math.min(minPrice, maxPrice)));
+  const safeMax = Math.max(safeMin + 1, Math.ceil(Math.max(minPrice, maxPrice)));
+  const step = getStockPriceTickStep(safeMin, safeMax, referencePrice);
+  const firstTick = Math.ceil(safeMin / step) * step;
+  const ticks: number[] = [];
+  const seenLabels = new Set<string>();
+
+  for (
+    let tick = firstTick;
+    tick <= safeMax + step * 0.001;
+    tick += step
+  ) {
+    const roundedTick = Math.round(tick);
+    const label = formatCurrency(roundedTick);
+
+    if (!seenLabels.has(label)) {
+      ticks.push(roundedTick);
+      seenLabels.add(label);
+    }
+  }
+
+  return ticks;
+}
+
 function formatPercent(value: number): string {
   const roundedValue = Math.round(value * 100);
   const safeValue = Object.is(roundedValue, -0) ? 0 : roundedValue;
@@ -512,6 +566,7 @@ function SectionCard({
   children,
   className,
   eyebrowClassName,
+  action,
 }: SectionCardProps) {
   return (
     <section
@@ -520,7 +575,7 @@ function SectionCard({
         className,
       )}
     >
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           {eyebrow ? (
             <p
@@ -536,6 +591,7 @@ function SectionCard({
             {title}
           </h2>
         </div>
+        {action ? <div className="w-full shrink-0 sm:w-auto">{action}</div> : null}
       </div>
       {children}
     </section>
@@ -736,7 +792,17 @@ function NumberSliderField({
           </span>
         </div>
         <div className="w-full shrink-0 sm:w-24">
-          <div className="flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5">
+          <div
+            className="flex items-center justify-end rounded-md border border-slate-300 bg-white px-3 py-1.5 sm:hidden"
+            aria-hidden="true"
+          >
+            {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
+            <span className="font-mono text-sm font-medium text-slate-950 tabular-nums">
+              {inputValue}
+            </span>
+            {suffix ? <span className="text-sm text-slate-500">{suffix}</span> : null}
+          </div>
+          <div className="hidden items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 sm:flex">
             {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
             <input
               type="number"
@@ -902,8 +968,14 @@ function PnlScenarioChart({
 
   const yTickValues = selectedYTicks.sort((a, b) => a - b);
 
-  const priceTicks = priceMarkers
-    .filter((marker) => marker.value >= minPrice && marker.value <= maxPrice)
+  const priceAxisTicks = buildStockPriceAxisTicks(minPrice, maxPrice, spotPrice);
+  const strikeMarkers = priceMarkers
+    .filter(
+      (marker) =>
+        marker.label !== "Spot" &&
+        marker.value >= minPrice &&
+        marker.value <= maxPrice,
+    )
     .sort((a, b) => a.value - b.value);
 
   const buildPath = (key: "selectedDatePnl" | "expiryPnl") =>
@@ -1012,6 +1084,22 @@ function PnlScenarioChart({
               ({formatCompactCurrency(selectedPnl + totalCost)} value)
             </span>
           </span>
+          {showBreakEvenMarker ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="h-0.5 w-4 rounded-full"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(to right, #0f172a 50%, transparent 50%)",
+                  backgroundSize: "4px 2px",
+                }}
+              />
+              B/E
+              <span className="font-mono text-slate-500 tabular-nums">
+                {formatCurrency(breakEvenPrice)}
+              </span>
+            </span>
+          ) : null}
         </div>
       </div>
       <svg
@@ -1115,33 +1203,24 @@ function PnlScenarioChart({
           Value
         </text>
 
-        {priceTicks.map((marker, index) => (
-          <g key={`pnl-price-${marker.label}-${index}`}>
+        {priceAxisTicks.map((tick) => (
+          <g key={`pnl-price-axis-${tick}`}>
             <line
-              x1={x(marker.value)}
-              x2={x(marker.value)}
+              x1={x(tick)}
+              x2={x(tick)}
               y1={padding.top}
               y2={height - padding.bottom}
               stroke={CHART_COLORS.grid}
               strokeWidth={1}
             />
             <text
-              x={x(marker.value)}
+              x={x(tick)}
               y={height - padding.bottom + 18}
               textAnchor="middle"
               fill={CHART_COLORS.inkMuted}
               className="font-mono text-[11px]"
             >
-              {formatCurrency(marker.value)}
-            </text>
-            <text
-              x={x(marker.value)}
-              y={height - padding.bottom + 32}
-              textAnchor="middle"
-              fill={CHART_COLORS.inkMuted}
-              className="text-[10px] font-medium"
-            >
-              {marker.label}
+              {formatCurrency(tick)}
             </text>
           </g>
         ))}
@@ -1214,6 +1293,30 @@ function PnlScenarioChart({
           </g>
         ) : null}
 
+        {strikeMarkers.map((marker, index) => (
+          <g key={`pnl-strike-${marker.label}-${index}`}>
+            <line
+              x1={x(marker.value)}
+              x2={x(marker.value)}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.inkMuted}
+              strokeOpacity={0.35}
+              strokeWidth={1}
+              strokeDasharray="2 4"
+            />
+            <text
+              x={x(marker.value)}
+              y={padding.top - (index % 2 === 0 ? 8 : 20)}
+              textAnchor="middle"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[10px]"
+            >
+              {marker.label} {formatCurrency(marker.value)}
+            </text>
+          </g>
+        ))}
+
         {showBreakEvenMarker ? (
           <g>
             <line
@@ -1226,15 +1329,6 @@ function PnlScenarioChart({
               strokeWidth={1}
               strokeDasharray="2 4"
             />
-            <text
-              x={breakEvenX}
-              y={height - padding.bottom + 38}
-              textAnchor="middle"
-              fill={CHART_COLORS.ink}
-              className="font-mono text-[10px] font-semibold"
-            >
-              B/E {formatCurrency(breakEvenPrice)}
-            </text>
           </g>
         ) : null}
 
@@ -1805,8 +1899,14 @@ function MultiDateOverlayChart({
   ].filter((tick) => tick >= yMin && tick <= yMax)));
   yTickValues.sort((a, b) => a - b);
 
-  const priceTicks = priceMarkers
-    .filter((marker) => marker.value >= minPrice && marker.value <= maxPrice)
+  const priceAxisTicks = buildStockPriceAxisTicks(minPrice, maxPrice, spotPrice);
+  const strikeMarkers = priceMarkers
+    .filter(
+      (marker) =>
+        marker.label !== "Spot" &&
+        marker.value >= minPrice &&
+        marker.value <= maxPrice,
+    )
     .sort((a, b) => a.value - b.value);
 
   const zeroY = y(0);
@@ -1884,6 +1984,22 @@ function MultiDateOverlayChart({
               {curve.label}
             </span>
           ))}
+          {showBreakEvenMarker ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="h-0.5 w-4 rounded-full"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(to right, #0f172a 50%, transparent 50%)",
+                  backgroundSize: "4px 2px",
+                }}
+              />
+              B/E
+              <span className="font-mono text-slate-500 tabular-nums">
+                {formatCurrency(breakEvenPrice)}
+              </span>
+            </span>
+          ) : null}
         </div>
       </div>
       <svg
@@ -1986,33 +2102,24 @@ function MultiDateOverlayChart({
           Value
         </text>
 
-        {priceTicks.map((marker) => (
-          <g key={`overlay-px-${marker.label}`}>
+        {priceAxisTicks.map((tick) => (
+          <g key={`overlay-price-axis-${tick}`}>
             <line
-              x1={x(marker.value)}
-              x2={x(marker.value)}
+              x1={x(tick)}
+              x2={x(tick)}
               y1={padding.top}
               y2={height - padding.bottom}
               stroke={CHART_COLORS.grid}
               strokeWidth={1}
             />
             <text
-              x={x(marker.value)}
+              x={x(tick)}
               y={height - padding.bottom + 18}
               textAnchor="middle"
               fill={CHART_COLORS.inkMuted}
               className="font-mono text-[11px]"
             >
-              {formatCurrency(marker.value)}
-            </text>
-            <text
-              x={x(marker.value)}
-              y={height - padding.bottom + 32}
-              textAnchor="middle"
-              fill={CHART_COLORS.inkMuted}
-              className="text-[10px] font-medium"
-            >
-              {marker.label}
+              {formatCurrency(tick)}
             </text>
           </g>
         ))}
@@ -2055,6 +2162,29 @@ function MultiDateOverlayChart({
             </text>
           </g>
         ) : null}
+        {strikeMarkers.map((marker, index) => (
+          <g key={`overlay-strike-${marker.label}-${index}`}>
+            <line
+              x1={x(marker.value)}
+              x2={x(marker.value)}
+              y1={padding.top}
+              y2={height - padding.bottom}
+              stroke={CHART_COLORS.inkMuted}
+              strokeOpacity={0.35}
+              strokeDasharray="2 4"
+              strokeWidth={1}
+            />
+            <text
+              x={x(marker.value)}
+              y={padding.top - (index % 2 === 0 ? 8 : 20)}
+              textAnchor="middle"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[10px]"
+            >
+              {marker.label} {formatCurrency(marker.value)}
+            </text>
+          </g>
+        ))}
         {showBreakEvenMarker ? (
           <g>
             <line
@@ -2067,15 +2197,6 @@ function MultiDateOverlayChart({
               strokeDasharray="2 4"
               strokeWidth={1}
             />
-            <text
-              x={breakEvenX}
-              y={height - padding.bottom + 38}
-              textAnchor="middle"
-              fill={CHART_COLORS.ink}
-              className="font-mono text-[10px] font-semibold"
-            >
-              B/E {formatCurrency(breakEvenPrice)}
-            </text>
           </g>
         ) : null}
 
@@ -2200,7 +2321,6 @@ function ScenarioValueMap({
   breakEvenPrice,
   totalCost,
   maxProfit,
-  priceMarkers,
   getScenarioTooltipPoint,
 }: ScenarioValueMapProps) {
   const [hoverPoint, setHoverPoint] = useState<{
@@ -2301,9 +2421,11 @@ function ScenarioValueMap({
     }
     return "#f8fafc";
   };
-  const priceTicks = priceMarkers
-    .filter((marker) => marker.value >= minPrice && marker.value <= maxPrice)
-    .sort((a, b) => b.value - a.value);
+  const priceAxisTicks = buildStockPriceAxisTicks(
+    minPrice,
+    maxPrice,
+    currentSpot,
+  ).sort((a, b) => b - a);
   const dateTickCount = expirationDays >= 60 ? 6 : 5;
   const dateTicks = Array.from({ length: dateTickCount }, (_, index) => {
     const ratio = index / Math.max(dateTickCount - 1, 1);
@@ -2446,34 +2568,25 @@ function ScenarioValueMap({
           />
         ))}
 
-        {priceTicks.map((marker, index) => (
-          <g key={`map-price-${marker.label}-${index}`}>
+        {priceAxisTicks.map((tick) => (
+          <g key={`map-price-axis-${tick}`}>
             <line
               x1={padding.left}
               x2={width - padding.right}
-              y1={y(marker.value)}
-              y2={y(marker.value)}
+              y1={y(tick)}
+              y2={y(tick)}
               stroke={CHART_COLORS.paper}
               strokeOpacity={0.7}
               strokeWidth={1}
             />
             <text
               x={padding.left - 12}
-              y={y(marker.value) - 2}
+              y={y(tick) + 4}
               textAnchor="end"
               fill={CHART_COLORS.inkMuted}
               className="font-mono text-[11px]"
             >
-              {formatCurrency(marker.value)}
-            </text>
-            <text
-              x={padding.left - 12}
-              y={y(marker.value) + 11}
-              textAnchor="end"
-              fill={CHART_COLORS.inkMuted}
-              className="text-[10px] font-medium"
-            >
-              {marker.label}
+              {formatCurrency(tick)}
             </text>
           </g>
         ))}
@@ -3021,6 +3134,29 @@ export default function DebitCallSpreadLab({
   );
 
   const snapshot = useMemo(() => createScenarioSnapshot(inputs), [inputs]);
+  const debitSpreadScenarioInputs = useMemo(
+    () => ({
+      currentPrice: spot,
+      longStrike,
+      shortStrike,
+      currentDte: expirationDays,
+      numberOfSpreads: snapshot.contracts,
+      entryDebit: snapshot.unitCost,
+      impliedVolatilityPct: futureVolatilityPct,
+      riskFreeRatePct: ratePct,
+      dividendYieldPct: 0,
+    }),
+    [
+      expirationDays,
+      futureVolatilityPct,
+      longStrike,
+      ratePct,
+      shortStrike,
+      snapshot.contracts,
+      snapshot.unitCost,
+      spot,
+    ],
+  );
   const maxProfitAtExpiry = snapshot.maxProfitPerUnit !== null
     ? snapshot.maxProfitPerUnit * snapshot.contracts * CONTRACT_MULTIPLIER
     : null;
@@ -3030,6 +3166,29 @@ export default function DebitCallSpreadLab({
       : null;
   const maxLossAtExpiry = -snapshot.totalCost;
   const canModel = validationMessages.length === 0 && snapshot.unitCost > 0;
+  const debitSpreadScenarioGraphView: ScenarioGraphView =
+    scenarioGraphView === "overlay" || scenarioGraphView === "decay"
+      ? scenarioGraphView
+      : "map";
+  const activeScenarioGraphView: ScenarioGraphView = isDebitCallSpread
+    ? debitSpreadScenarioGraphView
+    : scenarioGraphView === "map"
+      ? "line"
+      : scenarioGraphView;
+  const scenarioGraphOptions: Array<{ value: ScenarioGraphView; label: string }> =
+    isDebitCallSpread
+      ? [
+          { value: "map", label: "Heat map" },
+          { value: "overlay", label: "Multi-date" },
+          { value: "decay", label: "Time value" },
+        ]
+      : [
+          { value: "line", label: "P/L curve" },
+          { value: "decay", label: "Time value" },
+          { value: "overlay", label: "Multi-date" },
+        ];
+  const showScenarioSelectionControls =
+    !(isDebitCallSpread && activeScenarioGraphView === "map");
   const timelineRows = useMemo<TimelineTableRow[]>(
     () =>
       canModel
@@ -3334,7 +3493,12 @@ export default function DebitCallSpreadLab({
                         type="button"
                         aria-pressed={strategy === option.value}
                         title={option.description}
-                        onClick={() => setStrategy(option.value)}
+                        onClick={() => {
+                          setStrategy(option.value);
+                          setScenarioGraphView(
+                            option.value === "debit-call-spread" ? "map" : "line",
+                          );
+                        }}
                         className={cn(
                           "rounded-md border border-slate-300 bg-white px-3 py-2 text-center text-sm font-semibold text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
                           strategy === option.value &&
@@ -3485,7 +3649,7 @@ export default function DebitCallSpreadLab({
                   </SidebarGroupLabel>
                   <NumberSliderField
                     label="Days to expiration"
-                    help={`The ${strategyCopy.unitName} value decays toward intrinsic value as DTE approaches zero.`}
+                    help={`The ${strategyCopy.unitName} value moves toward intrinsic value as DTE approaches zero.`}
                     min={0}
                     max={365}
                     step={1}
@@ -3565,48 +3729,80 @@ export default function DebitCallSpreadLab({
             <SectionCard
               title="Scenario curve"
               eyebrow={`${symbol.trim() || "Underlying"} profit & loss by stock price`}
+              action={
+                <div
+                  className="grid w-full grid-cols-3 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:grid-cols-none"
+                  aria-label="Scenario graph view"
+                >
+                  {scenarioGraphOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={activeScenarioGraphView === option.value}
+                      onPointerDown={() =>
+                        setScenarioGraphView(option.value as ScenarioGraphView)
+                      }
+                      onMouseDown={() =>
+                        setScenarioGraphView(option.value as ScenarioGraphView)
+                      }
+                      onClick={() =>
+                        setScenarioGraphView(option.value as ScenarioGraphView)
+                      }
+                      className={cn(
+                        "min-w-0 rounded-md px-2 py-1.5 text-center text-sm font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 sm:px-3",
+                        activeScenarioGraphView === option.value &&
+                          "bg-white text-slate-950 shadow-sm",
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              }
             >
               <div className="space-y-4">
-                <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                  <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-3">
-                    <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
-                      <div className="grid grid-cols-[minmax(0,1fr)_9rem] items-baseline gap-3">
-                        <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
-                          At your scenario
-                        </p>
-                        <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-                          {formatCurrency(safeScenarioPrice)} · {formatLongDate(snapshot.selectedDateIso)}
-                        </p>
-                      </div>
-                      <p
-                        className={cn(
-                          "overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none tabular-nums",
-                          snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
-                        )}
-                      >
-                        {snapshot.pnl >= 0 ? "+" : ""}
-                        {formatCurrency(snapshot.pnl)}
-                      </p>
-                      <div className="grid grid-cols-[minmax(0,1fr)_10rem] items-baseline gap-3 text-sm">
-                        <span className="font-medium text-slate-500">
-                          {snapshot.pnl >= 0 ? "Profit" : "Loss"}
-                          {" · "}
-                          <span
+                {showScenarioSelectionControls ? (
+                  <>
+                    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                      <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-3">
+                        <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
+                          <div className="grid grid-cols-[minmax(0,1fr)_9rem] items-baseline gap-3">
+                            <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+                              At your scenario
+                            </p>
+                            <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
+                              {formatCurrency(safeScenarioPrice)} · {formatLongDate(snapshot.selectedDateIso)}
+                            </p>
+                          </div>
+                          <p
                             className={cn(
-                              "font-mono font-semibold tabular-nums",
-                              snapshot.roi >= 0 ? "text-emerald-700" : "text-rose-700",
+                              "overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none tabular-nums",
+                              snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
                             )}
                           >
-                            {snapshot.totalCost > 0 ? formatPercent(snapshot.roi) : "N/A"}
-                          </span>
-                        </span>
-                        <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
-                          Position {formatCurrency(snapshot.scenarioPositionValue)}
-                        </span>
-                      </div>
-                    </div>
+                            {snapshot.pnl >= 0 ? "+" : ""}
+                            {formatCurrency(snapshot.pnl)}
+                          </p>
+                          <div className="grid grid-cols-[minmax(0,1fr)_10rem] items-baseline gap-3 text-sm">
+                            <span className="font-medium text-slate-500">
+                              {snapshot.pnl >= 0 ? "Profit" : "Loss"}
+                              {" · "}
+                              <span
+                                className={cn(
+                                  "font-mono font-semibold tabular-nums",
+                                  snapshot.roi >= 0 ? "text-emerald-700" : "text-rose-700",
+                                )}
+                              >
+                                {snapshot.totalCost > 0 ? formatPercent(snapshot.roi) : "N/A"}
+                              </span>
+                            </span>
+                            <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
+                              Position {formatCurrency(snapshot.scenarioPositionValue)}
+                            </span>
+                          </div>
+                        </div>
 
-                    {snapshot.isProfitCapped ? (
+                        {snapshot.isProfitCapped ? (
                       <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
                         <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3">
                           <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
@@ -3655,34 +3851,34 @@ export default function DebitCallSpreadLab({
                       </div>
                     )}
 
-                    <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
-                      <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3">
-                        <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
-                          Worst case at expiry
-                        </p>
-                        <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-                          &lt; {formatCurrency(longStrike)}
-                        </p>
-                      </div>
-                      <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-rose-700 tabular-nums">
-                        {formatCurrency(maxLossAtExpiry)}
-                      </p>
-                      <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3 text-sm">
-                        <span className="font-medium text-slate-500">
-                          Max loss ·{" "}
-                          <span className="font-mono font-semibold text-rose-700 tabular-nums">
-                            {snapshot.totalCost > 0 ? "-100%" : "N/A"}
-                          </span>
-                        </span>
-                        <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
-                          Cost {formatCurrency(snapshot.totalCost)}
-                        </span>
+                        <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
+                          <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3">
+                            <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+                              Worst case at expiry
+                            </p>
+                            <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
+                              &lt; {formatCurrency(longStrike)}
+                            </p>
+                          </div>
+                          <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-rose-700 tabular-nums">
+                            {formatCurrency(maxLossAtExpiry)}
+                          </p>
+                          <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3 text-sm">
+                            <span className="font-medium text-slate-500">
+                              Max loss ·{" "}
+                              <span className="font-mono font-semibold text-rose-700 tabular-nums">
+                                {snapshot.totalCost > 0 ? "-100%" : "N/A"}
+                              </span>
+                            </span>
+                            <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
+                              Cost {formatCurrency(snapshot.totalCost)}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                </div>
 
-                <div className="grid gap-4 lg:grid-cols-3">
+                    <div className="grid gap-4 lg:grid-cols-3">
                   <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
                     <div className="flex min-h-14 items-start justify-between gap-3">
                       <div className="flex items-center gap-2">
@@ -3690,7 +3886,16 @@ export default function DebitCallSpreadLab({
                         <InfoIcon label="The stock price to test on the selected future date." />
                       </div>
                       <div className="w-24 shrink-0">
-                        <div className="flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5">
+                        <div
+                          className="flex items-center justify-end rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:hidden"
+                          aria-hidden="true"
+                        >
+                          <span className="text-sm text-slate-500">$</span>
+                          <span className="font-mono text-sm font-medium text-slate-950 tabular-nums">
+                            {displayedScenarioPriceInputValue}
+                          </span>
+                        </div>
+                        <div className="hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
                           <span className="text-sm text-slate-500">$</span>
                           <input
                             type="number"
@@ -3798,43 +4003,9 @@ export default function DebitCallSpreadLab({
                     className="p-3"
                     headerClassName="min-h-14"
                   />
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div
-                    className="flex flex-wrap rounded-lg border border-slate-200 bg-slate-100 p-1"
-                    aria-label="Scenario graph view"
-                  >
-                    {[
-                      { value: "line", label: "P/L curve" },
-                      { value: "decay", label: "Decay" },
-                      { value: "overlay", label: "Multi-date" },
-                      { value: "map", label: "Heat map" },
-                    ].map((option) => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        aria-pressed={scenarioGraphView === option.value}
-                        onPointerDown={() =>
-                          setScenarioGraphView(option.value as ScenarioGraphView)
-                        }
-                        onMouseDown={() =>
-                          setScenarioGraphView(option.value as ScenarioGraphView)
-                        }
-                        onClick={() =>
-                          setScenarioGraphView(option.value as ScenarioGraphView)
-                        }
-                        className={cn(
-                          "rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
-                          scenarioGraphView === option.value &&
-                            "bg-white text-slate-950 shadow-sm",
-                        )}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                    </div>
+                  </>
+                ) : null}
 
                 {validationMessages.length > 0 ? (
                   <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
@@ -3847,7 +4018,11 @@ export default function DebitCallSpreadLab({
                   </div>
                 ) : null}
 
-                {canModel && scenarioGraphView === "line" ? (
+                {canModel && isDebitCallSpread && activeScenarioGraphView === "map" ? (
+                  <DebitSpreadScenarioVisualizer inputs={debitSpreadScenarioInputs} />
+                ) : null}
+
+                {canModel && !isDebitCallSpread && activeScenarioGraphView === "line" ? (
                   <PnlScenarioChart
                     title="Profit & loss by stock price"
                     subtitle={`Solid line: value on ${formatLongDate(
@@ -3867,9 +4042,9 @@ export default function DebitCallSpreadLab({
                   />
                 ) : null}
 
-                {canModel && scenarioGraphView === "decay" ? (
+                {canModel && activeScenarioGraphView === "decay" ? (
                   <TimeDecayChart
-                    title="Spread value decay over time"
+                    title="Spread value over time"
                     subtitle={`At a fixed underlying price of ${formatCurrency(
                       safeScenarioPrice,
                     )} and ${futureVolatilityPct}% IV. Hover to read the spread's value and P/L on any date.`}
@@ -3883,7 +4058,16 @@ export default function DebitCallSpreadLab({
                   />
                 ) : null}
 
-                {canModel && scenarioGraphView === "overlay" ? (
+                {canModel && isDebitCallSpread && activeScenarioGraphView === "overlay" ? (
+                  <DebitSpreadScenarioVisualizer
+                    inputs={debitSpreadScenarioInputs}
+                    view="multi"
+                    selectedUnderlyingPrice={safeScenarioPrice}
+                    selectedDte={expirationDays - safeScenarioOffsetDays}
+                  />
+                ) : null}
+
+                {canModel && !isDebitCallSpread && activeScenarioGraphView === "overlay" ? (
                   <MultiDateOverlayChart
                     title="P/L by stock price across valuation dates"
                     subtitle={`Each curve fixes the date and walks the underlying. Solid: intermediate dates at ${futureVolatilityPct}% IV. Dashed: payoff at expiry.`}
@@ -3894,28 +4078,6 @@ export default function DebitCallSpreadLab({
                     spotPrice={spot}
                     priceMarkers={priceMarkers}
                     totalCost={snapshot.totalCost}
-                  />
-                ) : null}
-
-                {canModel && scenarioGraphView === "map" ? (
-                  <ScenarioValueMap
-                    unitName={strategyCopy.unitName}
-                    minPrice={scenarioMapRange.minPrice}
-                    maxPrice={scenarioMapRange.maxPrice}
-                    selectedPrice={safeScenarioPrice}
-                    selectedOffsetDays={safeScenarioOffsetDays}
-                    selectedValue={snapshot.scenarioPositionValue}
-                    selectedPnl={snapshot.pnl}
-                    selectedRoi={snapshot.roi}
-                    currentSpot={spot}
-                    expirationDays={expirationDays}
-                    todayIso={todayIso}
-                    scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
-                    breakEvenPrice={snapshot.breakEvenAtExpiry}
-                    totalCost={snapshot.totalCost}
-                    maxProfit={maxProfitAtExpiry}
-                    priceMarkers={priceMarkers}
-                    getScenarioTooltipPoint={getScenarioTooltipPoint}
                   />
                 ) : null}
 
