@@ -142,6 +142,9 @@ type ScenarioValueMapProps = {
   expirationDays: number;
   todayIso: string;
   scenarioDateLabel: string;
+  breakEvenPrice: number;
+  totalCost: number;
+  maxProfit: number | null;
   getScenarioTooltipPoint: (price: number, offsetDays: number) => {
     dateLabel: string;
     positionValue: number;
@@ -2162,7 +2165,7 @@ function MultiDateOverlayChart({
 }
 
 function ScenarioValueMap({
-  unitName,
+  unitName: _unitName,
   minPrice,
   maxPrice,
   selectedPrice,
@@ -2174,6 +2177,9 @@ function ScenarioValueMap({
   expirationDays,
   todayIso,
   scenarioDateLabel,
+  breakEvenPrice,
+  totalCost,
+  maxProfit,
   getScenarioTooltipPoint,
 }: ScenarioValueMapProps) {
   const [hoverPoint, setHoverPoint] = useState<{
@@ -2248,30 +2254,43 @@ function ScenarioValueMap({
       rowCount,
     ],
   );
-  const maxPositionValue = Math.max(
-    selectedValue,
-    ...cells.map((cell) => cell.positionValue),
+  const lossFloor = -Math.max(totalCost, 1);
+  const profitCeiling = Math.max(
+    maxProfit ?? 0,
+    selectedPnl,
+    ...cells.map((cell) => cell.pnl),
     1,
   );
-  const valueColor = (positionValue: number) => {
-    const ratio = clamp(positionValue / maxPositionValue, 0, 1);
-
-    if (ratio < 0.14) return "#f8fafc";
-    if (ratio < 0.28) return "#e2e8f0";
-    if (ratio < 0.42) return "#cbd5e1";
-    if (ratio < 0.56) return "#fde68a";
-    if (ratio < 0.7) return "#fbbf24";
-    if (ratio < 0.84) return "#34d399";
-    return CHART_COLORS.pine;
+  const pnlColor = (pnl: number) => {
+    if (pnl > 0) {
+      const ratio = clamp(pnl / profitCeiling, 0, 1);
+      if (ratio < 0.15) return "#dcfce7";
+      if (ratio < 0.35) return "#bbf7d0";
+      if (ratio < 0.55) return "#86efac";
+      if (ratio < 0.75) return "#34d399";
+      return "#059669";
+    }
+    if (pnl < 0) {
+      const ratio = clamp(pnl / lossFloor, 0, 1);
+      if (ratio < 0.15) return "#fee2e2";
+      if (ratio < 0.35) return "#fecaca";
+      if (ratio < 0.55) return "#fca5a5";
+      if (ratio < 0.75) return "#f87171";
+      return "#dc2626";
+    }
+    return "#f8fafc";
   };
   const priceTicks = Array.from({ length: 6 }, (_, index) => {
     const ratio = index / 5;
     return minPrice + (maxPrice - minPrice) * ratio;
   });
-  const dateTicks = Array.from({ length: 5 }, (_, index) => {
-    const ratio = index / 4;
+  const dateTickCount = expirationDays >= 60 ? 6 : 5;
+  const dateTicks = Array.from({ length: dateTickCount }, (_, index) => {
+    const ratio = index / Math.max(dateTickCount - 1, 1);
     return Math.round(expirationDays * ratio);
   });
+  const showBreakEvenMarker =
+    breakEvenPrice >= minPrice && breakEvenPrice <= maxPrice;
   const selectedTooltipPoint = {
     price: selectedPrice,
     offsetDays: selectedOffsetDays,
@@ -2281,6 +2300,7 @@ function ScenarioValueMap({
     roi: selectedRoi,
   };
   const tooltipPoint = hoverPoint ?? selectedTooltipPoint;
+  const tooltipVisible = hoverPoint !== null;
   const tooltipXAnchor = x(tooltipPoint.offsetDays);
   const tooltipYAnchor = y(tooltipPoint.price);
   const selectedX = x(selectedOffsetDays);
@@ -2334,24 +2354,57 @@ function ScenarioValueMap({
 
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-600">
-        <div className="flex flex-wrap items-center gap-4">
-          <span className="inline-flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600">
+          <span className="inline-flex items-center gap-1.5">
             <span className="size-2 rounded-full bg-amber-600" />
-            Selected scenario
+            Selected
           </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="size-2 rounded-full bg-slate-500" />
-            Current stock price
-          </span>
-          <span className="inline-flex items-center gap-2">
-            <span className="size-2 rounded-sm bg-emerald-600" />
-            Higher {unitName} value
-          </span>
+          {currentSpot >= minPrice && currentSpot <= maxPrice ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="h-0.5 w-4 rounded-full"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(to right, #64748b 50%, transparent 50%)",
+                  backgroundSize: "6px 2px",
+                }}
+              />
+              Spot {formatCurrency(currentSpot)}
+            </span>
+          ) : null}
+          {showBreakEvenMarker ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span
+                className="h-0.5 w-4 rounded-full"
+                style={{
+                  backgroundImage:
+                    "linear-gradient(to right, #0f172a 50%, transparent 50%)",
+                  backgroundSize: "4px 2px",
+                }}
+              />
+              B/E {formatCurrency(breakEvenPrice)}
+            </span>
+          ) : null}
         </div>
-        <div className="rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs text-slate-700 shadow-sm tabular-nums">
-          {scenarioDateLabel} | {formatCurrency(selectedPrice)} |{" "}
-          {formatCurrency(selectedValue)}
+        <div className="flex items-center gap-2 text-xs text-slate-600">
+          <span className="font-mono tabular-nums">
+            {formatCompactCurrency(lossFloor)}
+          </span>
+          <span
+            className="h-2 w-32 rounded-sm border border-slate-200"
+            style={{
+              background:
+                "linear-gradient(to right, #dc2626, #fca5a5, #f8fafc, #86efac, #059669)",
+            }}
+            aria-hidden
+          />
+          <span className="font-mono tabular-nums">
+            +{formatCompactCurrency(profitCeiling)}
+          </span>
+          <span className="font-medium uppercase tracking-wide text-[10px] text-slate-500">
+            P/L
+          </span>
         </div>
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
@@ -2369,7 +2422,7 @@ function ScenarioValueMap({
             y={cell.y}
             width={cellWidth + 0.4}
             height={cellHeight + 0.4}
-            fill={valueColor(cell.positionValue)}
+            fill={pnlColor(cell.pnl)}
           />
         ))}
 
@@ -2414,6 +2467,20 @@ function ScenarioValueMap({
               fill={CHART_COLORS.inkMuted}
               className="font-mono text-[11px]"
             >
+              {offsetDays === 0
+                ? "Today"
+                : offsetDays === expirationDays
+                  ? "Expiry"
+                  : `+${offsetDays}d`}
+            </text>
+            <text
+              x={x(offsetDays)}
+              y={height - padding.bottom + 32}
+              textAnchor="middle"
+              fill={CHART_COLORS.inkMuted}
+              className="font-mono text-[10px]"
+              opacity={0.7}
+            >
               {formatLongDate(addDaysToIso(todayIso, offsetDays))}
             </text>
           </g>
@@ -2427,6 +2494,18 @@ function ScenarioValueMap({
             y2={y(currentSpot)}
             stroke={CHART_COLORS.inkMuted}
             strokeDasharray="4 4"
+            strokeWidth={1}
+          />
+        ) : null}
+        {showBreakEvenMarker ? (
+          <line
+            x1={padding.left}
+            x2={width - padding.right}
+            y1={y(breakEvenPrice)}
+            y2={y(breakEvenPrice)}
+            stroke={CHART_COLORS.ink}
+            strokeOpacity={0.5}
+            strokeDasharray="2 4"
             strokeWidth={1}
           />
         ) : null}
@@ -2466,70 +2545,72 @@ function ScenarioValueMap({
         >
           Underlying price
         </text>
-        <g pointerEvents="none">
-          <line
-            x1={tooltipXAnchor}
-            x2={tooltipXAnchor}
-            y1={tooltipYAnchor}
-            y2={tooltipY + tooltipHeight / 2}
-            stroke={CHART_COLORS.accent}
-            strokeOpacity={0.4}
-            strokeWidth={1}
-          />
-          <rect
-            x={tooltipX}
-            y={tooltipY}
-            width={tooltipWidth}
-            height={tooltipHeight}
-            rx={6}
-            fill={CHART_COLORS.paper}
-            stroke={CHART_COLORS.line}
-          />
-          <text
-            x={tooltipX + 10}
-            y={tooltipY + 18}
-            fill={CHART_COLORS.inkMuted}
-            className="text-[12px] font-medium"
-          >
-            {formatCurrency(tooltipPoint.price)} stock price
-          </text>
-          <text
-            x={tooltipX + 10}
-            y={tooltipY + 36}
-            fill={CHART_COLORS.inkMuted}
-            className="text-[12px] font-medium"
-          >
-            {tooltipPoint.dateLabel}
-          </text>
-          <text
-            x={tooltipX + 10}
-            y={tooltipY + 60}
-            fill={CHART_COLORS.ink}
-            className="font-mono text-[15px] font-semibold"
-          >
-            {formatCurrency(tooltipPoint.positionValue)} total value
-          </text>
-          <text
-            x={tooltipX + 10}
-            y={tooltipY + 80}
-            className={cn(
-              "font-mono text-[12px]",
-              tooltipPoint.roi >= 0 ? "fill-emerald-700" : "fill-rose-700",
-            )}
-          >
-            {formatPercent(tooltipPoint.roi)} gain
-          </text>
-          <text
-            x={tooltipX + 10}
-            y={tooltipY + 98}
-            className={cn(
-              "font-mono text-[12px]",
-              tooltipPoint.pnl >= 0 ? "fill-emerald-700" : "fill-rose-700",
-            )}
-          >
-            {formatCurrency(tooltipPoint.pnl)} P/L
-          </text>
-        </g>
+        {tooltipVisible ? (
+          <g pointerEvents="none">
+            <line
+              x1={tooltipXAnchor}
+              x2={tooltipXAnchor}
+              y1={tooltipYAnchor}
+              y2={tooltipY + tooltipHeight / 2}
+              stroke={CHART_COLORS.accent}
+              strokeOpacity={0.4}
+              strokeWidth={1}
+            />
+            <rect
+              x={tooltipX}
+              y={tooltipY}
+              width={tooltipWidth}
+              height={tooltipHeight}
+              rx={6}
+              fill={CHART_COLORS.paper}
+              stroke={CHART_COLORS.line}
+            />
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 18}
+              fill={CHART_COLORS.inkMuted}
+              className="text-[12px] font-medium"
+            >
+              {formatCurrency(tooltipPoint.price)} stock price
+            </text>
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 36}
+              fill={CHART_COLORS.inkMuted}
+              className="text-[12px] font-medium"
+            >
+              {tooltipPoint.dateLabel}
+            </text>
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 60}
+              fill={CHART_COLORS.ink}
+              className="font-mono text-[15px] font-semibold"
+            >
+              {formatCurrency(tooltipPoint.positionValue)} total value
+            </text>
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 80}
+              className={cn(
+                "font-mono text-[12px]",
+                tooltipPoint.roi >= 0 ? "fill-emerald-700" : "fill-rose-700",
+              )}
+            >
+              {formatPercent(tooltipPoint.roi)} gain
+            </text>
+            <text
+              x={tooltipX + 10}
+              y={tooltipY + 98}
+              className={cn(
+                "font-mono text-[12px]",
+                tooltipPoint.pnl >= 0 ? "fill-emerald-700" : "fill-rose-700",
+              )}
+            >
+              {formatCurrency(tooltipPoint.pnl)} P/L
+            </text>
+          </g>
+        ) : null}
         <rect
           x={padding.left}
           y={padding.top}
@@ -3787,6 +3868,9 @@ export default function DebitCallSpreadLab({
                     expirationDays={expirationDays}
                     todayIso={todayIso}
                     scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
+                    breakEvenPrice={snapshot.breakEvenAtExpiry}
+                    totalCost={snapshot.totalCost}
+                    maxProfit={maxProfitAtExpiry}
                     getScenarioTooltipPoint={getScenarioTooltipPoint}
                   />
                 ) : null}
