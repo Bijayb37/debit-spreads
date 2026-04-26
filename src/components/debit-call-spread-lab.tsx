@@ -86,6 +86,7 @@ type MultiDateOverlayChartProps = {
   selectedOffsetDays: number;
   breakEvenPrice: number;
   spotPrice: number;
+  priceMarkers: PriceMarker[];
   totalCost: number;
 };
 
@@ -93,6 +94,11 @@ type PnlCurvePoint = {
   price: number;
   selectedDatePnl: number;
   expiryPnl: number;
+};
+
+type PriceMarker = {
+  value: number;
+  label: string;
 };
 
 type PnlScenarioChartProps = {
@@ -103,6 +109,7 @@ type PnlScenarioChartProps = {
   selectedPnl: number;
   breakEvenPrice: number;
   spotPrice: number;
+  priceMarkers: PriceMarker[];
   maxProfit: number | null;
   maxLoss: number;
   totalCost: number;
@@ -145,6 +152,7 @@ type ScenarioValueMapProps = {
   breakEvenPrice: number;
   totalCost: number;
   maxProfit: number | null;
+  priceMarkers: PriceMarker[];
   getScenarioTooltipPoint: (price: number, offsetDays: number) => {
     dateLabel: string;
     positionValue: number;
@@ -803,6 +811,7 @@ function PnlScenarioChart({
   selectedPnl,
   breakEvenPrice,
   spotPrice,
+  priceMarkers,
   maxProfit,
   maxLoss,
   totalCost,
@@ -893,13 +902,9 @@ function PnlScenarioChart({
 
   const yTickValues = selectedYTicks.sort((a, b) => a - b);
 
-  const priceTicks = [
-    minPrice,
-    Math.round((minPrice + (minPrice + maxPrice) / 2) / 2),
-    Math.round((minPrice + maxPrice) / 2),
-    Math.round(((minPrice + maxPrice) / 2 + maxPrice) / 2),
-    maxPrice,
-  ];
+  const priceTicks = priceMarkers
+    .filter((marker) => marker.value >= minPrice && marker.value <= maxPrice)
+    .sort((a, b) => a.value - b.value);
 
   const buildPath = (key: "selectedDatePnl" | "expiryPnl") =>
     points
@@ -1110,24 +1115,33 @@ function PnlScenarioChart({
           Value
         </text>
 
-        {priceTicks.map((tick, index) => (
-          <g key={`pnl-price-${tick}-${index}`}>
+        {priceTicks.map((marker, index) => (
+          <g key={`pnl-price-${marker.label}-${index}`}>
             <line
-              x1={x(tick)}
-              x2={x(tick)}
+              x1={x(marker.value)}
+              x2={x(marker.value)}
               y1={padding.top}
               y2={height - padding.bottom}
               stroke={CHART_COLORS.grid}
               strokeWidth={1}
             />
             <text
-              x={x(tick)}
-              y={height - padding.bottom + 20}
+              x={x(marker.value)}
+              y={height - padding.bottom + 18}
               textAnchor="middle"
               fill={CHART_COLORS.inkMuted}
               className="font-mono text-[11px]"
             >
-              {formatCurrency(tick)}
+              {formatCurrency(marker.value)}
+            </text>
+            <text
+              x={x(marker.value)}
+              y={height - padding.bottom + 32}
+              textAnchor="middle"
+              fill={CHART_COLORS.inkMuted}
+              className="text-[10px] font-medium"
+            >
+              {marker.label}
             </text>
           </g>
         ))}
@@ -1733,6 +1747,7 @@ function MultiDateOverlayChart({
   selectedOffsetDays,
   breakEvenPrice,
   spotPrice,
+  priceMarkers,
   totalCost,
 }: MultiDateOverlayChartProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
@@ -1790,13 +1805,9 @@ function MultiDateOverlayChart({
   ].filter((tick) => tick >= yMin && tick <= yMax)));
   yTickValues.sort((a, b) => a - b);
 
-  const priceTicks = [
-    minPrice,
-    Math.round((minPrice * 3 + maxPrice) / 4),
-    Math.round((minPrice + maxPrice) / 2),
-    Math.round((minPrice + maxPrice * 3) / 4),
-    maxPrice,
-  ];
+  const priceTicks = priceMarkers
+    .filter((marker) => marker.value >= minPrice && marker.value <= maxPrice)
+    .sort((a, b) => a.value - b.value);
 
   const zeroY = y(0);
 
@@ -1975,24 +1986,33 @@ function MultiDateOverlayChart({
           Value
         </text>
 
-        {priceTicks.map((tick) => (
-          <g key={`overlay-px-${tick}`}>
+        {priceTicks.map((marker) => (
+          <g key={`overlay-px-${marker.label}`}>
             <line
-              x1={x(tick)}
-              x2={x(tick)}
+              x1={x(marker.value)}
+              x2={x(marker.value)}
               y1={padding.top}
               y2={height - padding.bottom}
               stroke={CHART_COLORS.grid}
               strokeWidth={1}
             />
             <text
-              x={x(tick)}
-              y={height - padding.bottom + 20}
+              x={x(marker.value)}
+              y={height - padding.bottom + 18}
               textAnchor="middle"
               fill={CHART_COLORS.inkMuted}
               className="font-mono text-[11px]"
             >
-              {formatCurrency(tick)}
+              {formatCurrency(marker.value)}
+            </text>
+            <text
+              x={x(marker.value)}
+              y={height - padding.bottom + 32}
+              textAnchor="middle"
+              fill={CHART_COLORS.inkMuted}
+              className="text-[10px] font-medium"
+            >
+              {marker.label}
             </text>
           </g>
         ))}
@@ -2180,6 +2200,7 @@ function ScenarioValueMap({
   breakEvenPrice,
   totalCost,
   maxProfit,
+  priceMarkers,
   getScenarioTooltipPoint,
 }: ScenarioValueMapProps) {
   const [hoverPoint, setHoverPoint] = useState<{
@@ -2280,10 +2301,9 @@ function ScenarioValueMap({
     }
     return "#f8fafc";
   };
-  const priceTicks = Array.from({ length: 6 }, (_, index) => {
-    const ratio = index / 5;
-    return minPrice + (maxPrice - minPrice) * ratio;
-  });
+  const priceTicks = priceMarkers
+    .filter((marker) => marker.value >= minPrice && marker.value <= maxPrice)
+    .sort((a, b) => b.value - a.value);
   const dateTickCount = expirationDays >= 60 ? 6 : 5;
   const dateTicks = Array.from({ length: dateTickCount }, (_, index) => {
     const ratio = index / Math.max(dateTickCount - 1, 1);
@@ -2426,25 +2446,34 @@ function ScenarioValueMap({
           />
         ))}
 
-        {priceTicks.map((price, index) => (
-          <g key={`map-price-${price}-${index}`}>
+        {priceTicks.map((marker, index) => (
+          <g key={`map-price-${marker.label}-${index}`}>
             <line
               x1={padding.left}
               x2={width - padding.right}
-              y1={y(price)}
-              y2={y(price)}
+              y1={y(marker.value)}
+              y2={y(marker.value)}
               stroke={CHART_COLORS.paper}
               strokeOpacity={0.7}
               strokeWidth={1}
             />
             <text
               x={padding.left - 12}
-              y={y(price) + 4}
+              y={y(marker.value) - 2}
               textAnchor="end"
               fill={CHART_COLORS.inkMuted}
               className="font-mono text-[11px]"
             >
-              {formatCurrency(price)}
+              {formatCurrency(marker.value)}
+            </text>
+            <text
+              x={padding.left - 12}
+              y={y(marker.value) + 11}
+              textAnchor="end"
+              fill={CHART_COLORS.inkMuted}
+              className="text-[10px] font-medium"
+            >
+              {marker.label}
             </text>
           </g>
         ))}
@@ -3119,6 +3148,18 @@ export default function DebitCallSpreadLab({
       maxPrice: Math.ceil(maxMapPrice),
     };
   }, [scenarioPriceSliderMax, spot]);
+  const priceMarkers = useMemo<PriceMarker[]>(() => {
+    const markers: PriceMarker[] = [
+      { value: spot, label: "Spot" },
+      { value: longStrike, label: isDebitCallSpread ? "Long" : "Strike" },
+    ];
+    if (isDebitCallSpread) {
+      markers.push({ value: shortStrike, label: "Short" });
+    }
+    return markers
+      .filter((marker) => Number.isFinite(marker.value) && marker.value > 0)
+      .sort((a, b) => a.value - b.value);
+  }, [isDebitCallSpread, longStrike, shortStrike, spot]);
   const getScenarioTooltipPoint = (price: number, offsetDays: number) => {
     const hoverSnapshot = createScenarioSnapshot({
       ...inputs,
@@ -3817,6 +3858,7 @@ export default function DebitCallSpreadLab({
                     selectedPnl={snapshot.pnl}
                     breakEvenPrice={snapshot.breakEvenAtExpiry}
                     spotPrice={spot}
+                    priceMarkers={priceMarkers}
                     maxProfit={maxProfitAtExpiry}
                     maxLoss={maxLossAtExpiry}
                     totalCost={snapshot.totalCost}
@@ -3850,6 +3892,7 @@ export default function DebitCallSpreadLab({
                     selectedOffsetDays={safeScenarioOffsetDays}
                     breakEvenPrice={snapshot.breakEvenAtExpiry}
                     spotPrice={spot}
+                    priceMarkers={priceMarkers}
                     totalCost={snapshot.totalCost}
                   />
                 ) : null}
@@ -3871,6 +3914,7 @@ export default function DebitCallSpreadLab({
                     breakEvenPrice={snapshot.breakEvenAtExpiry}
                     totalCost={snapshot.totalCost}
                     maxProfit={maxProfitAtExpiry}
+                    priceMarkers={priceMarkers}
                     getScenarioTooltipPoint={getScenarioTooltipPoint}
                   />
                 ) : null}
