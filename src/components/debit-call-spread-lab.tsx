@@ -51,7 +51,7 @@ type TooltipPosition = {
   top: number;
 };
 
-type ScenarioGraphView = "line" | "decay" | "overlay" | "map";
+type ScenarioGraphView = "decay" | "overlay" | "map";
 
 type TimeDecayPoint = {
   offsetDays: number;
@@ -316,9 +316,7 @@ function encodeShareState(state: ShareState): string {
       ? "m"
       : state.scenarioGraphView === "decay"
         ? "t"
-        : state.scenarioGraphView === "overlay"
-          ? "o"
-          : "l",
+        : "o",
   ];
 
   return parts.join("~");
@@ -409,13 +407,11 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     ),
     ratePct: clamp(parseShareNumber(rateToken, 4), 0, 15),
     scenarioGraphView:
-      graphToken === "m"
-        ? "map"
-        : graphToken === "t"
-          ? "decay"
-          : graphToken === "o"
-            ? "overlay"
-            : "line",
+      graphToken === "t"
+        ? "decay"
+        : graphToken === "o"
+          ? "overlay"
+          : "map",
   };
 }
 
@@ -2854,7 +2850,7 @@ export default function DebitCallSpreadLab({
     null,
   );
   const [scenarioGraphView, setScenarioGraphView] =
-    useState<ScenarioGraphView>("line");
+    useState<ScenarioGraphView>("map");
   const [scenarioOffsetDays, setScenarioOffsetDays] = useState(
     Math.round(defaultExpirationDays / 2),
   );
@@ -3134,8 +3130,9 @@ export default function DebitCallSpreadLab({
   );
 
   const snapshot = useMemo(() => createScenarioSnapshot(inputs), [inputs]);
-  const debitSpreadScenarioInputs = useMemo(
+  const scenarioVisualizerInputs = useMemo(
     () => ({
+      strategy,
       currentPrice: spot,
       longStrike,
       shortStrike,
@@ -3155,6 +3152,7 @@ export default function DebitCallSpreadLab({
       snapshot.contracts,
       snapshot.unitCost,
       spot,
+      strategy,
     ],
   );
   const maxProfitAtExpiry = snapshot.maxProfitPerUnit !== null
@@ -3166,29 +3164,16 @@ export default function DebitCallSpreadLab({
       : null;
   const maxLossAtExpiry = -snapshot.totalCost;
   const canModel = validationMessages.length === 0 && snapshot.unitCost > 0;
-  const debitSpreadScenarioGraphView: ScenarioGraphView =
-    scenarioGraphView === "overlay" || scenarioGraphView === "decay"
+  const activeScenarioGraphView: ScenarioGraphView =
+    scenarioGraphView === "overlay" || scenarioGraphView === "decay" || scenarioGraphView === "map"
       ? scenarioGraphView
       : "map";
-  const activeScenarioGraphView: ScenarioGraphView = isDebitCallSpread
-    ? debitSpreadScenarioGraphView
-    : scenarioGraphView === "map"
-      ? "line"
-      : scenarioGraphView;
-  const scenarioGraphOptions: Array<{ value: ScenarioGraphView; label: string }> =
-    isDebitCallSpread
-      ? [
-          { value: "map", label: "Heat map" },
-          { value: "overlay", label: "Multi-date" },
-          { value: "decay", label: "Time value" },
-        ]
-      : [
-          { value: "line", label: "P/L curve" },
-          { value: "decay", label: "Time value" },
-          { value: "overlay", label: "Multi-date" },
-        ];
-  const showScenarioSelectionControls =
-    !(isDebitCallSpread && activeScenarioGraphView === "map");
+  const scenarioGraphOptions: Array<{ value: ScenarioGraphView; label: string }> = [
+    { value: "map", label: "Heat map" },
+    { value: "overlay", label: "Multi-date" },
+    { value: "decay", label: "Time value" },
+  ];
+  const showScenarioSelectionControls = activeScenarioGraphView !== "map";
   const timelineRows = useMemo<TimelineTableRow[]>(
     () =>
       canModel
@@ -3495,9 +3480,7 @@ export default function DebitCallSpreadLab({
                         title={option.description}
                         onClick={() => {
                           setStrategy(option.value);
-                          setScenarioGraphView(
-                            option.value === "debit-call-spread" ? "map" : "line",
-                          );
+                          setScenarioGraphView("map");
                         }}
                         className={cn(
                           "rounded-md border border-slate-300 bg-white px-3 py-2 text-center text-sm font-semibold text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
@@ -4018,36 +4001,16 @@ export default function DebitCallSpreadLab({
                   </div>
                 ) : null}
 
-                {canModel && isDebitCallSpread && activeScenarioGraphView === "map" ? (
-                  <DebitSpreadScenarioVisualizer inputs={debitSpreadScenarioInputs} />
-                ) : null}
-
-                {canModel && !isDebitCallSpread && activeScenarioGraphView === "line" ? (
-                  <PnlScenarioChart
-                    title="Profit & loss by stock price"
-                    subtitle={`Solid line: value on ${formatLongDate(
-                      snapshot.selectedDateIso,
-                    )} at ${futureVolatilityPct}% IV. Dashed: payoff if held to expiry. Hover the curve to read value and P/L at any price.`}
-                    points={pnlCurvePoints}
-                    selectedPrice={safeScenarioPrice}
-                    selectedPnl={snapshot.pnl}
-                    breakEvenPrice={snapshot.breakEvenAtExpiry}
-                    spotPrice={spot}
-                    priceMarkers={priceMarkers}
-                    maxProfit={maxProfitAtExpiry}
-                    maxLoss={maxLossAtExpiry}
-                    totalCost={snapshot.totalCost}
-                    showExpiryCurve={snapshot.selectedOffsetDays < expirationDays}
-                    scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
-                  />
+                {canModel && activeScenarioGraphView === "map" ? (
+                  <DebitSpreadScenarioVisualizer inputs={scenarioVisualizerInputs} />
                 ) : null}
 
                 {canModel && activeScenarioGraphView === "decay" ? (
                   <TimeDecayChart
-                    title="Spread value over time"
+                    title={`${strategyCopy.unitTitle} value over time`}
                     subtitle={`At a fixed underlying price of ${formatCurrency(
                       safeScenarioPrice,
-                    )} and ${futureVolatilityPct}% IV. Hover to read the spread's value and P/L on any date.`}
+                    )} and ${futureVolatilityPct}% IV. Hover to read the ${strategyCopy.unitName}'s value and P/L on any date.`}
                     points={decayPoints}
                     expirationDays={expirationDays}
                     selectedOffsetDays={safeScenarioOffsetDays}
@@ -4058,26 +4021,12 @@ export default function DebitCallSpreadLab({
                   />
                 ) : null}
 
-                {canModel && isDebitCallSpread && activeScenarioGraphView === "overlay" ? (
+                {canModel && activeScenarioGraphView === "overlay" ? (
                   <DebitSpreadScenarioVisualizer
-                    inputs={debitSpreadScenarioInputs}
+                    inputs={scenarioVisualizerInputs}
                     view="multi"
                     selectedUnderlyingPrice={safeScenarioPrice}
                     selectedDte={expirationDays - safeScenarioOffsetDays}
-                  />
-                ) : null}
-
-                {canModel && !isDebitCallSpread && activeScenarioGraphView === "overlay" ? (
-                  <MultiDateOverlayChart
-                    title="P/L by stock price across valuation dates"
-                    subtitle={`Each curve fixes the date and walks the underlying. Solid: intermediate dates at ${futureVolatilityPct}% IV. Dashed: payoff at expiry.`}
-                    curves={overlayCurves}
-                    selectedPrice={safeScenarioPrice}
-                    selectedOffsetDays={safeScenarioOffsetDays}
-                    breakEvenPrice={snapshot.breakEvenAtExpiry}
-                    spotPrice={spot}
-                    priceMarkers={priceMarkers}
-                    totalCost={snapshot.totalCost}
                   />
                 ) : null}
 

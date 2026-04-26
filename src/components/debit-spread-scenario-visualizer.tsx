@@ -78,23 +78,38 @@ function formatMetricValue(
   return formatCurrency(point[metric]);
 }
 
-function scenarioTooltip(point: DebitSpreadScenarioPoint): string {
-  return [
+function scenarioTooltip(point: DebitSpreadScenarioPoint, isLongCall = false): string {
+  const rows = [
     `Underlying: ${formatCurrency(point.underlyingPrice)}`,
     `DTE: ${point.dte}`,
-    `Long call: ${formatDecimalCurrency(point.longCallValue)}`,
-    `Short call: ${formatDecimalCurrency(point.shortCallValue)}`,
-    `Spread: ${formatDecimalCurrency(point.spreadValue)}`,
+  ];
+
+  if (isLongCall) {
+    rows.push(`Call: ${formatDecimalCurrency(point.spreadValue)}`);
+  } else {
+    rows.push(
+      `Long call: ${formatDecimalCurrency(point.longCallValue)}`,
+      `Short call: ${formatDecimalCurrency(point.shortCallValue)}`,
+      `Spread: ${formatDecimalCurrency(point.spreadValue)}`,
+    );
+  }
+
+  rows.push(
     `Position value: ${formatCurrency(point.positionValue)}`,
     `P/L: ${formatCurrency(point.profitLoss)}`,
     `P/L %: ${formatPercent(point.profitLossPercent)}`,
-    `% max profit: ${formatPercent(point.percentOfMaxProfitCaptured)}`,
-  ].join("\n");
+  );
+
+  if (!isLongCall) {
+    rows.push(`% max profit: ${formatPercent(point.percentOfMaxProfitCaptured)}`);
+  }
+
+  return rows.join("\n");
 }
 
-function cellColor(point: DebitSpreadScenarioPoint, maxProfit: number, maxLoss: number): string {
+function cellColor(point: DebitSpreadScenarioPoint, maxProfit: number | null, maxLoss: number): string {
   if (point.profitLoss > 0) {
-    const ratio = Math.min(point.profitLoss / Math.max(maxProfit, 1), 1);
+    const ratio = Math.min(point.profitLoss / Math.max(maxProfit ?? maxLoss, 1), 1);
 
     if (ratio > 0.75) return "bg-emerald-700 text-white";
     if (ratio > 0.45) return "bg-emerald-500 text-white";
@@ -190,12 +205,16 @@ function SelectedScenarioPanel({
   summary,
   locked,
   onUnlock,
+  isLongCall,
 }: {
   selected: DebitSpreadScenarioPoint;
   summary: ReturnType<typeof buildDebitSpreadScenarioGrid>["summary"];
   locked: boolean;
   onUnlock: () => void;
+  isLongCall: boolean;
 }) {
+  const valueLabel = isLongCall ? "Call value" : "Spread value";
+
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
@@ -222,7 +241,7 @@ function SelectedScenarioPanel({
       <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <ScenarioStat label="Underlying" value={formatCurrency(selected.underlyingPrice)} />
         <ScenarioStat label="DTE" value={`${selected.dte} DTE`} />
-        <ScenarioStat label="Spread value" value={formatDecimalCurrency(selected.spreadValue)} />
+        <ScenarioStat label={valueLabel} value={formatDecimalCurrency(selected.spreadValue)} />
         <ScenarioStat label="Position value" value={formatCurrency(selected.positionValue)} />
         <ScenarioStat
           label="P/L $"
@@ -234,7 +253,11 @@ function SelectedScenarioPanel({
           value={formatPercent(selected.profitLossPercent)}
           tone={selected.profitLoss >= 0 ? "positive" : "negative"}
         />
-        <ScenarioStat label="Max profit" value={formatCurrency(summary.maxProfit)} tone="positive" />
+        <ScenarioStat
+          label="Max profit"
+          value={summary.maxProfit === null ? "Uncapped" : formatCurrency(summary.maxProfit)}
+          tone="positive"
+        />
         <ScenarioStat label="Expiry B/E" value={formatCurrency(summary.expiryBreakeven)} />
       </dl>
     </div>
@@ -245,6 +268,7 @@ function HeatmapTab({
   grid,
   metric,
   selectedScenario,
+  isLongCall,
   onPreview,
   onClearPreview,
   onLock,
@@ -252,6 +276,7 @@ function HeatmapTab({
   grid: ReturnType<typeof buildDebitSpreadScenarioGrid>;
   metric: DebitSpreadScenarioMetric;
   selectedScenario: DebitSpreadScenarioPoint;
+  isLongCall: boolean;
   onPreview: (scenario: DebitSpreadScenarioPoint) => void;
   onClearPreview: () => void;
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
@@ -319,7 +344,7 @@ function HeatmapTab({
                   <button
                     key={`${price}-${dte}`}
                     type="button"
-                    title={scenarioTooltip(point)}
+                    title={scenarioTooltip(point, isLongCall)}
                     aria-label={`${formatCurrency(price)} at ${dte} DTE: ${formatMetricValue(point, metric)}`}
                     onMouseEnter={() => onPreview(point)}
                     onMouseLeave={onClearPreview}
@@ -360,6 +385,7 @@ function PnlCurveTab({
   onClearPreview: () => void;
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
 }) {
+  const isLongCall = inputs.strategy === "long-call";
   const width = 820;
   const height = 340;
   const padding = { top: 34, right: 30, bottom: 52, left: 78 };
@@ -396,7 +422,7 @@ function PnlCurveTab({
   );
   const strikeMarkers = [
     { label: "Long", value: inputs.longStrike },
-    { label: "Short", value: inputs.shortStrike },
+    ...(isLongCall ? [] : [{ label: "Short", value: inputs.shortStrike }]),
     { label: "Current", value: inputs.currentPrice },
     { label: "Selected", value: selectedScenario.underlyingPrice },
     { label: "B/E", value: summary.expiryBreakeven },
@@ -480,7 +506,7 @@ function PnlCurveTab({
             onMouseLeave={onClearPreview}
             onClick={() => onLock(point)}
           >
-            <title>{scenarioTooltip(point)}</title>
+            <title>{scenarioTooltip(point, isLongCall)}</title>
           </circle>
         ))}
         {[minPrice, inputs.currentPrice, maxPrice].map((tick) => (
@@ -506,6 +532,7 @@ function MultiDateTab({
   onClearPreview: () => void;
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
 }) {
+  const isLongCall = inputs.strategy === "long-call";
   const width = 820;
   const height = 340;
   const padding = { top: 28, right: 90, bottom: 52, left: 78 };
@@ -762,7 +789,7 @@ function MultiDateTab({
                 stroke={CHART_COLORS.paper}
                 strokeWidth={2}
               >
-                <title>{scenarioTooltip(selectedPoint)}</title>
+                <title>{scenarioTooltip(selectedPoint, isLongCall)}</title>
               </circle>
             </g>
           ) : null}
@@ -817,6 +844,8 @@ function TimeValueTab({
   onClearPreview: () => void;
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
 }) {
+  const isLongCall = inputs.strategy === "long-call";
+  const unitLabel = isLongCall ? "Call" : "Spread";
   const [fixedPrice, setFixedPrice] = useState(inputs.currentPrice);
   const width = 820;
   const height = 320;
@@ -849,7 +878,7 @@ function TimeValueTab({
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-950 text-balance">
-            Spread value over time at fixed stock price
+            {unitLabel} value over time at fixed stock price
           </h3>
           <p className="mt-1 text-xs text-slate-500 text-pretty">
             Fixed stock price: {formatCurrency(fixedPrice)}. Estimated at {inputs.impliedVolatilityPct}% IV.
@@ -916,7 +945,7 @@ function TimeValueTab({
             onMouseLeave={onClearPreview}
             onClick={() => onLock(point)}
           >
-            <title>{scenarioTooltip(point)}</title>
+            <title>{scenarioTooltip(point, isLongCall)}</title>
           </circle>
         ))}
         {[inputs.currentDte, Math.round(inputs.currentDte / 2), 0].map((dte) => (
@@ -932,9 +961,11 @@ function TimeValueTab({
 function ScenarioTable({
   selectedPoint,
   rows,
+  isLongCall,
 }: {
   selectedPoint: DebitSpreadScenarioPoint;
   rows: DebitSpreadScenarioPoint[];
+  isLongCall: boolean;
 }) {
   const dedupedRows = [
     selectedPoint,
@@ -956,11 +987,15 @@ function ScenarioTable({
             <tr>
               <th className="px-4 py-2 font-semibold">Price</th>
               <th className="px-4 py-2 font-semibold">DTE</th>
-              <th className="px-4 py-2 text-right font-semibold">Spread value</th>
+              <th className="px-4 py-2 text-right font-semibold">
+                {isLongCall ? "Call value" : "Spread value"}
+              </th>
               <th className="px-4 py-2 text-right font-semibold">Position value</th>
               <th className="px-4 py-2 text-right font-semibold">P/L $</th>
               <th className="px-4 py-2 text-right font-semibold">P/L %</th>
-              <th className="px-4 py-2 text-right font-semibold">% max profit</th>
+              {!isLongCall ? (
+                <th className="px-4 py-2 text-right font-semibold">% max profit</th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -979,9 +1014,11 @@ function ScenarioTable({
                 <td className={cn("px-4 py-2 text-right font-mono font-semibold tabular-nums", row.profitLossPercent >= 0 ? "text-emerald-700" : "text-rose-700")}>
                   {formatPercent(row.profitLossPercent)}
                 </td>
-                <td className={cn("px-4 py-2 text-right font-mono font-semibold tabular-nums", row.percentOfMaxProfitCaptured >= 0 ? "text-emerald-700" : "text-rose-700")}>
-                  {formatPercent(row.percentOfMaxProfitCaptured)}
-                </td>
+                {!isLongCall ? (
+                  <td className={cn("px-4 py-2 text-right font-mono font-semibold tabular-nums", row.percentOfMaxProfitCaptured >= 0 ? "text-emerald-700" : "text-rose-700")}>
+                    {formatPercent(row.percentOfMaxProfitCaptured)}
+                  </td>
+                ) : null}
               </tr>
             ))}
           </tbody>
@@ -998,6 +1035,8 @@ export default function DebitSpreadScenarioVisualizer({
   selectedDte,
 }: DebitSpreadScenarioVisualizerProps) {
   const isHeatmapView = view === "heatmap";
+  const isLongCall = inputs.strategy === "long-call";
+  const unitName = isLongCall ? "call" : "spread";
   const [metric, setMetric] = useState<DebitSpreadScenarioMetric>("profitLoss");
   const [heatmapIvPct, setHeatmapIvPct] = useState(inputs.impliedVolatilityPct);
   const [heatmapDteSteps, setHeatmapDteSteps] = useState(7);
@@ -1064,6 +1103,11 @@ export default function DebitSpreadScenarioVisualizer({
       ),
     [grid.dteBuckets, heatmapInputs, selectedScenario.underlyingPrice],
   );
+  const metricOptions = isLongCall
+    ? METRIC_OPTIONS.filter((option) => option.value !== "percentOfMaxProfitCaptured")
+    : METRIC_OPTIONS;
+  const activeMetric =
+    isLongCall && metric === "percentOfMaxProfitCaptured" ? "profitLoss" : metric;
 
   const lockScenario = (scenario: DebitSpreadScenarioPoint) => {
     setLockedScenario(scenario);
@@ -1075,7 +1119,9 @@ export default function DebitSpreadScenarioVisualizer({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="mt-1 font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950 text-balance">
-            {isHeatmapView ? "What is this spread worth?" : "How does the spread shift over time?"}
+            {isHeatmapView
+              ? `What is this ${unitName} worth?`
+              : `How does the ${unitName} shift over time?`}
           </h2>
           <p className="mt-1 text-xs text-slate-500 text-pretty">
             Theoretical estimates only. Expiry uses payoff logic; non-expiry cells use Black-Scholes call pricing.
@@ -1086,14 +1132,14 @@ export default function DebitSpreadScenarioVisualizer({
             className="grid w-full grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:grid-cols-none"
             aria-label="Scenario metric"
           >
-            {METRIC_OPTIONS.map((option) => (
+            {metricOptions.map((option) => (
               <button
                 key={option.value}
                 type="button"
                 onClick={() => setMetric(option.value)}
                 className={cn(
                   "min-w-0 rounded-md px-2 py-1.5 text-sm font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 sm:px-3",
-                  metric === option.value && "bg-white text-slate-950 shadow-sm",
+                  activeMetric === option.value && "bg-white text-slate-950 shadow-sm",
                 )}
               >
                 {option.label}
@@ -1109,6 +1155,7 @@ export default function DebitSpreadScenarioVisualizer({
           summary={grid.summary}
           locked={selectedState.locked}
           onUnlock={() => setLockedScenario(null)}
+          isLongCall={isLongCall}
         />
       ) : null}
 
@@ -1192,8 +1239,9 @@ export default function DebitSpreadScenarioVisualizer({
       {isHeatmapView ? (
         <HeatmapTab
           grid={grid}
-          metric={metric}
+          metric={activeMetric}
           selectedScenario={selectedScenario}
+          isLongCall={isLongCall}
           onPreview={setHoverScenario}
           onClearPreview={() => setHoverScenario(null)}
           onLock={lockScenario}
@@ -1208,7 +1256,11 @@ export default function DebitSpreadScenarioVisualizer({
         />
       )}
 
-      <ScenarioTable selectedPoint={selectedScenario} rows={tableRows} />
+      <ScenarioTable
+        selectedPoint={selectedScenario}
+        rows={tableRows}
+        isLongCall={isLongCall}
+      />
     </section>
   );
 }

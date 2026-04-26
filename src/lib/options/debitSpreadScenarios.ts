@@ -4,6 +4,7 @@ import {
   clamp,
   roundTo,
 } from "@/lib/debit-call-spread";
+import type { OptionStrategy } from "@/lib/debit-call-spread";
 
 const YEAR_DAYS = 365;
 const DEFAULT_DTE_BUCKETS = [60, 45, 30, 21, 14, 7, 0];
@@ -15,6 +16,7 @@ export type DebitSpreadScenarioMetric =
   | "percentOfMaxProfitCaptured";
 
 export type DebitSpreadScenarioInputs = {
+  strategy?: OptionStrategy;
   currentPrice: number;
   longStrike: number;
   shortStrike: number;
@@ -47,7 +49,7 @@ export type DebitSpreadScenarioPoint = {
 export type DebitSpreadScenarioSummary = {
   spreadWidth: number;
   entryCost: number;
-  maxProfit: number;
+  maxProfit: number | null;
   maxLoss: number;
   expiryBreakeven: number;
   currentSpreadValue: number;
@@ -119,13 +121,16 @@ export function calculateDebitSpreadScenario(
   underlyingPrice: number,
   dte: number,
 ): DebitSpreadScenarioPoint {
-  const spreadWidth = Math.max(inputs.shortStrike - inputs.longStrike, 0);
+  const isLongCall = inputs.strategy === "long-call";
+  const spreadWidth = isLongCall ? 0 : Math.max(inputs.shortStrike - inputs.longStrike, 0);
   const safeDte = Math.max(Math.round(dte), 0);
   const entryCost = inputs.entryDebit * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
   const maxProfit =
-    Math.max(spreadWidth - inputs.entryDebit, 0) *
-    CONTRACT_MULTIPLIER *
-    inputs.numberOfSpreads;
+    isLongCall
+      ? null
+      : Math.max(spreadWidth - inputs.entryDebit, 0) *
+        CONTRACT_MULTIPLIER *
+        inputs.numberOfSpreads;
   const timeYears = safeDte / YEAR_DAYS;
   const volatility = Math.max(inputs.impliedVolatilityPct, 0) / 100;
   const rate = inputs.riskFreeRatePct / 100;
@@ -142,8 +147,9 @@ export function calculateDebitSpreadScenario(
           rate,
           dividendYield,
         });
-  const shortCallValue =
-    safeDte === 0
+  const shortCallValue = isLongCall
+    ? 0
+    : safeDte === 0
       ? Math.max(underlyingPrice - inputs.shortStrike, 0)
       : blackScholesCall({
           spot: underlyingPrice,
@@ -154,9 +160,11 @@ export function calculateDebitSpreadScenario(
           dividendYield,
         });
   const spreadValue =
-    safeDte === 0
-      ? clamp(Math.max(underlyingPrice - inputs.longStrike, 0), 0, spreadWidth)
-      : clamp(longCallValue - shortCallValue, 0, spreadWidth);
+    isLongCall
+      ? longCallValue
+      : safeDte === 0
+        ? clamp(Math.max(underlyingPrice - inputs.longStrike, 0), 0, spreadWidth)
+        : clamp(longCallValue - shortCallValue, 0, spreadWidth);
   const positionValue = spreadValue * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
   const profitLoss = positionValue - entryCost;
 
@@ -170,7 +178,7 @@ export function calculateDebitSpreadScenario(
     entryCost,
     profitLoss,
     profitLossPercent: entryCost > 0 ? (profitLoss / entryCost) * 100 : 0,
-    percentOfMaxProfitCaptured: maxProfit > 0 ? (profitLoss / maxProfit) * 100 : 0,
+    percentOfMaxProfitCaptured: maxProfit && maxProfit > 0 ? (profitLoss / maxProfit) * 100 : 0,
   };
 }
 
@@ -196,7 +204,8 @@ export function buildDebitSpreadScenarioGrid(
     inputs.currentPrice,
     inputs.currentDte,
   );
-  const spreadWidth = Math.max(inputs.shortStrike - inputs.longStrike, 0);
+  const isLongCall = inputs.strategy === "long-call";
+  const spreadWidth = isLongCall ? 0 : Math.max(inputs.shortStrike - inputs.longStrike, 0);
   const entryCost = inputs.entryDebit * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
 
   return {
@@ -206,10 +215,11 @@ export function buildDebitSpreadScenarioGrid(
     summary: {
       spreadWidth,
       entryCost,
-      maxProfit:
-        Math.max(spreadWidth - inputs.entryDebit, 0) *
-        CONTRACT_MULTIPLIER *
-        inputs.numberOfSpreads,
+      maxProfit: isLongCall
+        ? null
+        : Math.max(spreadWidth - inputs.entryDebit, 0) *
+          CONTRACT_MULTIPLIER *
+          inputs.numberOfSpreads,
       maxLoss: entryCost,
       expiryBreakeven: inputs.longStrike + inputs.entryDebit,
       currentSpreadValue: currentPoint.spreadValue,
