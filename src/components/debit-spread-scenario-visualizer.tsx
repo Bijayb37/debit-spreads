@@ -158,6 +158,20 @@ function normalizeDte(dte: number, currentDte: number): number {
   return Math.max(0, Math.min(currentDte, Math.round(dte)));
 }
 
+function findNearestScenarioPoint(
+  points: DebitSpreadScenarioPoint[],
+  underlyingPrice: number,
+  dte: number,
+): DebitSpreadScenarioPoint | undefined {
+  return points
+    .filter((point) => point.dte === dte)
+    .sort(
+      (first, second) =>
+        Math.abs(first.underlyingPrice - underlyingPrice) -
+        Math.abs(second.underlyingPrice - underlyingPrice),
+    )[0];
+}
+
 function makePath(
   points: DebitSpreadScenarioPoint[],
   x: (price: number) => number,
@@ -170,6 +184,58 @@ function makePath(
       return `${command} ${x(point.underlyingPrice)} ${y(getDebitSpreadMetricValue(point, metric))}`;
     })
     .join(" ");
+}
+
+function MobileRangeValueControl({
+  label,
+  prefix = "",
+  suffix = "",
+  min,
+  max,
+  step = 1,
+  value,
+  onChange,
+}: {
+  label: string;
+  prefix?: string;
+  suffix?: string;
+  min: number;
+  max: number;
+  step?: number;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const safeMin = Math.min(min, max);
+  const safeMax = Math.max(min, max);
+  const safeValue = clampValue(value, safeMin, safeMax);
+
+  return (
+    <div className="mt-1 sm:hidden">
+      <div className="flex items-center justify-between gap-3 rounded-md border border-slate-300 bg-white px-2.5 py-1.5">
+        <span className="text-[11px] font-semibold text-slate-500">{label}</span>
+        <span className="font-mono text-sm font-semibold text-slate-950 tabular-nums">
+          {prefix}
+          {safeValue}
+          {suffix}
+        </span>
+      </div>
+      <input
+        type="range"
+        min={safeMin}
+        max={safeMax}
+        step={step}
+        value={safeValue}
+        aria-label={label}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-2 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-orange-600"
+      />
+    </div>
+  );
+}
+
+function clampValue(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.max(min, Math.min(max, Math.round(value)));
 }
 
 function ScenarioStat({
@@ -214,11 +280,13 @@ function SelectedScenarioPanel({
   isLongCall: boolean;
 }) {
   const valueLabel = isLongCall ? "Call value" : "Spread value";
+  const maxProfitValue =
+    summary.maxProfit === null ? "Uncapped" : formatCurrency(summary.maxProfit);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-orange-700 text-balance">
             Selected Scenario
           </h3>
@@ -238,7 +306,34 @@ function SelectedScenarioPanel({
           ) : null}
         </div>
       </div>
-      <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="sm:hidden">
+        <dl className="grid grid-cols-2 gap-2">
+          <ScenarioStat label="Underlying" value={formatCurrency(selected.underlyingPrice)} />
+          <ScenarioStat label="DTE" value={`${selected.dte} DTE`} />
+          <ScenarioStat label="Position" value={formatCurrency(selected.positionValue)} />
+          <ScenarioStat
+            label="P/L"
+            value={formatCurrency(selected.profitLoss)}
+            tone={selected.profitLoss >= 0 ? "positive" : "negative"}
+          />
+        </dl>
+        <details className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-2">
+          <summary className="cursor-pointer text-xs font-semibold text-slate-600">
+            More values
+          </summary>
+          <dl className="mt-2 grid grid-cols-2 gap-2">
+            <ScenarioStat label={valueLabel} value={formatDecimalCurrency(selected.spreadValue)} />
+            <ScenarioStat
+              label="P/L %"
+              value={formatPercent(selected.profitLossPercent)}
+              tone={selected.profitLoss >= 0 ? "positive" : "negative"}
+            />
+            <ScenarioStat label="Max profit" value={maxProfitValue} tone="positive" />
+            <ScenarioStat label="Expiry B/E" value={formatCurrency(summary.expiryBreakeven)} />
+          </dl>
+        </details>
+      </div>
+      <dl className="hidden gap-3 sm:grid sm:grid-cols-2 lg:grid-cols-4">
         <ScenarioStat label="Underlying" value={formatCurrency(selected.underlyingPrice)} />
         <ScenarioStat label="DTE" value={`${selected.dte} DTE`} />
         <ScenarioStat label={valueLabel} value={formatDecimalCurrency(selected.spreadValue)} />
@@ -255,7 +350,7 @@ function SelectedScenarioPanel({
         />
         <ScenarioStat
           label="Max profit"
-          value={summary.maxProfit === null ? "Uncapped" : formatCurrency(summary.maxProfit)}
+          value={maxProfitValue}
           tone="positive"
         />
         <ScenarioStat label="Expiry B/E" value={formatCurrency(summary.expiryBreakeven)} />
@@ -290,11 +385,31 @@ function HeatmapTab({
     () => [...grid.priceBuckets].reverse(),
     [grid.priceBuckets],
   );
+  const selectedDte = grid.dteBuckets.includes(selectedScenario.dte)
+    ? selectedScenario.dte
+    : grid.dteBuckets[0] ?? 0;
+  const selectedDtePoints = useMemo(
+    () =>
+      displayedPriceBuckets.flatMap((price) => {
+        const point = pointLookup.get(`${price}-${selectedDte}`);
+        return point ? [point] : [];
+      }),
+    [displayedPriceBuckets, pointLookup, selectedDte],
+  );
+  const selectDte = (dte: number) => {
+    const nextPoint =
+      findNearestScenarioPoint(grid.points, selectedScenario.underlyingPrice, dte) ??
+      grid.points.find((point) => point.dte === dte);
+
+    if (nextPoint) {
+      onLock(nextPoint);
+    }
+  };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-950 text-balance">
             At stock price X and DTE Y
           </h3>
@@ -311,7 +426,60 @@ function HeatmapTab({
           Profit
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div className="space-y-3 sm:hidden">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+          {grid.dteBuckets.map((dte) => (
+            <button
+              key={`mobile-dte-${dte}`}
+              type="button"
+              aria-pressed={selectedDte === dte}
+              onClick={() => selectDte(dte)}
+              className={cn(
+                "shrink-0 rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-600 tabular-nums shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
+                selectedDte === dte && "border-amber-500 bg-amber-50 text-slate-950",
+              )}
+            >
+              {dte} DTE
+            </button>
+          ))}
+        </div>
+        <div className="space-y-2">
+          {selectedDtePoints.map((point) => {
+            const isSelected =
+              selectedScenario.underlyingPrice === point.underlyingPrice &&
+              selectedScenario.dte === point.dte;
+
+            return (
+              <button
+                key={`mobile-${point.underlyingPrice}-${point.dte}`}
+                type="button"
+                title={scenarioTooltip(point, isLongCall)}
+                aria-label={`${formatCurrency(point.underlyingPrice)} at ${point.dte} DTE: ${formatMetricValue(point, metric)}`}
+                onFocus={() => onPreview(point)}
+                onBlur={onClearPreview}
+                onClick={() => onLock(point)}
+                className={cn(
+                  "grid min-h-12 w-full grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-3 py-2 text-left shadow-sm outline-none",
+                  "focus-visible:ring-2 focus-visible:ring-amber-500",
+                  cellColor(point, grid.summary.maxProfit, grid.summary.maxLoss),
+                  isSelected && "ring-2 ring-amber-500",
+                )}
+              >
+                <span className="font-mono text-xs font-semibold tabular-nums">
+                  {formatCurrency(point.underlyingPrice)}
+                </span>
+                <span className="truncate text-xs font-medium">
+                  {point.profitLoss >= 0 ? "Profit" : "Loss"} {formatCurrency(point.profitLoss)}
+                </span>
+                <span className="font-mono text-sm font-semibold tabular-nums">
+                  {formatMetricValue(point, metric)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div className="hidden overflow-x-auto sm:block">
         <div
           className="grid min-w-[760px] gap-1"
           style={{
@@ -658,9 +826,9 @@ function MultiDateTab({
   };
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
+      <div className="mb-3 flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-950 text-balance">
             P/L curves as expiry approaches
           </h3>
@@ -668,7 +836,7 @@ function MultiDateTab({
             Compare how the curve shifts across valuation dates at the same stock prices.
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end">
           <button
             type="button"
             disabled={!canAddSelectedDte}
@@ -684,7 +852,7 @@ function MultiDateTab({
           {dteEntries.map((entry, index) => (
             <span
               key={`date-chip-${entry.dte}-${entry.label}`}
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600"
+              className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600"
             >
               <span className="size-2 rounded-full" style={{ backgroundColor: CURVE_COLORS[index % CURVE_COLORS.length] }} />
               {entry.label}
@@ -801,7 +969,7 @@ function MultiDateTab({
         </svg>
         {hoverTooltip ? (
           <div
-            className="pointer-events-none absolute z-10 min-w-60 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 shadow-lg"
+            className="pointer-events-none absolute z-10 w-[min(18rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 shadow-lg"
             style={{
               left: `${Math.min(Math.max(hoverTooltip.leftPct, 12), 76)}%`,
               top: `${Math.min(Math.max(hoverTooltip.topPct, 10), 72)}%`,
@@ -812,9 +980,9 @@ function MultiDateTab({
             </p>
             <div className="space-y-1">
               {hoverTooltip.rows.map((row) => (
-                <div key={row.label} className="grid grid-cols-[5rem_1fr] gap-2">
+                <div key={row.label} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
                   <span className="font-semibold text-slate-700">{row.label}</span>
-                  <span className="font-mono tabular-nums">
+                  <span className="min-w-0 font-mono tabular-nums">
                     Value {formatCurrency(row.positionValue)} · P/L{" "}
                     <span className={row.profitLoss >= 0 ? "text-emerald-700" : "text-rose-700"}>
                       {formatCurrency(row.profitLoss)}
@@ -874,9 +1042,9 @@ function TimeValueTab({
     padding.top + ((yMax - value) / Math.max(yMax - yMin, 1)) * chartHeight;
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
+      <div className="mb-3 flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-950 text-balance">
             {unitLabel} value over time at fixed stock price
           </h3>
@@ -884,7 +1052,7 @@ function TimeValueTab({
             Fixed stock price: {formatCurrency(fixedPrice)}. Estimated at {inputs.impliedVolatilityPct}% IV.
           </p>
         </div>
-        <label className="flex min-w-64 items-center gap-3">
+        <label className="flex w-full min-w-0 items-center gap-3 sm:w-auto sm:min-w-64">
           <span className="text-xs font-semibold text-slate-600">Fixed price</span>
           <input
             type="range"
@@ -977,11 +1145,67 @@ function ScenarioTable({
   ].slice(0, 8);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-4 py-3">
+    <div className="min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-200 px-3 py-3 sm:px-4">
         <h3 className="text-sm font-semibold text-slate-950 text-balance">Scenario table</h3>
       </div>
-      <div className="overflow-x-auto">
+      <div className="divide-y divide-slate-100 sm:hidden">
+        {dedupedRows.map((row, index) => (
+          <div
+            key={`mobile-row-${row.underlyingPrice}-${row.dte}-${index}`}
+            className={cn("px-3 py-3", index === 0 && "bg-amber-50")}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-mono text-sm font-semibold text-slate-950 tabular-nums">
+                  {formatCurrency(row.underlyingPrice)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">{row.dte} DTE</p>
+              </div>
+              <div className="text-right">
+                <p
+                  className={cn(
+                    "font-mono text-sm font-semibold tabular-nums",
+                    row.profitLoss >= 0 ? "text-emerald-700" : "text-rose-700",
+                  )}
+                >
+                  {formatCurrency(row.profitLoss)}
+                </p>
+                <p className="mt-1 font-mono text-xs text-slate-500 tabular-nums">
+                  {formatPercent(row.profitLossPercent)}
+                </p>
+              </div>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <p className="font-semibold uppercase text-slate-500">
+                  {isLongCall ? "Call" : "Spread"}
+                </p>
+                <p className="font-mono font-semibold text-slate-950 tabular-nums">
+                  {formatDecimalCurrency(row.spreadValue)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="font-semibold uppercase text-slate-500">Position</p>
+                <p className="font-mono font-semibold text-slate-950 tabular-nums">
+                  {formatCurrency(row.positionValue)}
+                </p>
+              </div>
+            </div>
+            {!isLongCall ? (
+              <p
+                className={cn(
+                  "mt-2 font-mono text-xs font-semibold tabular-nums",
+                  row.percentOfMaxProfitCaptured >= 0 ? "text-emerald-700" : "text-rose-700",
+                )}
+              >
+                {formatPercent(row.percentOfMaxProfitCaptured)} max profit
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+      <div className="hidden overflow-x-auto sm:block">
         <table className="w-full min-w-[760px] border-collapse text-left text-xs">
           <thead className="bg-slate-50 text-[10px] uppercase text-slate-500">
             <tr>
@@ -1089,8 +1313,26 @@ export default function DebitSpreadScenarioVisualizer({
       ),
     [selectedDte, selectedScenarioInputs, selectedUnderlyingPrice],
   );
+  const resolvedLockedScenario = useMemo(() => {
+    if (!lockedScenario) return null;
+
+    return calculateDebitSpreadScenario(
+      selectedScenarioInputs,
+      lockedScenario.underlyingPrice,
+      normalizeDte(lockedScenario.dte, selectedScenarioInputs.currentDte),
+    );
+  }, [lockedScenario, selectedScenarioInputs]);
+  const resolvedHoverScenario = useMemo(() => {
+    if (!hoverScenario) return null;
+
+    return calculateDebitSpreadScenario(
+      selectedScenarioInputs,
+      hoverScenario.underlyingPrice,
+      normalizeDte(hoverScenario.dte, selectedScenarioInputs.currentDte),
+    );
+  }, [hoverScenario, selectedScenarioInputs]);
   const selectedScenario = isHeatmapView
-    ? hoverScenario ?? lockedScenario ?? defaultScenario
+    ? resolvedHoverScenario ?? resolvedLockedScenario ?? defaultScenario
     : defaultScenario;
   const selectedState: SelectedScenarioState = {
     scenario: selectedScenario,
@@ -1115,9 +1357,9 @@ export default function DebitSpreadScenarioVisualizer({
   };
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
+    <section className="min-w-0 space-y-4">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="mt-1 font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950 text-balance">
             {isHeatmapView
               ? `What is this ${unitName} worth?`
@@ -1138,7 +1380,7 @@ export default function DebitSpreadScenarioVisualizer({
                 type="button"
                 onClick={() => setMetric(option.value)}
                 className={cn(
-                  "min-w-0 rounded-md px-2 py-1.5 text-sm font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 sm:px-3",
+                  "min-w-0 truncate rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 min-[360px]:text-sm sm:px-3",
                   activeMetric === option.value && "bg-white text-slate-950 shadow-sm",
                 )}
               >
@@ -1160,10 +1402,10 @@ export default function DebitSpreadScenarioVisualizer({
       ) : null}
 
       {isHeatmapView ? (
-        <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-5">
           <label className="block text-xs font-semibold text-slate-600">
             Min price
-            <div className="mt-1 flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5">
+            <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
               <span className="text-slate-500">$</span>
               <input
                 type="number"
@@ -1174,10 +1416,18 @@ export default function DebitSpreadScenarioVisualizer({
                 className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
               />
             </div>
+            <MobileRangeValueControl
+              label="Min"
+              prefix="$"
+              min={1}
+              max={Math.max(1, safeHeatmapMaxPrice - 1)}
+              value={safeHeatmapMinPrice}
+              onChange={setHeatmapMinPrice}
+            />
           </label>
           <label className="block text-xs font-semibold text-slate-600">
             Max price
-            <div className="mt-1 flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5">
+            <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
               <span className="text-slate-500">$</span>
               <input
                 type="number"
@@ -1188,10 +1438,18 @@ export default function DebitSpreadScenarioVisualizer({
                 className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
               />
             </div>
+            <MobileRangeValueControl
+              label="Max"
+              prefix="$"
+              min={safeHeatmapMinPrice + 1}
+              max={Math.max(safeHeatmapMaxPrice, Math.round(inputs.currentPrice * 1.8), safeHeatmapMinPrice + 2)}
+              value={safeHeatmapMaxPrice}
+              onChange={setHeatmapMaxPrice}
+            />
           </label>
           <label className="block text-xs font-semibold text-slate-600">
             Price tick value
-            <div className="mt-1 flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5">
+            <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
               <span className="text-slate-500">$</span>
               <input
                 type="number"
@@ -1202,6 +1460,14 @@ export default function DebitSpreadScenarioVisualizer({
                 className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
               />
             </div>
+            <MobileRangeValueControl
+              label="Tick"
+              prefix="$"
+              min={1}
+              max={Math.max(1, safeHeatmapMaxPrice - safeHeatmapMinPrice)}
+              value={safeHeatmapPriceTickSize}
+              onChange={setHeatmapPriceTickSize}
+            />
           </label>
           <label className="block text-xs font-semibold text-slate-600">
             DTE ticks
@@ -1213,7 +1479,7 @@ export default function DebitSpreadScenarioVisualizer({
                 step={1}
                 value={heatmapDteSteps}
                 onChange={(event) => setHeatmapDteSteps(Number(event.target.value))}
-                className="w-full accent-orange-600"
+                className="w-full min-w-0 accent-orange-600"
               />
               <span className="w-8 text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">{heatmapDteSteps}</span>
             </div>
@@ -1228,7 +1494,7 @@ export default function DebitSpreadScenarioVisualizer({
                 step={1}
                 value={heatmapIvPct}
                 onChange={(event) => setHeatmapIvPct(Number(event.target.value))}
-                className="w-full accent-orange-600"
+                className="w-full min-w-0 accent-orange-600"
               />
               <span className="w-14 text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">{heatmapIvPct}%</span>
             </div>
