@@ -35,7 +35,7 @@ const METRIC_OPTIONS: Array<{ value: DebitSpreadScenarioMetric; label: string }>
 const CHART_COLORS = {
   primary: "#0f766e",
   expiry: "#059669",
-  selected: "#d97706",
+  selected: "#e63946",
   breakeven: "#0f172a",
   muted: "#64748b",
   grid: "#e2e8f0",
@@ -186,6 +186,12 @@ function makePath(
     .join(" ");
 }
 
+function blurFocusedField() {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
+  }
+}
+
 function MobileRangeValueControl({
   label,
   prefix = "",
@@ -211,13 +217,24 @@ function MobileRangeValueControl({
 
   return (
     <div className="mt-1 sm:hidden">
-      <div className="flex items-center justify-between gap-3 rounded-md border border-slate-300 bg-white px-2.5 py-1.5">
-        <span className="text-[11px] font-semibold text-slate-500">{label}</span>
-        <span className="font-mono text-sm font-semibold text-slate-950 tabular-nums">
-          {prefix}
-          {safeValue}
-          {suffix}
-        </span>
+      <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-2.5 py-1.5">
+        {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
+        <input
+          type="number"
+          min={safeMin}
+          max={safeMax}
+          step={step}
+          value={safeValue}
+          aria-label={label}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.currentTarget.blur();
+            }
+          }}
+          onChange={(event) => onChange(Number(event.target.value))}
+          className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-right text-sm font-semibold text-slate-950 outline-none tabular-nums"
+        />
+        {suffix ? <span className="text-sm text-slate-500">{suffix}</span> : null}
       </div>
       <input
         type="range"
@@ -227,7 +244,10 @@ function MobileRangeValueControl({
         value={safeValue}
         aria-label={label}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="mt-2 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-orange-600"
+        onMouseDown={blurFocusedField}
+        onPointerDown={blurFocusedField}
+        onTouchStart={blurFocusedField}
+        className="mt-2 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
       />
     </div>
   );
@@ -287,7 +307,7 @@ function SelectedScenarioPanel({
     <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-orange-700 text-balance">
+          <h3 className="text-sm font-semibold text-[#e63946] text-balance">
             Selected Scenario
           </h3>
           <p className="mt-1 text-xs text-slate-600 text-pretty">
@@ -435,8 +455,8 @@ function HeatmapTab({
               aria-pressed={selectedDte === dte}
               onClick={() => selectDte(dte)}
               className={cn(
-                "shrink-0 rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-600 tabular-nums shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
-                selectedDte === dte && "border-amber-500 bg-amber-50 text-slate-950",
+                "shrink-0 rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-600 tabular-nums shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                selectedDte === dte && "border-[#e63946] bg-[#e63946]/10 text-slate-950",
               )}
             >
               {dte} DTE
@@ -460,9 +480,9 @@ function HeatmapTab({
                 onClick={() => onLock(point)}
                 className={cn(
                   "grid min-h-12 w-full grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-3 py-2 text-left shadow-sm outline-none",
-                  "focus-visible:ring-2 focus-visible:ring-amber-500",
+                  "focus-visible:ring-2 focus-visible:ring-[#e63946]",
                   cellColor(point, grid.summary.maxProfit, grid.summary.maxLoss),
-                  isSelected && "ring-2 ring-amber-500",
+                  isSelected && "ring-2 ring-[#e63946]",
                 )}
               >
                 <span className="font-mono text-xs font-semibold tabular-nums">
@@ -521,9 +541,9 @@ function HeatmapTab({
                     onClick={() => onLock(point)}
                     className={cn(
                       "min-h-8 rounded-md px-1.5 py-1 text-center font-mono text-[11px] font-semibold shadow-sm outline-none tabular-nums",
-                      "focus-visible:ring-2 focus-visible:ring-amber-500",
+                      "focus-visible:ring-2 focus-visible:ring-[#e63946]",
                       cellColor(point, grid.summary.maxProfit, grid.summary.maxLoss),
-                      isSelected && "ring-2 ring-amber-500",
+                      isSelected && "ring-2 ring-[#e63946]",
                     )}
                   >
                     {formatMetricValue(point, metric)}
@@ -1061,7 +1081,10 @@ function TimeValueTab({
             step={1}
             value={fixedPrice}
             onChange={(event) => setFixedPrice(Number(event.target.value))}
-            className="w-full accent-orange-600"
+            onMouseDown={blurFocusedField}
+            onPointerDown={blurFocusedField}
+            onTouchStart={blurFocusedField}
+            className="w-full accent-[#e63946]"
           />
           <span className="w-16 text-right font-mono text-xs font-semibold tabular-nums">{formatCurrency(fixedPrice)}</span>
         </label>
@@ -1153,7 +1176,7 @@ function ScenarioTable({
         {dedupedRows.map((row, index) => (
           <div
             key={`mobile-row-${row.underlyingPrice}-${row.dte}-${index}`}
-            className={cn("px-3 py-3", index === 0 && "bg-amber-50")}
+            className={cn("px-3 py-3", index === 0 && "bg-[#e63946]/10")}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1226,7 +1249,7 @@ function ScenarioTable({
             {dedupedRows.map((row, index) => (
               <tr
                 key={`${row.underlyingPrice}-${row.dte}-${index}`}
-                className={cn(index === 0 ? "bg-amber-50" : "border-t border-slate-100")}
+                className={cn(index === 0 ? "bg-[#e63946]/10" : "border-t border-slate-100")}
               >
                 <td className="px-4 py-2 font-mono tabular-nums text-slate-950">{formatCurrency(row.underlyingPrice)}</td>
                 <td className="px-4 py-2 font-mono tabular-nums text-slate-950">{row.dte}</td>
@@ -1380,7 +1403,7 @@ export default function DebitSpreadScenarioVisualizer({
                 type="button"
                 onClick={() => setMetric(option.value)}
                 className={cn(
-                  "min-w-0 truncate rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 min-[360px]:text-sm sm:px-3",
+                  "min-w-0 truncate rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] min-[360px]:text-sm sm:px-3",
                   activeMetric === option.value && "bg-white text-slate-950 shadow-sm",
                 )}
               >
@@ -1479,7 +1502,10 @@ export default function DebitSpreadScenarioVisualizer({
                 step={1}
                 value={heatmapDteSteps}
                 onChange={(event) => setHeatmapDteSteps(Number(event.target.value))}
-                className="w-full min-w-0 accent-orange-600"
+                onMouseDown={blurFocusedField}
+                onPointerDown={blurFocusedField}
+                onTouchStart={blurFocusedField}
+                className="w-full min-w-0 accent-[#e63946]"
               />
               <span className="w-8 text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">{heatmapDteSteps}</span>
             </div>
@@ -1494,7 +1520,10 @@ export default function DebitSpreadScenarioVisualizer({
                 step={1}
                 value={heatmapIvPct}
                 onChange={(event) => setHeatmapIvPct(Number(event.target.value))}
-                className="w-full min-w-0 accent-orange-600"
+                onMouseDown={blurFocusedField}
+                onPointerDown={blurFocusedField}
+                onTouchStart={blurFocusedField}
+                className="w-full min-w-0 accent-[#e63946]"
               />
               <span className="w-14 text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">{heatmapIvPct}%</span>
             </div>

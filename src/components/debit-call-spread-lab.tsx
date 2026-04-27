@@ -20,6 +20,7 @@ import type {
   OptionStrategy,
   PriceCurvePoint,
   PriceLadderRow,
+  ScenarioSnapshot,
   StrategyInputs,
   TimelineRow,
 } from "@/lib/debit-call-spread";
@@ -185,6 +186,49 @@ type DebitCallSpreadLabProps = {
 type TimelineTableRow = TimelineRow & { id: string };
 type PriceTableRow = PriceLadderRow & { id: string };
 
+type ComparisonPanelMode = "hidden" | "presets" | "custom";
+
+type ComparisonCandidate = {
+  id: string;
+  label: string;
+  note: string;
+  strategy: OptionStrategy;
+  longStrike: number;
+  shortStrike: number;
+  capital: number;
+  expirationDays: number;
+  allowFractionalContracts: boolean;
+};
+
+type ComparisonCardData = ComparisonCandidate & {
+  snapshot: ScenarioSnapshot;
+  maxProfitAtExpiry: number | null;
+  maxReturnAtExpiry: number | null;
+  maxLossAtExpiry: number;
+  rank: number;
+};
+
+type CustomComparisonConfig = {
+  id: string;
+  label: string;
+  strategy: OptionStrategy;
+  longStrike: number;
+  shortStrike: number;
+  capital: number;
+  expirationDays: number;
+  allowFractionalContracts: boolean;
+};
+
+type CustomComparisonDraft = Omit<CustomComparisonConfig, "id">;
+
+type GraphComparisonOption = {
+  id: string;
+  label: string;
+  detail: string;
+  inputs: StrategyInputs;
+  snapshot: ScenarioSnapshot;
+};
+
 type StrategyCopy = {
   unitName: string;
   unitTitle: string;
@@ -211,6 +255,9 @@ type ShareState = {
   scenarioOffsetDays: number;
   ratePct: number;
   scenarioGraphView: ScenarioGraphView;
+  comparisonPanelMode: ComparisonPanelMode;
+  customComparisons: CustomComparisonConfig[];
+  graphComparisonId: string;
 };
 
 const CHART_COLORS = {
@@ -221,7 +268,7 @@ const CHART_COLORS = {
   inkMuted: "#64748b",
   line: "#cbd5e1",
   grid: "#f1f5f9",
-  accent: "#d97706",
+  accent: "#e63946",
   pine: "#059669",
   loss: "#be123c",
 };
@@ -275,6 +322,10 @@ function compactNumber(value: number): string {
   return String(roundTo(value, 2)).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
 }
 
+function encodeShareText(value: string): string {
+  return encodeURIComponent(value).replace(/!/g, "%21");
+}
+
 function parseShareNumber(value: string | undefined, fallback: number): number {
   if (!value) {
     return fallback;
@@ -296,11 +347,79 @@ function decodeShareText(value: string | undefined, fallback: string): string {
   }
 }
 
+function encodeCustomComparisons(comparisons: CustomComparisonConfig[]): string {
+  return comparisons
+    .slice(0, 12)
+    .map((comparison) =>
+      [
+        comparison.strategy === "long-call" ? "l" : "d",
+        compactNumber(comparison.longStrike),
+        compactNumber(comparison.shortStrike),
+        compactNumber(comparison.capital),
+        comparison.allowFractionalContracts ? "1" : "0",
+        encodeShareText(comparison.label),
+        encodeShareText(comparison.id),
+        compactNumber(comparison.expirationDays),
+      ].join(","),
+    )
+    .join(";");
+}
+
+function decodeCustomComparisons(value: string | undefined): CustomComparisonConfig[] {
+  if (!value) {
+    return [];
+  }
+
+  return value
+    .split(";")
+    .slice(0, 12)
+    .flatMap((entry, index) => {
+      const [
+        strategyToken,
+        longStrikeToken,
+        shortStrikeToken,
+        capitalToken,
+        fractionalToken,
+        labelToken,
+        idToken,
+        expirationDaysToken,
+      ] = entry.split(",");
+      const strategy: OptionStrategy =
+        strategyToken === "l" ? "long-call" : "debit-call-spread";
+      const longStrike = Math.max(1, Math.round(parseShareNumber(longStrikeToken, 100)));
+      const shortStrike =
+        strategy === "long-call"
+          ? longStrike
+          : Math.max(longStrike + 1, Math.round(parseShareNumber(shortStrikeToken, longStrike + 10)));
+      const capital = Math.max(0, Math.round(parseShareNumber(capitalToken, 10000)));
+      const expirationDays = clamp(
+        Math.round(parseShareNumber(expirationDaysToken, 60)),
+        1,
+        1095,
+      );
+
+      if (capital <= 0) {
+        return [];
+      }
+
+      return [{
+        label: decodeShareText(labelToken, ""),
+        strategy,
+        longStrike,
+        shortStrike,
+        capital,
+        expirationDays,
+        allowFractionalContracts: fractionalToken === "1",
+        id: decodeShareText(idToken, `shared-custom-${index}`),
+      }];
+    });
+}
+
 function encodeShareState(state: ShareState): string {
   const parts = [
     SHARE_VERSION,
     state.strategy === "long-call" ? "l" : "d",
-    encodeURIComponent(state.symbol),
+    encodeShareText(state.symbol),
     compactNumber(state.spot),
     compactNumber(state.volatilityPct),
     compactNumber(state.futureVolatilityPct),
@@ -318,6 +437,22 @@ function encodeShareState(state: ShareState): string {
         ? "t"
         : "o",
   ];
+
+  if (
+    state.comparisonPanelMode !== "hidden" ||
+    state.customComparisons.length > 0 ||
+    state.graphComparisonId !== "editor"
+  ) {
+    parts.push(
+      state.comparisonPanelMode === "custom"
+        ? "c"
+        : state.comparisonPanelMode === "presets"
+          ? "p"
+          : "h",
+      encodeCustomComparisons(state.customComparisons),
+      encodeShareText(state.graphComparisonId),
+    );
+  }
 
   return parts.join("~");
 }
@@ -372,6 +507,9 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     scenarioOffsetDaysToken,
     rateToken,
     graphToken,
+    comparisonPanelToken,
+    customComparisonsToken,
+    graphComparisonToken,
   ] = value.split("~");
 
   if (version !== SHARE_VERSION) {
@@ -412,6 +550,14 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
         : graphToken === "o"
           ? "overlay"
           : "map",
+    comparisonPanelMode:
+      comparisonPanelToken === "c"
+        ? "custom"
+        : comparisonPanelToken === "p"
+          ? "presets"
+          : "hidden",
+    customComparisons: decodeCustomComparisons(customComparisonsToken),
+    graphComparisonId: decodeShareText(graphComparisonToken, "editor"),
   };
 }
 
@@ -536,6 +682,11 @@ function handleNumberKeyDown(
     return;
   }
 
+  if (event.key === "Enter") {
+    event.currentTarget.blur();
+    return;
+  }
+
   if (event.key === "Backspace" && /^\d$/.test(event.currentTarget.value)) {
     event.preventDefault();
     onChange(0);
@@ -545,6 +696,12 @@ function handleNumberKeyDown(
   if (/^\d$/.test(event.key) && event.currentTarget.value === "0") {
     event.preventDefault();
     onChange(Number(event.key));
+  }
+}
+
+function blurFocusedField() {
+  if (document.activeElement instanceof HTMLElement) {
+    document.activeElement.blur();
   }
 }
 
@@ -576,7 +733,7 @@ function SectionCard({
           {eyebrow ? (
             <p
               className={cn(
-                "text-sm font-medium text-amber-700",
+                "text-sm font-medium text-[#e63946]",
                 eyebrowClassName,
               )}
             >
@@ -603,7 +760,7 @@ function MetricCard({ label, value, tone = "default", helper }: MetricCardProps)
           "mt-2 font-mono text-2xl font-semibold tabular-nums",
           tone === "positive" && "text-emerald-700",
           tone === "negative" && "text-rose-700",
-          tone === "accent" && "text-amber-700",
+          tone === "accent" && "text-[#e63946]",
           tone === "default" && "text-slate-950",
         )}
       >
@@ -611,6 +768,506 @@ function MetricCard({ label, value, tone = "default", helper }: MetricCardProps)
       </p>
       {helper ? <p className="mt-1 text-sm text-slate-500 text-pretty">{helper}</p> : null}
     </div>
+  );
+}
+
+function getComparisonStrikeLabel(candidate: ComparisonCandidate): string {
+  if (candidate.strategy === "long-call") {
+    return `${formatCurrency(candidate.longStrike)} call`;
+  }
+
+  return `${formatCurrency(candidate.longStrike)} / ${formatCurrency(candidate.shortStrike)}`;
+}
+
+function getCustomComparisonLabel(draft: CustomComparisonDraft): string {
+  if (draft.label.trim()) {
+    return draft.label.trim();
+  }
+
+  if (draft.strategy === "long-call") {
+    return `${formatCurrency(draft.longStrike)} long call`;
+  }
+
+  return `${formatCurrency(draft.longStrike)} / ${formatCurrency(draft.shortStrike)} spread`;
+}
+
+function applyComparisonToInputs(
+  candidate: ComparisonCandidate,
+  inputs: StrategyInputs,
+): StrategyInputs {
+  return {
+    ...inputs,
+    strategy: candidate.strategy,
+    longStrike: candidate.longStrike,
+    shortStrike:
+      candidate.strategy === "long-call"
+        ? candidate.longStrike
+        : Math.max(candidate.shortStrike, candidate.longStrike + 1),
+    capital: candidate.capital,
+    expiryIso: addDaysToIso(inputs.todayIso, candidate.expirationDays),
+    allowFractionalContracts: candidate.allowFractionalContracts,
+  };
+}
+
+function buildComparisonCard(
+  candidate: ComparisonCandidate,
+  inputs: StrategyInputs,
+): ComparisonCardData | null {
+  const candidateSnapshot = createScenarioSnapshot(applyComparisonToInputs(candidate, inputs));
+
+  if (candidateSnapshot.unitCost <= 0) {
+    return null;
+  }
+
+  const candidateMaxProfit =
+    candidateSnapshot.maxProfitPerUnit !== null
+      ? candidateSnapshot.maxProfitPerUnit *
+        candidateSnapshot.contracts *
+        CONTRACT_MULTIPLIER
+      : null;
+
+  return {
+    ...candidate,
+    snapshot: candidateSnapshot,
+    maxProfitAtExpiry: candidateMaxProfit,
+    maxReturnAtExpiry:
+      candidateMaxProfit !== null && candidateSnapshot.totalCost > 0
+        ? candidateMaxProfit / candidateSnapshot.totalCost
+        : null,
+    maxLossAtExpiry: -candidateSnapshot.totalCost,
+    rank: 0,
+  };
+}
+
+function rankComparisonCards(cards: ComparisonCardData[]): ComparisonCardData[] {
+  return [...cards]
+    .sort((first, second) => second.snapshot.roi - first.snapshot.roi)
+    .map((card, index) => ({ ...card, rank: index + 1 }));
+}
+
+function ComparisonCardGrid({
+  cards,
+  onRemoveCard,
+}: {
+  cards: ComparisonCardData[];
+  onRemoveCard?: (id: string) => void;
+}) {
+  const maxAbsPnl = Math.max(1, ...cards.map((card) => Math.abs(card.snapshot.pnl)));
+  const bestCard = cards[0];
+
+  return (
+    <div className="grid min-w-0 gap-3 lg:grid-cols-2 xl:grid-cols-3">
+      {cards.map((card) => {
+        const isBest = card.id === bestCard?.id;
+        const isCurrent = card.id === "current";
+        const pnlIsPositive = card.snapshot.pnl >= 0;
+        const barWidth = `${Math.max(
+          8,
+          Math.min((Math.abs(card.snapshot.pnl) / maxAbsPnl) * 100, 100),
+        )}%`;
+
+        return (
+          <article
+            key={card.id}
+            className={cn(
+              "min-w-0 rounded-lg border bg-white p-3 shadow-sm",
+              isBest ? "border-emerald-300 ring-1 ring-emerald-100" : "border-slate-200",
+              isCurrent && "border-[#e63946]/40 ring-1 ring-[#e63946]/20",
+            )}
+          >
+            <div className="flex min-w-0 items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <h3 className="truncate text-sm font-semibold text-slate-950">
+                    {card.label}
+                  </h3>
+                  {isCurrent ? (
+                    <span className="rounded-full bg-[#e63946]/15 px-2 py-0.5 text-[10px] font-semibold text-[#9f1d2a]">
+                      Current
+                    </span>
+                  ) : null}
+                  {isBest ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                      Best
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <span className="rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-xs text-slate-600 tabular-nums">
+                  #{card.rank}
+                </span>
+                {onRemoveCard ? (
+                  <button
+                    type="button"
+                    aria-label={`Remove ${card.label}`}
+                    onClick={() => onRemoveCard(card.id)}
+                    className="inline-flex size-6 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-500 shadow-sm hover:border-rose-300 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+                  >
+                    x
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-end gap-3">
+              <div>
+                <p className="text-[10px] font-semibold uppercase text-slate-500">
+                  Scenario P/L
+                </p>
+                <p
+                  className={cn(
+                    "mt-1 truncate font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none tabular-nums",
+                    pnlIsPositive ? "text-emerald-700" : "text-rose-700",
+                  )}
+                >
+                  {pnlIsPositive ? "+" : ""}
+                  {formatCurrency(card.snapshot.pnl)}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-semibold uppercase text-slate-500">
+                  Return
+                </p>
+                <p
+                  className={cn(
+                    "mt-1 font-mono text-base font-semibold tabular-nums",
+                    pnlIsPositive ? "text-emerald-700" : "text-rose-700",
+                  )}
+                >
+                  {formatPercent(card.snapshot.roi)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className={cn(
+                  "h-full rounded-full",
+                  pnlIsPositive ? "bg-emerald-600" : "bg-rose-600",
+                )}
+                style={{ width: barWidth }}
+              />
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+              <div>
+                <p className="text-slate-500">Structure</p>
+                <p className="mt-0.5 truncate font-mono font-semibold text-slate-950 tabular-nums">
+                  {getComparisonStrikeLabel(card)}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">Break-even</p>
+                <p className="mt-0.5 truncate font-mono font-semibold text-slate-950 tabular-nums">
+                  {formatCurrency(card.snapshot.breakEvenAtExpiry)}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">DTE</p>
+                <p className="mt-0.5 truncate font-mono font-semibold text-slate-950 tabular-nums">
+                  {card.snapshot.expirationDays}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">Max at expiry</p>
+                <p className="mt-0.5 truncate font-mono font-semibold text-slate-950 tabular-nums">
+                  {card.maxProfitAtExpiry !== null
+                    ? `${formatCompactCurrency(card.maxProfitAtExpiry)} ${card.maxReturnAtExpiry !== null ? formatPercent(card.maxReturnAtExpiry) : ""}`
+                    : "Uncapped"}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">Contracts</p>
+                <p className="mt-0.5 truncate font-mono font-semibold text-slate-950 tabular-nums">
+                  {formatQuantity(card.snapshot.contracts)}
+                </p>
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function OptionComparisonBoard({
+  cards,
+  scenarioDateLabel,
+  scenarioPrice,
+  symbol,
+}: {
+  cards: ComparisonCardData[];
+  scenarioDateLabel: string;
+  scenarioPrice: number;
+  symbol: string;
+}) {
+  return (
+    <SectionCard
+      title="Opportunity board"
+      eyebrow={`${symbol.trim() || "Underlying"} comparison at ${formatCurrency(
+        scenarioPrice,
+      )} on ${scenarioDateLabel}`}
+      action={
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">
+          Ranked by selected scenario
+        </div>
+      }
+    >
+      <ComparisonCardGrid cards={cards} />
+    </SectionCard>
+  );
+}
+
+function CompactNumberInput({
+  label,
+  value,
+  onChange,
+  prefix,
+  suffix,
+  min = 0,
+  step = 1,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+  prefix?: string;
+  suffix?: string;
+  min?: number;
+  step?: number;
+}) {
+  return (
+    <label className="block min-w-0">
+      <span className="text-xs font-medium text-slate-500">{label}</span>
+      <div className="mt-1 flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 shadow-sm">
+        {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
+        <input
+          type="number"
+          min={min}
+          step={step}
+          value={value}
+          onKeyDown={(event) => handleNumberKeyDown(event, onChange)}
+          onChange={(event) => onChange(parseNumberInput(event.target.value))}
+          className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-sm font-medium text-slate-950 outline-none tabular-nums"
+        />
+        {suffix ? <span className="text-sm text-slate-500">{suffix}</span> : null}
+      </div>
+    </label>
+  );
+}
+
+function CustomComparisonBoard({
+  cards,
+  draft,
+  draftError,
+  isEditorOpen,
+  quickStartCards,
+  showSummary,
+  scenarioDateLabel,
+  scenarioPrice,
+  symbol,
+  onDraftChange,
+  onAddComparison,
+  onRemoveComparison,
+  onUseQuickStart,
+}: {
+  cards: ComparisonCardData[];
+  draft: CustomComparisonDraft;
+  draftError: string | null;
+  isEditorOpen: boolean;
+  quickStartCards: ComparisonCardData[];
+  showSummary: boolean;
+  scenarioDateLabel: string;
+  scenarioPrice: number;
+  symbol: string;
+  onDraftChange: (draft: CustomComparisonDraft) => void;
+  onAddComparison: () => void;
+  onRemoveComparison: (id: string) => void;
+  onUseQuickStart: (card: ComparisonCardData) => void;
+}) {
+  const isSpreadDraft = draft.strategy === "debit-call-spread";
+
+  return (
+    <SectionCard
+      title="Custom comparisons"
+      eyebrow={`${symbol.trim() || "Underlying"} comparison at ${formatCurrency(
+        scenarioPrice,
+      )} on ${scenarioDateLabel}`}
+      action={
+        isEditorOpen && quickStartCards.length > 0 ? (
+          <details className="relative">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]">
+              Start with
+              <span className="text-slate-500">▾</span>
+            </summary>
+            <div className="absolute right-0 z-20 mt-2 grid w-56 gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+              {quickStartCards.map((card) => (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={(event) => {
+                    onUseQuickStart(card);
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                  }}
+                  className="rounded-md px-2.5 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-[#e63946]/10 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+                >
+                  {card.label}
+                </button>
+              ))}
+            </div>
+          </details>
+        ) : null
+      }
+    >
+      {isEditorOpen ? (
+        <>
+          <div className="grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm lg:grid-cols-[minmax(0,1fr)_auto]">
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+              <label className="block min-w-0 sm:col-span-2 xl:col-span-1">
+                <span className="text-xs font-medium text-slate-500">Name</span>
+                <input
+                  type="text"
+                  value={draft.label}
+                  placeholder={getCustomComparisonLabel({ ...draft, label: "" })}
+                  onChange={(event) =>
+                    onDraftChange({ ...draft, label: event.target.value })
+                  }
+                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-950 shadow-sm outline-none placeholder:text-slate-400 focus:border-[#e63946]"
+                />
+              </label>
+
+              <div className="min-w-0">
+                <span className="text-xs font-medium text-slate-500">Type</span>
+                <div
+                  className="mt-1 grid grid-cols-2 rounded-md border border-slate-300 bg-white p-0.5 shadow-sm"
+                  role="group"
+                  aria-label="Custom comparison type"
+                >
+                  {STRATEGY_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={draft.strategy === option.value}
+                      onClick={() =>
+                        onDraftChange({
+                          ...draft,
+                          strategy: option.value,
+                          shortStrike:
+                            option.value === "long-call"
+                              ? draft.longStrike
+                              : Math.max(draft.shortStrike, draft.longStrike + 1),
+                        })
+                      }
+                      className={cn(
+                        "min-w-0 truncate rounded px-2 py-1.5 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                        draft.strategy === option.value &&
+                          "bg-[#e63946]/10 text-slate-950 shadow-sm",
+                      )}
+                    >
+                      {option.value === "long-call" ? "Call" : "Spread"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <CompactNumberInput
+                label={isSpreadDraft ? "Long strike" : "Strike"}
+                value={draft.longStrike}
+                min={1}
+                prefix="$"
+                onChange={(nextValue) =>
+                  onDraftChange({
+                    ...draft,
+                    longStrike: Math.max(1, nextValue),
+                    shortStrike: isSpreadDraft
+                      ? Math.max(draft.shortStrike, nextValue + 1)
+                      : Math.max(1, nextValue),
+                  })
+                }
+              />
+
+              {isSpreadDraft ? (
+                <CompactNumberInput
+                  label="Short strike"
+                  value={draft.shortStrike}
+                  min={1}
+                  prefix="$"
+                  onChange={(nextValue) =>
+                    onDraftChange({ ...draft, shortStrike: Math.max(1, nextValue) })
+                  }
+                />
+              ) : null}
+
+              <CompactNumberInput
+                label="Capital"
+                value={draft.capital}
+                min={0}
+                prefix="$"
+                step={100}
+                onChange={(nextValue) =>
+                  onDraftChange({ ...draft, capital: Math.max(0, nextValue) })
+                }
+              />
+
+              <CompactNumberInput
+                label="DTE"
+                value={draft.expirationDays}
+                min={1}
+                suffix="d"
+                step={1}
+                onChange={(nextValue) =>
+                  onDraftChange({
+                    ...draft,
+                    expirationDays: clamp(Math.round(nextValue), 1, 1095),
+                  })
+                }
+              />
+            </div>
+
+            <div className="flex min-w-0 flex-col justify-end gap-2">
+              <label className="flex min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
+                <input
+                  type="checkbox"
+                  checked={draft.allowFractionalContracts}
+                  onChange={(event) =>
+                    onDraftChange({
+                      ...draft,
+                      allowFractionalContracts: event.target.checked,
+                    })
+                  }
+                  className="size-4 accent-[#e63946]"
+                />
+                <span>Fractional</span>
+              </label>
+              <button
+                type="button"
+                disabled={Boolean(draftError)}
+                onClick={onAddComparison}
+                className="rounded-md border border-[#e63946] bg-[#e63946] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#cf2433] disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+              >
+                Add comparison
+              </button>
+            </div>
+          </div>
+
+          {draftError ? (
+            <p className="mt-2 text-sm font-medium text-rose-700">{draftError}</p>
+          ) : null}
+        </>
+      ) : null}
+
+      {showSummary ? (
+        <div className={isEditorOpen ? "mt-4" : undefined}>
+          {cards.length > 0 ? (
+            <ComparisonCardGrid cards={cards} onRemoveCard={onRemoveComparison} />
+          ) : (
+            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
+              Add a custom spread or call to compare it against the selected scenario.
+            </div>
+          )}
+        </div>
+      ) : null}
+    </SectionCard>
   );
 }
 
@@ -693,7 +1350,7 @@ function InfoIcon({ label }: InfoIconProps) {
           setIsHovered(true);
         }}
         onPointerLeave={() => setIsHovered(false)}
-        className="inline-flex size-5 items-center justify-center rounded-full border border-slate-300 bg-white font-[family:var(--font-space-grotesk)] text-xs font-semibold text-slate-500 shadow-sm hover:border-amber-500 hover:text-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600"
+        className="inline-flex size-5 items-center justify-center rounded-full border border-slate-300 bg-white font-[family:var(--font-space-grotesk)] text-xs font-semibold text-slate-500 shadow-sm hover:border-[#e63946] hover:text-[#e63946] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
       >
         i
       </button>
@@ -750,7 +1407,12 @@ function NumberSliderField({
     onChange(Math.max(nextValue, 0));
   };
   const handleSliderChange = (nextValue: number) => {
-    const activeSliderMax = dragMaxRef.current ?? sliderMax;
+    if (dragMaxRef.current === null) {
+      dragMaxRef.current = sliderMax;
+      setDragMax(sliderMax);
+    }
+
+    const activeSliderMax = dragMaxRef.current;
 
     if (!Number.isFinite(nextValue)) {
       onChange(min);
@@ -760,8 +1422,14 @@ function NumberSliderField({
     onChange(clamp(nextValue, min, activeSliderMax));
   };
   const beginSliderDrag = () => {
-    dragMaxRef.current = max;
-    setDragMax(max);
+    blurFocusedField();
+
+    if (dragMaxRef.current !== null) {
+      return;
+    }
+
+    dragMaxRef.current = sliderMax;
+    setDragMax(sliderMax);
   };
   const endSliderDrag = () => {
     dragMaxRef.current = null;
@@ -787,18 +1455,8 @@ function NumberSliderField({
             {help}
           </span>
         </div>
-        <div className="min-w-0 shrink-0 basis-full sm:basis-auto sm:w-24">
-          <div
-            className="flex items-center justify-end rounded-md border border-slate-300 bg-white px-3 py-1.5 sm:hidden"
-            aria-hidden="true"
-          >
-            {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
-            <span className="font-mono text-sm font-medium text-slate-950 tabular-nums">
-              {inputValue}
-            </span>
-            {suffix ? <span className="text-sm text-slate-500">{suffix}</span> : null}
-          </div>
-          <div className="hidden items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 sm:flex">
+        <div className="w-full min-w-0 shrink-0 sm:w-24">
+          <div className="flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5">
             {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
             <input
               type="number"
@@ -827,23 +1485,27 @@ function NumberSliderField({
         aria-describedby={helpId}
         onBlur={endSliderDrag}
         onChange={(event) => handleSliderChange(Number(event.target.value))}
+        onMouseDown={beginSliderDrag}
         onPointerCancel={endSliderDrag}
         onPointerDown={beginSliderDrag}
         onPointerUp={endSliderDrag}
+        onTouchCancel={endSliderDrag}
+        onTouchEnd={endSliderDrag}
+        onTouchStart={beginSliderDrag}
         className={cn(
-          "mt-3 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600",
+          "mt-3 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]",
           sliderClassName,
         )}
       />
-      <div className="mt-2 flex justify-between font-mono text-xs text-slate-500 tabular-nums">
-        <span>
+      <div className="mt-1.5 grid min-h-5 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums sm:text-[11px]">
+        <span className="truncate whitespace-nowrap">
           {prefix}
           {min}
           {suffix}
         </span>
-        <span>
+        <span className="truncate whitespace-nowrap text-right">
           {prefix}
-          {max}
+          {sliderMax}
           {suffix}
         </span>
       </div>
@@ -854,7 +1516,7 @@ function NumberSliderField({
               key={action.label}
               type="button"
               onClick={() => onChange(clamp(action.value, 0, max))}
-              className="min-w-0 truncate whitespace-nowrap rounded-md border border-slate-300 bg-white px-1.5 py-1.5 text-[11px] font-medium text-slate-700 shadow-sm hover:border-amber-500 hover:text-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600"
+              className="min-w-0 truncate whitespace-nowrap rounded-md border border-slate-300 bg-white px-1.5 py-1.5 text-[11px] font-medium text-slate-700 shadow-sm hover:border-[#e63946] hover:text-[#e63946] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
             >
               {action.label}
             </button>
@@ -1065,7 +1727,7 @@ function PnlScenarioChart({
             </span>
           ) : null}
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-amber-600" />
+            <span className="size-2 rounded-full bg-[#e63946]" />
             Selected
             <span
               className={cn(
@@ -1593,7 +2255,7 @@ function TimeDecayChart({
             Cost basis
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-amber-600" />
+            <span className="size-2 rounded-full bg-[#e63946]" />
             Selected
             <span
               className={cn(
@@ -2495,7 +3157,7 @@ function ScenarioValueMap({
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600">
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-amber-600" />
+            <span className="size-2 rounded-full bg-[#e63946]" />
             Selected
           </span>
           {currentSpot >= minPrice && currentSpot <= maxPrice ? (
@@ -2803,7 +3465,7 @@ function ResultsTable<Row extends { id: string; isHighlighted?: boolean }>({
                 key={row.id}
                 className={cn(
                   "border-t border-slate-100",
-                  row.isHighlighted && "bg-amber-50/60",
+                  row.isHighlighted && "bg-[#e63946]/10",
                 )}
               >
                 {columns.map((column) => (
@@ -2855,6 +3517,24 @@ export default function DebitCallSpreadLab({
     Math.round(defaultExpirationDays / 2),
   );
   const [isUrlStateReady, setIsUrlStateReady] = useState(false);
+  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+  const [comparisonPanelMode, setComparisonPanelMode] =
+    useState<ComparisonPanelMode>("presets");
+  const [customComparisons, setCustomComparisons] = useState<
+    CustomComparisonConfig[]
+  >([]);
+  const [isCustomComparisonEditorOpen, setIsCustomComparisonEditorOpen] =
+    useState(false);
+  const [customDraft, setCustomDraft] = useState<CustomComparisonDraft>({
+    label: "",
+    strategy: "debit-call-spread",
+    longStrike: spot,
+    shortStrike: getOtmStrike(spot, 10),
+    capital,
+    expirationDays,
+    allowFractionalContracts,
+  });
+  const [graphComparisonId, setGraphComparisonId] = useState("editor");
   const isDebitCallSpread = strategy === "debit-call-spread";
   const strategyCopy = STRATEGY_COPY[strategy];
   const upperStrike = isDebitCallSpread ? shortStrike : longStrike;
@@ -2910,6 +3590,9 @@ export default function DebitCallSpreadLab({
         setScenarioOffsetDays(sharedState.scenarioOffsetDays);
         setRatePct(sharedState.ratePct);
         setRatePctDraft(compactNumber(sharedState.ratePct));
+        setComparisonPanelMode(sharedState.comparisonPanelMode);
+        setCustomComparisons(sharedState.customComparisons);
+        setGraphComparisonId(sharedState.graphComparisonId);
       }
 
       setIsUrlStateReady(true);
@@ -2940,13 +3623,19 @@ export default function DebitCallSpreadLab({
       scenarioOffsetDays: safeScenarioOffsetDays,
       ratePct,
       scenarioGraphView,
+      comparisonPanelMode,
+      customComparisons,
+      graphComparisonId,
     });
     replaceShareHash(nextState);
   }, [
     allowFractionalContracts,
     capital,
+    comparisonPanelMode,
+    customComparisons,
     expirationDays,
     futureVolatilityPct,
+    graphComparisonId,
     longStrike,
     ratePct,
     safeScenarioOffsetDays,
@@ -2978,12 +3667,32 @@ export default function DebitCallSpreadLab({
       clamp(currentDays, 0, nextExpirationDays),
     );
   };
+  const revealScenarioComparisons = () => {
+    setComparisonPanelMode((currentMode) =>
+      currentMode === "hidden" ? "presets" : currentMode,
+    );
+  };
+  const updateScenarioPrice = (nextValue: number) => {
+    revealScenarioComparisons();
+    setScenarioPrice(
+      clamp(nextValue, scenarioPriceSliderMin, scenarioPriceSliderMax),
+    );
+  };
+  const updateScenarioOffsetDays = (nextValue: number) => {
+    revealScenarioComparisons();
+    setScenarioOffsetDays(clamp(nextValue, 0, expirationDays));
+  };
+  const updateFutureScenarioVolatilityPct = (nextValue: number) => {
+    revealScenarioComparisons();
+    setFutureVolatilityPct(nextValue);
+  };
   const updateScenarioPriceDraft = (nextValue: string) => {
     const parsedValue = Number(nextValue);
 
     setScenarioPriceDraft(nextValue);
 
     if (nextValue.trim() && Number.isFinite(parsedValue)) {
+      revealScenarioComparisons();
       setScenarioPrice(Math.round(parsedValue));
     }
   };
@@ -2993,9 +3702,7 @@ export default function DebitCallSpreadLab({
       ? Math.round(parsedValue)
       : safeScenarioPrice;
 
-    setScenarioPrice(
-      clamp(committedValue, scenarioPriceSliderMin, scenarioPriceSliderMax),
-    );
+    updateScenarioPrice(committedValue);
     setScenarioPriceDraft(null);
   };
   const handleScenarioPriceKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -3011,14 +3718,14 @@ export default function DebitCallSpreadLab({
     if (event.key === "Backspace" && /^\d$/.test(event.currentTarget.value)) {
       event.preventDefault();
       setScenarioPriceDraft("0");
-      setScenarioPrice(0);
+      updateScenarioPrice(0);
       return;
     }
 
     if (/^\d$/.test(event.key) && event.currentTarget.value === "0") {
       event.preventDefault();
       setScenarioPriceDraft(event.key);
-      setScenarioPrice(Number(event.key));
+      updateScenarioPrice(Number(event.key));
     }
   };
   const updateRatePctDraft = (nextValue: string) => {
@@ -3063,6 +3770,109 @@ export default function DebitCallSpreadLab({
       setRatePctDraft(event.key);
       setRatePct(Number(event.key));
     }
+  };
+  const seedCustomDraftFromCurrent = () => {
+    setCustomDraft({
+      label: "",
+      strategy,
+      longStrike,
+      shortStrike: isDebitCallSpread ? shortStrike : longStrike,
+      capital,
+      expirationDays,
+      allowFractionalContracts,
+    });
+  };
+  const useCustomQuickStart = (card: ComparisonCardData) => {
+    setCustomDraft({
+      label: card.label,
+      strategy: card.strategy,
+      longStrike: card.longStrike,
+      shortStrike:
+        card.strategy === "long-call"
+          ? card.longStrike
+          : Math.max(card.shortStrike, card.longStrike + 1),
+      capital: card.capital,
+      expirationDays: card.expirationDays,
+      allowFractionalContracts: card.allowFractionalContracts,
+    });
+  };
+  const showCustomComparisons = () => {
+    if (comparisonPanelMode !== "custom") {
+      seedCustomDraftFromCurrent();
+    }
+
+    if (comparisonPanelMode === "custom" || graphComparisonId.startsWith("preset:")) {
+      setGraphComparisonId("editor");
+    }
+    setComparisonPanelMode((currentMode) =>
+      currentMode === "custom" ? "hidden" : "custom",
+    );
+    setIsCustomComparisonEditorOpen(false);
+  };
+  const openCustomComparisonEditor = () => {
+    if (!isCustomComparisonEditorOpen) {
+      seedCustomDraftFromCurrent();
+    }
+
+    if (graphComparisonId.startsWith("preset:")) {
+      setGraphComparisonId("editor");
+    }
+
+    setIsCustomComparisonEditorOpen((currentValue) => !currentValue);
+  };
+  const customDraftError =
+    customDraft.longStrike <= 0
+      ? "Long strike has to be greater than zero."
+      : customDraft.strategy === "debit-call-spread" &&
+          customDraft.shortStrike <= customDraft.longStrike
+        ? "Short strike has to be above the long strike."
+        : customDraft.capital <= 0
+          ? "Capital needs to be greater than zero."
+          : customDraft.expirationDays <= 0
+            ? "DTE needs to be greater than zero."
+          : null;
+  const addCustomComparison = () => {
+    if (customDraftError) {
+      return;
+    }
+
+    const nextStrategy = customDraft.strategy;
+    const nextLongStrike = Math.max(1, Math.round(customDraft.longStrike));
+    const nextShortStrike =
+      nextStrategy === "long-call"
+        ? nextLongStrike
+        : Math.max(nextLongStrike + 1, Math.round(customDraft.shortStrike));
+    const nextId = `custom-${Date.now()}-${customComparisons.length}`;
+
+    setCustomComparisons((currentComparisons) => [
+      ...currentComparisons,
+      {
+        id: nextId,
+        label: getCustomComparisonLabel({
+          ...customDraft,
+          longStrike: nextLongStrike,
+          shortStrike: nextShortStrike,
+        }),
+        strategy: nextStrategy,
+        longStrike: nextLongStrike,
+        shortStrike: nextShortStrike,
+        capital: Math.max(1, Math.round(customDraft.capital)),
+        expirationDays: clamp(Math.round(customDraft.expirationDays), 1, 1095),
+        allowFractionalContracts: customDraft.allowFractionalContracts,
+      },
+    ]);
+    setGraphComparisonId(`custom:${nextId}`);
+
+    setCustomDraft((currentDraft) => ({ ...currentDraft, label: "" }));
+    setIsCustomComparisonEditorOpen(false);
+  };
+  const removeCustomComparison = (id: string) => {
+    setCustomComparisons((currentComparisons) =>
+      currentComparisons.filter((comparison) => comparison.id !== id),
+    );
+    setGraphComparisonId((currentId) =>
+      currentId === `custom:${id}` ? "editor" : currentId,
+    );
   };
 
   const validationMessages: string[] = [];
@@ -3130,39 +3940,6 @@ export default function DebitCallSpreadLab({
   );
 
   const snapshot = useMemo(() => createScenarioSnapshot(inputs), [inputs]);
-  const scenarioVisualizerInputs = useMemo(
-    () => ({
-      strategy,
-      currentPrice: spot,
-      longStrike,
-      shortStrike,
-      currentDte: expirationDays,
-      numberOfSpreads: snapshot.contracts,
-      entryDebit: snapshot.unitCost,
-      impliedVolatilityPct: futureVolatilityPct,
-      riskFreeRatePct: ratePct,
-      dividendYieldPct: 0,
-    }),
-    [
-      expirationDays,
-      futureVolatilityPct,
-      longStrike,
-      ratePct,
-      shortStrike,
-      snapshot.contracts,
-      snapshot.unitCost,
-      spot,
-      strategy,
-    ],
-  );
-  const maxProfitAtExpiry = snapshot.maxProfitPerUnit !== null
-    ? snapshot.maxProfitPerUnit * snapshot.contracts * CONTRACT_MULTIPLIER
-    : null;
-  const maxReturnAtExpiry =
-    maxProfitAtExpiry !== null && snapshot.totalCost > 0
-      ? maxProfitAtExpiry / snapshot.totalCost
-      : null;
-  const maxLossAtExpiry = -snapshot.totalCost;
   const canModel = validationMessages.length === 0 && snapshot.unitCost > 0;
   const activeScenarioGraphView: ScenarioGraphView =
     scenarioGraphView === "overlay" || scenarioGraphView === "decay" || scenarioGraphView === "map"
@@ -3174,6 +3951,206 @@ export default function DebitCallSpreadLab({
     { value: "decay", label: "Time value" },
   ];
   const showScenarioSelectionControls = activeScenarioGraphView !== "map";
+  const comparisonCards = useMemo<ComparisonCardData[]>(() => {
+    if (!canModel) {
+      return [];
+    }
+
+    const atmStrike = Math.max(1, Math.round(spot));
+    const candidates: ComparisonCandidate[] = [
+      {
+        id: "current",
+        label: "Current setup",
+        note: "The position currently in the editor.",
+        strategy,
+        longStrike,
+        shortStrike,
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+      {
+        id: "atm-long-call",
+        label: "ATM long call",
+        note: "Cleaner upside, higher premium, no capped profit.",
+        strategy: "long-call",
+        longStrike: atmStrike,
+        shortStrike: atmStrike,
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+      {
+        id: "spread-5-otm",
+        label: "5% OTM spread",
+        note: "Closer target with a higher chance of finishing in range.",
+        strategy: "debit-call-spread",
+        longStrike: atmStrike,
+        shortStrike: Math.max(atmStrike + 1, getOtmStrike(spot, 5)),
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+      {
+        id: "spread-10-otm",
+        label: "10% OTM spread",
+        note: "Balanced spread matching the default short-strike idea.",
+        strategy: "debit-call-spread",
+        longStrike: atmStrike,
+        shortStrike: Math.max(atmStrike + 1, getOtmStrike(spot, 10)),
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+      {
+        id: "spread-20-otm",
+        label: "20% OTM spread",
+        note: "Cheaper, more aggressive target with a wider payoff window.",
+        strategy: "debit-call-spread",
+        longStrike: atmStrike,
+        shortStrike: Math.max(atmStrike + 1, getOtmStrike(spot, 20)),
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+    ];
+
+    return rankComparisonCards(
+      candidates.flatMap((candidate) => {
+        const card = buildComparisonCard(candidate, inputs);
+        return card ? [card] : [];
+      }),
+    );
+  }, [
+    allowFractionalContracts,
+    canModel,
+    capital,
+    expirationDays,
+    inputs,
+    longStrike,
+    shortStrike,
+    spot,
+    strategy,
+  ]);
+  const customComparisonCards = useMemo<ComparisonCardData[]>(() => {
+    if (!canModel) {
+      return [];
+    }
+
+    return rankComparisonCards(
+      customComparisons.flatMap((comparison) => {
+        const card = buildComparisonCard(
+          {
+            ...comparison,
+            note:
+              comparison.strategy === "long-call"
+                ? "Custom long call using the selected market assumptions."
+                : "Custom spread using the selected market assumptions.",
+          },
+          inputs,
+        );
+        return card ? [card] : [];
+      }),
+    );
+  }, [canModel, customComparisons, inputs]);
+  const visibleComparisonCards = useMemo(() => {
+    if (comparisonPanelMode === "presets") {
+      return comparisonCards;
+    }
+
+    if (comparisonPanelMode === "custom") {
+      return customComparisonCards;
+    }
+
+    return [];
+  }, [comparisonCards, comparisonPanelMode, customComparisonCards]);
+  const graphComparisonOptions = useMemo<GraphComparisonOption[]>(() => {
+    const currentCandidate: ComparisonCandidate = {
+      id: "current-editor",
+      label: "Current setup",
+      note: "The position currently in the editor.",
+      strategy,
+      longStrike,
+      shortStrike,
+      capital,
+      expirationDays,
+      allowFractionalContracts,
+    };
+    const currentDetail = `${getComparisonStrikeLabel(currentCandidate)} · ${formatPercent(
+      snapshot.roi,
+    )}`;
+    const comparisonOptions = visibleComparisonCards.map((card) => ({
+      id: `${comparisonPanelMode === "custom" ? "custom" : "preset"}:${card.id}`,
+      label: `#${card.rank} ${card.label}`,
+      detail: `${getComparisonStrikeLabel(card)} · ${formatPercent(card.snapshot.roi)}`,
+      inputs: applyComparisonToInputs(card, inputs),
+      snapshot: card.snapshot,
+    }));
+
+    return [
+      {
+        id: "editor",
+        label: "Current setup",
+        detail: currentDetail,
+        inputs,
+        snapshot,
+      },
+      ...comparisonOptions,
+    ];
+  }, [
+    allowFractionalContracts,
+    capital,
+    expirationDays,
+    comparisonPanelMode,
+    inputs,
+    longStrike,
+    shortStrike,
+    snapshot,
+    strategy,
+    visibleComparisonCards,
+  ]);
+  const selectedGraphComparison =
+    graphComparisonOptions.find((option) => option.id === graphComparisonId) ??
+    graphComparisonOptions[0];
+  const visualizedInputs = selectedGraphComparison.inputs;
+  const visualizedSnapshot = selectedGraphComparison.snapshot;
+  const visualizedStrategy = visualizedInputs.strategy;
+  const visualizedStrategyCopy = STRATEGY_COPY[visualizedStrategy];
+  const visualizedIsDebitCallSpread = visualizedStrategy === "debit-call-spread";
+  const visualizedMaxProfitAtExpiry =
+    visualizedSnapshot.maxProfitPerUnit !== null
+      ? visualizedSnapshot.maxProfitPerUnit *
+        visualizedSnapshot.contracts *
+        CONTRACT_MULTIPLIER
+      : null;
+  const visualizedMaxReturnAtExpiry =
+    visualizedMaxProfitAtExpiry !== null && visualizedSnapshot.totalCost > 0
+      ? visualizedMaxProfitAtExpiry / visualizedSnapshot.totalCost
+      : null;
+  const visualizedMaxLossAtExpiry = -visualizedSnapshot.totalCost;
+  const visualizedScenarioVisualizerInputs = useMemo(
+    () => ({
+      strategy: visualizedInputs.strategy,
+      currentPrice: visualizedInputs.spot,
+      longStrike: visualizedInputs.longStrike,
+      shortStrike: visualizedInputs.shortStrike,
+      currentDte: visualizedSnapshot.expirationDays,
+      numberOfSpreads: visualizedSnapshot.contracts,
+      entryDebit: visualizedSnapshot.unitCost,
+      impliedVolatilityPct: visualizedInputs.futureVolatilityPct,
+      riskFreeRatePct: visualizedInputs.ratePct,
+      dividendYieldPct: visualizedInputs.dividendYieldPct,
+    }),
+    [visualizedInputs, visualizedSnapshot],
+  );
+  const graphRenderKey = [
+    selectedGraphComparison.id,
+    visualizedInputs.strategy,
+    visualizedInputs.longStrike,
+    visualizedInputs.shortStrike,
+    visualizedSnapshot.contracts,
+    visualizedSnapshot.unitCost,
+  ].join("|");
   const timelineRows = useMemo<TimelineTableRow[]>(
     () =>
       canModel
@@ -3199,13 +4176,13 @@ export default function DebitCallSpreadLab({
       return [];
     }
 
-    const totalCost = snapshot.totalCost;
-    return buildPriceCurve(inputs).map((point: PriceCurvePoint) => ({
+    const totalCost = visualizedSnapshot.totalCost;
+    return buildPriceCurve(visualizedInputs).map((point: PriceCurvePoint) => ({
       price: point.price,
       selectedDatePnl: point.selectedDateValue - totalCost,
       expiryPnl: point.expiryValue - totalCost,
     }));
-  }, [canModel, inputs, snapshot.totalCost]);
+  }, [canModel, visualizedInputs, visualizedSnapshot.totalCost]);
   const decayPoints = useMemo<TimeDecayPoint[]>(() => {
     if (!canModel || expirationDays <= 0) {
       return [];
@@ -3220,7 +4197,7 @@ export default function DebitCallSpreadLab({
       if (seenOffsets.has(offset)) return [];
       seenOffsets.add(offset);
       const decaySnapshot = createScenarioSnapshot({
-        ...inputs,
+        ...visualizedInputs,
         scenarioOffsetDays: clamp(offset, 0, expirationDays),
       });
       return [{
@@ -3230,19 +4207,19 @@ export default function DebitCallSpreadLab({
         pnl: decaySnapshot.pnl,
       }];
     });
-  }, [canModel, expirationDays, inputs]);
+  }, [canModel, expirationDays, visualizedInputs]);
   const overlayCurves = useMemo<OverlayCurve[]>(() => {
     if (!canModel) {
       return [];
     }
 
-    const totalCost = snapshot.totalCost;
+    const totalCost = visualizedSnapshot.totalCost;
     const offsets = expirationDays > 0
       ? [
           { offsetDays: 0, label: "Today" },
           { offsetDays: Math.round(expirationDays * 0.33), label: `+${Math.round(expirationDays * 0.33)}d` },
           { offsetDays: Math.round(expirationDays * 0.66), label: `+${Math.round(expirationDays * 0.66)}d` },
-          { offsetDays: snapshot.selectedOffsetDays, label: `Selected (+${snapshot.selectedOffsetDays}d)` },
+          { offsetDays: visualizedSnapshot.selectedOffsetDays, label: `Selected (+${visualizedSnapshot.selectedOffsetDays}d)` },
         ]
       : [{ offsetDays: 0, label: "Today" }];
     const dedupedOffsets: Array<{ offsetDays: number; label: string }> = [];
@@ -3254,7 +4231,7 @@ export default function DebitCallSpreadLab({
     });
     const result: OverlayCurve[] = dedupedOffsets.map((entry) => {
       const curve = buildPriceCurve({
-        ...inputs,
+        ...visualizedInputs,
         scenarioOffsetDays: clamp(entry.offsetDays, 0, expirationDays),
       });
       return {
@@ -3269,7 +4246,7 @@ export default function DebitCallSpreadLab({
       };
     });
     if (expirationDays > 0 && !seen.has(expirationDays)) {
-      const expiryCurve = buildPriceCurve(inputs);
+      const expiryCurve = buildPriceCurve(visualizedInputs);
       result.push({
         id: "overlay-expiry",
         label: "At expiry",
@@ -3282,7 +4259,13 @@ export default function DebitCallSpreadLab({
       });
     }
     return result;
-  }, [canModel, expirationDays, inputs, snapshot.totalCost, snapshot.selectedOffsetDays]);
+  }, [
+    canModel,
+    expirationDays,
+    visualizedInputs,
+    visualizedSnapshot.selectedOffsetDays,
+    visualizedSnapshot.totalCost,
+  ]);
   const scenarioMapRange = useMemo(() => {
     const minMapPrice = Math.max(1, Math.floor(spot * 0.7));
     const maxMapPrice = Math.max(scenarioPriceSliderMax, Math.ceil(spot * 1.05));
@@ -3294,19 +4277,22 @@ export default function DebitCallSpreadLab({
   }, [scenarioPriceSliderMax, spot]);
   const priceMarkers = useMemo<PriceMarker[]>(() => {
     const markers: PriceMarker[] = [
-      { value: spot, label: "Spot" },
-      { value: longStrike, label: isDebitCallSpread ? "Long" : "Strike" },
+      { value: visualizedInputs.spot, label: "Spot" },
+      {
+        value: visualizedInputs.longStrike,
+        label: visualizedIsDebitCallSpread ? "Long" : "Strike",
+      },
     ];
-    if (isDebitCallSpread) {
-      markers.push({ value: shortStrike, label: "Short" });
+    if (visualizedIsDebitCallSpread) {
+      markers.push({ value: visualizedInputs.shortStrike, label: "Short" });
     }
     return markers
       .filter((marker) => Number.isFinite(marker.value) && marker.value > 0)
       .sort((a, b) => a.value - b.value);
-  }, [isDebitCallSpread, longStrike, shortStrike, spot]);
+  }, [visualizedInputs, visualizedIsDebitCallSpread]);
   const getScenarioTooltipPoint = (price: number, offsetDays: number) => {
     const hoverSnapshot = createScenarioSnapshot({
-      ...inputs,
+      ...visualizedInputs,
       scenarioPrice: price,
       scenarioOffsetDays: clamp(offsetDays, 0, expirationDays),
     });
@@ -3425,46 +4411,33 @@ export default function DebitCallSpreadLab({
       value: getOtmStrike(spot, percent),
     })),
   ];
-  const contractUnitLabel =
-    snapshot.contracts === 1
-      ? strategyCopy.contractName
-      : snapshot.allowFractionalContracts && strategy === "debit-call-spread"
-        ? "spreads"
-        : strategyCopy.contractPlural;
-  const contractCountLabel = `${formatQuantity(snapshot.contracts)} ${contractUnitLabel}`;
-  const cashLeftLabel = snapshot.allowFractionalContracts && snapshot.contracts > 0
-    ? "no cash left over"
-    : `${formatCurrency(snapshot.cashLeft)} left over`;
-
   return (
     <main className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900">
       <div className="mx-auto w-full max-w-7xl px-2 py-2 sm:px-4 sm:py-3 md:px-6">
-        <div className="grid min-w-0 items-start gap-3 lg:grid-cols-[21rem_minmax(0,1fr)]">
+        <h1 className="sr-only">Callculator</h1>
+        <div
+          className={cn(
+            "grid min-w-0 items-start gap-3",
+            isSidebarVisible && "lg:grid-cols-[21rem_minmax(0,1fr)]",
+          )}
+        >
+          {isSidebarVisible ? (
           <aside className="min-w-0 lg:sticky lg:top-3 lg:max-h-[calc(100dvh-1.5rem)] lg:overflow-y-auto lg:overscroll-none lg:pr-1">
-            <h1 className="sr-only">Callculator</h1>
             <SectionCard
               title="Inputs"
               eyebrow="Callculator"
               eyebrowClassName="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance"
+              action={
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarVisible(false)}
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-[#e63946] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] sm:w-auto"
+                >
+                  Hide inputs
+                </button>
+              }
             >
               <div className="space-y-4">
-                <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Position cost
-                  </p>
-                  <div className="mt-2 flex items-baseline justify-between gap-3">
-                    <span className="font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-slate-950 tabular-nums">
-                      {formatCurrency(snapshot.totalCost)}
-                    </span>
-                    <span className="font-mono text-xs text-slate-500 tabular-nums">
-                      B/E {formatCurrency(snapshot.breakEvenAtExpiry)}
-                    </span>
-                  </div>
-                  <p className="mt-1.5 text-xs text-slate-500">
-                    {contractCountLabel} · {formatCurrency(snapshot.unitCost * CONTRACT_MULTIPLIER)} each
-                  </p>
-                </div>
-
                 <div className="space-y-2">
                   <SidebarGroupLabel>Position</SidebarGroupLabel>
                   <div
@@ -3483,9 +4456,9 @@ export default function DebitCallSpreadLab({
                           setScenarioGraphView("map");
                         }}
                         className={cn(
-                          "min-w-0 truncate rounded-md border border-slate-300 bg-white px-2 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 sm:px-3 sm:text-sm",
+                          "min-w-0 truncate rounded-md border border-slate-300 bg-white px-2 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] sm:px-3 sm:text-sm",
                           strategy === option.value &&
-                            "border-amber-600 bg-amber-50 text-slate-950",
+                            "border-[#e63946] bg-[#e63946]/10 text-slate-950",
                         )}
                       >
                         {option.label}
@@ -3611,9 +4584,9 @@ export default function DebitCallSpreadLab({
                           aria-pressed={allowFractionalContracts === option.value}
                           onClick={() => setAllowFractionalContracts(option.value)}
                           className={cn(
-                            "rounded-sm px-2.5 py-1 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600",
+                            "rounded-sm px-2.5 py-1 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
                             allowFractionalContracts === option.value &&
-                            "bg-amber-100 text-amber-900",
+                            "bg-[#e63946]/15 text-[#9f1d2a]",
                           )}
                         >
                           {option.label}
@@ -3677,7 +4650,7 @@ export default function DebitCallSpreadLab({
                       </div>
                     </label>
 
-                    <div className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-xs text-amber-900">
+                    <div className="rounded-md border border-[#e63946]/30 bg-[#e63946]/10 p-2.5 text-xs text-[#9f1d2a]">
                       <p className="font-medium">Model assumptions</p>
                       <p className="mt-1 leading-5 text-pretty">
                         {strategyCopy.modelAssumptions}
@@ -3688,58 +4661,252 @@ export default function DebitCallSpreadLab({
               </div>
             </SectionCard>
           </aside>
+          ) : null}
 
           <div className="min-w-0 space-y-4">
-            <section className="grid min-w-0 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-3">
-              <MetricCard
-                label={strategyCopy.costMetricLabel}
-                value={formatCurrency(snapshot.unitCost * CONTRACT_MULTIPLIER)}
-                tone="accent"
-                helper={`Cost for one ${strategyCopy.contractName}.`}
-              />
-              <MetricCard
-                label="Total cash deployed"
-                value={formatCurrency(snapshot.totalCost)}
-                helper={`${contractCountLabel}, ${cashLeftLabel}.`}
-              />
-              <MetricCard
-                label="Break-even at expiry"
-                value={formatCurrency(snapshot.breakEvenAtExpiry)}
-                helper="Only applies right at expiration."
-              />
+            {!isSidebarVisible ? (
+              <div className="flex justify-start">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarVisible(true)}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-[#e63946] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+                >
+                  Show inputs
+                </button>
+              </div>
+            ) : null}
+            <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex min-w-0 flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={!canModel}
+                  aria-pressed={comparisonPanelMode === "custom"}
+                  onClick={showCustomComparisons}
+                  className={cn(
+                    "rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                    comparisonPanelMode === "custom" &&
+                      "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                  )}
+                >
+                  Show quick summary
+                </button>
+                <button
+                  type="button"
+                  disabled={!canModel}
+                  aria-expanded={isCustomComparisonEditorOpen}
+                  onClick={openCustomComparisonEditor}
+                  className={cn(
+                    "rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                    isCustomComparisonEditorOpen &&
+                      "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                  )}
+                >
+                  Add strategy
+                </button>
+              </div>
+
+              {canModel && (comparisonPanelMode === "custom" || isCustomComparisonEditorOpen) ? (
+                <div className="mt-3">
+                  <CustomComparisonBoard
+                    cards={customComparisonCards}
+                    draft={customDraft}
+                    draftError={customDraftError}
+                    isEditorOpen={isCustomComparisonEditorOpen}
+                    quickStartCards={comparisonCards}
+                    showSummary={comparisonPanelMode === "custom"}
+                    scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
+                    scenarioPrice={safeScenarioPrice}
+                    symbol={symbol}
+                    onDraftChange={setCustomDraft}
+                    onAddComparison={addCustomComparison}
+                    onRemoveComparison={removeCustomComparison}
+                    onUseQuickStart={useCustomQuickStart}
+                  />
+                </div>
+              ) : null}
             </section>
+            <SectionCard
+              title="Market scenario"
+              eyebrow={`${symbol.trim() || "Underlying"} scenario assumptions`}
+            >
+              <div className="grid min-w-0 gap-2.5 md:grid-cols-3">
+                <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm sm:p-3">
+                  <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_6.25rem] items-start gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="min-w-0 text-sm font-medium leading-tight text-slate-900 text-balance">Future stock price</p>
+                      <InfoIcon label="The stock price to test on the selected future date." />
+                    </div>
+                    <div className="w-[6.25rem] min-w-0 shrink-0">
+                      <div className="flex items-center rounded-md border border-slate-300 bg-white px-2 py-1.5">
+                        <span className="text-sm text-slate-500">$</span>
+                        <input
+                          type="number"
+                          value={displayedScenarioPriceInputValue}
+                          min={scenarioPriceSliderMin}
+                          max={scenarioPriceSliderMax}
+                          step={1}
+                          aria-label="Future stock price"
+                          onFocus={() =>
+                            setScenarioPriceDraft(String(scenarioPriceInputValue))
+                          }
+                          onBlur={(event) =>
+                            commitScenarioPriceDraft(event.currentTarget.value)
+                          }
+                          onKeyDown={handleScenarioPriceKeyDown}
+                          onInput={(event) =>
+                            updateScenarioPriceDraft(event.currentTarget.value)
+                          }
+                          onChange={(event) =>
+                            updateScenarioPriceDraft(event.target.value)
+                          }
+                          className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none tabular-nums"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min={scenarioPriceSliderMin}
+                    max={scenarioPriceSliderMax}
+                    step={1}
+                    value={safeScenarioPrice}
+                    aria-label="Future stock price"
+                    onChange={(event) =>
+                      updateScenarioPrice(Number(event.target.value))
+                    }
+                    onMouseDown={blurFocusedField}
+                    onPointerDown={blurFocusedField}
+                    onTouchStart={blurFocusedField}
+                    className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
+                  />
+                  <div className="mt-1.5 grid min-h-5 grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-start gap-1 font-mono text-[10px] text-slate-500 tabular-nums sm:text-[11px]">
+                    <span className="whitespace-nowrap">{formatCurrency(scenarioPriceSliderMin)}</span>
+                    <span className="min-w-0 truncate whitespace-nowrap text-center text-slate-600">
+                      {spot > 0
+                        ? `${safeScenarioPrice >= spot ? "+" : ""}${Math.round(
+                            ((safeScenarioPrice - spot) / spot) * 100,
+                          )}% vs spot ${formatCurrency(spot)}`
+                        : ""}
+                    </span>
+                    <span className="whitespace-nowrap text-right">{formatCurrency(scenarioPriceSliderMax)}</span>
+                  </div>
+                </div>
+
+                <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm sm:p-3">
+                  <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_7rem] items-start gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="min-w-0 text-sm font-medium leading-tight text-slate-900 text-balance">Valuation date</p>
+                      <InfoIcon
+                        label={`The date used to estimate what each position could be worth before expiration.`}
+                      />
+                    </div>
+                    <div className="w-[7rem] text-right">
+                      <div className="truncate whitespace-nowrap font-mono text-sm leading-tight text-slate-950 tabular-nums">
+                        {formatLongDate(snapshot.selectedDateIso)}
+                      </div>
+                      <div className="mt-1 truncate whitespace-nowrap text-[11px] leading-tight text-slate-500">
+                        {snapshot.selectedOffsetDays} days from today
+                      </div>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={expirationDays}
+                    step={1}
+                    value={safeScenarioOffsetDays}
+                    disabled={expirationDays === 0}
+                    aria-label="Valuation date"
+                    onChange={(event) =>
+                      updateScenarioOffsetDays(Number(event.target.value))
+                    }
+                    onMouseDown={blurFocusedField}
+                    onPointerDown={blurFocusedField}
+                    onTouchStart={blurFocusedField}
+                    className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
+                  />
+                  <div className="mt-1.5 grid min-h-5 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums sm:text-[11px]">
+                    <span className="truncate whitespace-nowrap">{formatLongDate(todayIso)}</span>
+                    <span className="truncate whitespace-nowrap text-right">{formatLongDate(expiryIso)}</span>
+                  </div>
+                </div>
+
+                <NumberSliderField
+                  label="Future IV"
+                  help={`Used to estimate each position value on the selected future date.`}
+                  min={0}
+                  max={150}
+                  step={1}
+                  value={futureVolatilityPct}
+                  onChange={updateFutureScenarioVolatilityPct}
+                  suffix="%"
+                  className="p-2.5 sm:p-3"
+                  headerClassName="min-h-9 grid grid-cols-[minmax(0,1fr)_6.25rem] items-start gap-2 sm:grid-cols-[minmax(0,1fr)_6.25rem] sm:items-start"
+                  sliderClassName="mt-2.5"
+                />
+              </div>
+            </SectionCard>
+
+            {canModel && comparisonPanelMode === "presets" && comparisonCards.length > 0 ? (
+              <OptionComparisonBoard
+                cards={comparisonCards}
+                scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
+                scenarioPrice={safeScenarioPrice}
+                symbol={symbol}
+              />
+            ) : null}
 
             <SectionCard
               title="Scenario curve"
-              eyebrow={`${symbol.trim() || "Underlying"} profit & loss by stock price`}
+              eyebrow={`${symbol.trim() || "Underlying"} profit & loss by stock price · ${selectedGraphComparison.label}`}
               action={
-                <div
-                  className="grid w-full min-w-0 grid-cols-3 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:grid-cols-none"
-                  aria-label="Scenario graph view"
-                >
-                  {scenarioGraphOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      aria-pressed={activeScenarioGraphView === option.value}
-                      onPointerDown={() =>
-                        setScenarioGraphView(option.value as ScenarioGraphView)
-                      }
-                      onMouseDown={() =>
-                        setScenarioGraphView(option.value as ScenarioGraphView)
-                      }
-                      onClick={() =>
-                        setScenarioGraphView(option.value as ScenarioGraphView)
-                      }
-                      className={cn(
-                        "min-w-0 truncate rounded-md px-1.5 py-1.5 text-center text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 min-[360px]:text-sm sm:px-3",
-                        activeScenarioGraphView === option.value &&
-                          "bg-white text-slate-950 shadow-sm",
-                      )}
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                  <label className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 shadow-sm sm:w-72">
+                    <span className="text-xs font-semibold text-slate-500">
+                      Strategy
+                    </span>
+                    <select
+                      value={selectedGraphComparison.id}
+                      onChange={(event) => setGraphComparisonId(event.target.value)}
+                      title={selectedGraphComparison.detail}
+                      className="min-w-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm outline-none focus:border-[#e63946]"
+                      aria-label="Scenario curve strategy"
                     >
-                      {option.label}
-                    </button>
-                  ))}
+                      {graphComparisonOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div
+                    className="grid w-full min-w-0 grid-cols-3 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:grid-cols-none"
+                    aria-label="Scenario graph view"
+                  >
+                    {scenarioGraphOptions.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={activeScenarioGraphView === option.value}
+                        onPointerDown={() =>
+                          setScenarioGraphView(option.value as ScenarioGraphView)
+                        }
+                        onMouseDown={() =>
+                          setScenarioGraphView(option.value as ScenarioGraphView)
+                        }
+                        onClick={() =>
+                          setScenarioGraphView(option.value as ScenarioGraphView)
+                        }
+                        className={cn(
+                          "min-w-0 truncate rounded-md px-1.5 py-1.5 text-center text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] min-[360px]:text-sm sm:px-3",
+                          activeScenarioGraphView === option.value &&
+                            "bg-white text-slate-950 shadow-sm",
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               }
             >
@@ -3747,138 +4914,129 @@ export default function DebitCallSpreadLab({
                 {showScenarioSelectionControls ? (
                   <>
                     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                      <div className="grid divide-y divide-slate-200 sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-3">
-                        <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
-                          <div className="grid grid-cols-[minmax(0,1fr)_9rem] items-baseline gap-3">
+                      <div className="grid divide-y divide-slate-200 md:grid-cols-3 md:divide-x md:divide-y-0">
+                        <div className="grid min-w-0 grid-rows-[auto_2.25rem_auto] gap-2.5 p-3 lg:p-4">
+                          <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-2">
                             <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
                               At your scenario
-                            </p>
-                            <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-                              {formatCurrency(safeScenarioPrice)} · {formatLongDate(snapshot.selectedDateIso)}
-                            </p>
-                          </div>
-                          <p
-                            className={cn(
-                              "overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none tabular-nums",
-                              snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
-                            )}
-                          >
-                            {snapshot.pnl >= 0 ? "+" : ""}
-                            {formatCurrency(snapshot.pnl)}
-                          </p>
-                          <div className="grid grid-cols-[minmax(0,1fr)_10rem] items-baseline gap-3 text-sm">
-                            <span className="font-medium text-slate-500">
-                              {snapshot.pnl >= 0 ? "Profit" : "Loss"}
-                              {" · "}
-                              <span
-                                className={cn(
-                                  "font-mono font-semibold tabular-nums",
-                                  snapshot.roi >= 0 ? "text-emerald-700" : "text-rose-700",
-                                )}
-                              >
-                                {snapshot.totalCost > 0 ? formatPercent(snapshot.roi) : "N/A"}
-                              </span>
-                            </span>
-                            <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
-                              Position {formatCurrency(snapshot.scenarioPositionValue)}
-                            </span>
-                          </div>
-                        </div>
+	                            </p>
+	                            <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
+	                              {formatCurrency(safeScenarioPrice)} · {formatLongDate(visualizedSnapshot.selectedDateIso)}
+	                            </p>
+	                          </div>
+	                          <p
+	                            className={cn(
+		                              "overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none tabular-nums",
+	                              visualizedSnapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
+	                            )}
+	                          >
+	                            {visualizedSnapshot.pnl >= 0 ? "+" : ""}
+	                            {formatCurrency(visualizedSnapshot.pnl)}
+	                          </p>
+		                          <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-2 text-sm">
+	                            <span className="font-medium text-slate-500">
+	                              {visualizedSnapshot.pnl >= 0 ? "Profit" : "Loss"}
+	                              {" · "}
+	                              <span
+	                                className={cn(
+	                                  "font-mono font-semibold tabular-nums",
+	                                  visualizedSnapshot.roi >= 0 ? "text-emerald-700" : "text-rose-700",
+	                                )}
+	                              >
+	                                {visualizedSnapshot.totalCost > 0 ? formatPercent(visualizedSnapshot.roi) : "N/A"}
+	                              </span>
+	                            </span>
+	                            <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
+	                              Position {formatCurrency(visualizedSnapshot.scenarioPositionValue)}
+	                            </span>
+	                          </div>
+	                        </div>
 
-                        {snapshot.isProfitCapped ? (
-                      <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
-                        <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3">
-                          <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
-                            Best case at expiry
-                          </p>
-                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-                            ≥ {formatCurrency(snapshot.breakEvenAtExpiry)}
-                          </p>
-                        </div>
-                        <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-emerald-700 tabular-nums">
-                          +{formatCurrency(maxProfitAtExpiry ?? 0)}
-                        </p>
-                        <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3 text-sm">
-                          <span className="font-medium text-slate-500">
-                            Max profit ·{" "}
-                            <span className="font-mono font-semibold text-emerald-700 tabular-nums">
-                              {maxReturnAtExpiry !== null ? formatPercent(maxReturnAtExpiry) : "N/A"}
-                            </span>
-                          </span>
-                          <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
-                            B/E {formatCurrency(snapshot.breakEvenAtExpiry)}
-                          </span>
-                        </div>
-                      </div>
+	                        {visualizedSnapshot.isProfitCapped ? (
+		                      <div className="grid min-w-0 grid-rows-[auto_2.25rem_auto] gap-2.5 p-3 lg:p-4">
+		                        <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2">
+	                          <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+	                            Best case at expiry
+	                          </p>
+	                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
+	                            ≥ {formatCurrency(visualizedSnapshot.breakEvenAtExpiry)}
+	                          </p>
+	                        </div>
+		                        <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
+	                          +{formatCurrency(visualizedMaxProfitAtExpiry ?? 0)}
+	                        </p>
+		                        <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
+	                          <span className="font-medium text-slate-500">
+	                            Max profit ·{" "}
+	                            <span className="font-mono font-semibold text-emerald-700 tabular-nums">
+	                              {visualizedMaxReturnAtExpiry !== null ? formatPercent(visualizedMaxReturnAtExpiry) : "N/A"}
+	                            </span>
+	                          </span>
+	                          <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
+	                            B/E {formatCurrency(visualizedSnapshot.breakEvenAtExpiry)}
+	                          </span>
+	                        </div>
+	                      </div>
                     ) : (
-                      <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
-                        <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3">
-                          <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
-                            Upside at expiry
-                          </p>
-                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-                            ≥ {formatCurrency(snapshot.breakEvenAtExpiry)}
-                          </p>
-                        </div>
+	                      <div className="grid min-w-0 grid-rows-[auto_2.25rem_auto] gap-2.5 p-3 lg:p-4">
+	                        <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2">
+	                          <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+	                            Upside at expiry
+	                          </p>
+	                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
+	                            ≥ {formatCurrency(visualizedSnapshot.breakEvenAtExpiry)}
+	                          </p>
+	                        </div>
                         <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
                           Uncapped
                         </p>
-                        <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3 text-sm">
+	                        <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
                           <span className="font-medium text-slate-500">
                             Long calls have no profit ceiling.
-                          </span>
-                          <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
-                            B/E {formatCurrency(snapshot.breakEvenAtExpiry)}
-                          </span>
-                        </div>
+	                          </span>
+	                          <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
+	                            B/E {formatCurrency(visualizedSnapshot.breakEvenAtExpiry)}
+	                          </span>
+	                        </div>
                       </div>
                     )}
 
-                        <div className="grid min-h-32 min-w-0 grid-rows-[auto_3rem_auto] gap-4 p-4 sm:p-5">
-                          <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3">
+                        <div className="grid min-w-0 grid-rows-[auto_2.25rem_auto] gap-2.5 p-3 lg:p-4">
+                          <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2">
                             <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
-                              Worst case at expiry
-                            </p>
-                            <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-                              &lt; {formatCurrency(longStrike)}
-                            </p>
-                          </div>
-                          <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none text-rose-700 tabular-nums">
-                            {formatCurrency(maxLossAtExpiry)}
-                          </p>
-                          <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-3 text-sm">
+	                            Worst case at expiry
+	                          </p>
+	                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
+	                            &lt; {formatCurrency(visualizedInputs.longStrike)}
+	                          </p>
+	                        </div>
+		                          <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-rose-700 tabular-nums">
+	                            {formatCurrency(visualizedMaxLossAtExpiry)}
+	                          </p>
+                          <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
                             <span className="font-medium text-slate-500">
                               Max loss ·{" "}
-                              <span className="font-mono font-semibold text-rose-700 tabular-nums">
-                                {snapshot.totalCost > 0 ? "-100%" : "N/A"}
-                              </span>
-                            </span>
-                            <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
-                              Cost {formatCurrency(snapshot.totalCost)}
-                            </span>
+	                              <span className="font-mono font-semibold text-rose-700 tabular-nums">
+	                                {visualizedSnapshot.totalCost > 0 ? "-100%" : "N/A"}
+	                              </span>
+	                            </span>
+	                            <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
+	                              Cost {formatCurrency(visualizedSnapshot.totalCost)}
+	                            </span>
                           </div>
                         </div>
                       </div>
                     </div>
 
-                    <div className="grid min-w-0 gap-3 sm:gap-4 lg:grid-cols-3">
-                  <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-                    <div className="flex min-h-14 items-start justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-slate-900">Future stock price</p>
+                    <div className="grid min-w-0 gap-2.5 md:grid-cols-3">
+                  <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm sm:p-3">
+                    <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_6.25rem] items-start gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="min-w-0 text-sm font-medium leading-tight text-slate-900 text-balance">Future stock price</p>
                         <InfoIcon label="The stock price to test on the selected future date." />
                       </div>
-                      <div className="w-24 min-w-0 shrink-0">
-                        <div
-                          className="flex items-center justify-end rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:hidden"
-                          aria-hidden="true"
-                        >
-                          <span className="text-sm text-slate-500">$</span>
-                          <span className="font-mono text-sm font-medium text-slate-950 tabular-nums">
-                            {displayedScenarioPriceInputValue}
-                          </span>
-                        </div>
-                        <div className="hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
+                      <div className="w-[6.25rem] min-w-0 shrink-0">
+                        <div className="flex items-center rounded-md border border-slate-300 bg-white px-2 py-1.5">
                           <span className="text-sm text-slate-500">$</span>
                           <input
                             type="number"
@@ -3913,44 +5071,41 @@ export default function DebitCallSpreadLab({
                       value={safeScenarioPrice}
                       aria-label="Future stock price"
                       onChange={(event) =>
-                        setScenarioPrice(
-                          clamp(
-                            Number(event.target.value),
-                            scenarioPriceSliderMin,
-                            scenarioPriceSliderMax,
-                          ),
-                        )
+                        updateScenarioPrice(Number(event.target.value))
                       }
-                      className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
+                      onMouseDown={blurFocusedField}
+                      onPointerDown={blurFocusedField}
+                      onTouchStart={blurFocusedField}
+                      className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
                     />
-                    <div className="mt-2 flex items-center justify-between font-mono text-xs text-slate-500 tabular-nums">
-                      <span>{formatCurrency(scenarioPriceSliderMin)}</span>
-                      <span className="text-slate-600">
+                    <div className="mt-1.5 grid min-h-5 grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-start gap-1 font-mono text-[10px] text-slate-500 tabular-nums sm:text-[11px]">
+                      <span className="whitespace-nowrap">{formatCurrency(scenarioPriceSliderMin)}</span>
+                      <span className="min-w-0 truncate whitespace-nowrap text-center text-slate-600">
                         {spot > 0
                           ? `${safeScenarioPrice >= spot ? "+" : ""}${Math.round(
                               ((safeScenarioPrice - spot) / spot) * 100,
                             )}% vs spot ${formatCurrency(spot)}`
                           : ""}
                       </span>
-                      <span>{formatCurrency(scenarioPriceSliderMax)}</span>
+                      <span className="whitespace-nowrap text-right">{formatCurrency(scenarioPriceSliderMax)}</span>
                     </div>
                   </div>
 
-                  <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-                    <div className="flex min-h-14 items-start justify-between gap-3">
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-medium text-slate-900">Valuation date</p>
-                        <InfoIcon
-                          label={`The date used to estimate what the ${strategyCopy.unitName} could be worth before expiration.`}
-                        />
-                      </div>
-                      <div className="text-right">
-                        <div className="font-mono text-sm text-slate-950 tabular-nums">
-                          {formatLongDate(snapshot.selectedDateIso)}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {snapshot.selectedOffsetDays} days from today
-                        </div>
+                  <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm sm:p-3">
+                    <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_7rem] items-start gap-2">
+	                      <div className="flex min-w-0 items-center gap-2">
+	                        <p className="min-w-0 text-sm font-medium leading-tight text-slate-900 text-balance">Valuation date</p>
+	                        <InfoIcon
+	                          label={`The date used to estimate what the ${visualizedStrategyCopy.unitName} could be worth before expiration.`}
+	                        />
+	                      </div>
+	                      <div className="w-[7rem] text-right">
+	                        <div className="truncate whitespace-nowrap font-mono text-sm leading-tight text-slate-950 tabular-nums">
+	                          {formatLongDate(visualizedSnapshot.selectedDateIso)}
+	                        </div>
+	                        <div className="mt-1 truncate whitespace-nowrap text-[11px] leading-tight text-slate-500">
+	                          {visualizedSnapshot.selectedOffsetDays} days from today
+	                        </div>
                       </div>
                     </div>
                     <input
@@ -3962,29 +5117,31 @@ export default function DebitCallSpreadLab({
                       disabled={expirationDays === 0}
                       aria-label="Valuation date"
                       onChange={(event) =>
-                        setScenarioOffsetDays(
-                          clamp(Number(event.target.value), 0, expirationDays),
-                        )
+                        updateScenarioOffsetDays(Number(event.target.value))
                       }
-                      className="mt-3 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-amber-600"
+                      onMouseDown={blurFocusedField}
+                      onPointerDown={blurFocusedField}
+                      onTouchStart={blurFocusedField}
+                      className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
                     />
-                    <div className="mt-2 flex justify-between font-mono text-xs text-slate-500 tabular-nums">
-                      <span>{formatLongDate(todayIso)}</span>
-                      <span>{formatLongDate(expiryIso)}</span>
+                    <div className="mt-1.5 grid min-h-5 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums sm:text-[11px]">
+                      <span className="truncate whitespace-nowrap">{formatLongDate(todayIso)}</span>
+                      <span className="truncate whitespace-nowrap text-right">{formatLongDate(expiryIso)}</span>
                     </div>
                   </div>
 
-                  <NumberSliderField
-                    label="Future IV"
-                    help={`Used to estimate the ${strategyCopy.unitName} value on the selected future date.`}
+	                  <NumberSliderField
+	                    label="Future IV"
+	                    help={`Used to estimate the ${visualizedStrategyCopy.unitName} value on the selected future date.`}
                     min={0}
                     max={150}
                     step={1}
                     value={futureVolatilityPct}
-                    onChange={setFutureVolatilityPct}
+                    onChange={updateFutureScenarioVolatilityPct}
                     suffix="%"
-                    className="p-3"
-                    headerClassName="min-h-14"
+                    className="p-2.5 sm:p-3"
+                    headerClassName="min-h-9 grid grid-cols-[minmax(0,1fr)_6.25rem] items-start gap-2 sm:grid-cols-[minmax(0,1fr)_6.25rem] sm:items-start"
+                    sliderClassName="mt-2.5"
                   />
                     </div>
                   </>
@@ -4001,30 +5158,34 @@ export default function DebitCallSpreadLab({
                   </div>
                 ) : null}
 
-                {canModel && activeScenarioGraphView === "map" ? (
-                  <DebitSpreadScenarioVisualizer inputs={scenarioVisualizerInputs} />
+	                {canModel && activeScenarioGraphView === "map" ? (
+	                  <DebitSpreadScenarioVisualizer
+	                    key={`heatmap-${graphRenderKey}`}
+	                    inputs={visualizedScenarioVisualizerInputs}
+	                  />
+	                ) : null}
+
+	                {canModel && activeScenarioGraphView === "decay" ? (
+	                  <TimeDecayChart
+	                    title={`${visualizedStrategyCopy.unitTitle} value over time`}
+	                    subtitle={`At a fixed underlying price of ${formatCurrency(
+	                      safeScenarioPrice,
+	                    )} and ${futureVolatilityPct}% IV. Hover to read the ${visualizedStrategyCopy.unitName}'s value and P/L on any date.`}
+	                    points={decayPoints}
+	                    expirationDays={expirationDays}
+	                    selectedOffsetDays={safeScenarioOffsetDays}
+	                    selectedPositionValue={visualizedSnapshot.scenarioPositionValue}
+	                    selectedPnl={visualizedSnapshot.pnl}
+	                    totalCost={visualizedSnapshot.totalCost}
+	                    scenarioPriceLabel={formatCurrency(safeScenarioPrice)}
+	                  />
                 ) : null}
 
-                {canModel && activeScenarioGraphView === "decay" ? (
-                  <TimeDecayChart
-                    title={`${strategyCopy.unitTitle} value over time`}
-                    subtitle={`At a fixed underlying price of ${formatCurrency(
-                      safeScenarioPrice,
-                    )} and ${futureVolatilityPct}% IV. Hover to read the ${strategyCopy.unitName}'s value and P/L on any date.`}
-                    points={decayPoints}
-                    expirationDays={expirationDays}
-                    selectedOffsetDays={safeScenarioOffsetDays}
-                    selectedPositionValue={snapshot.scenarioPositionValue}
-                    selectedPnl={snapshot.pnl}
-                    totalCost={snapshot.totalCost}
-                    scenarioPriceLabel={formatCurrency(safeScenarioPrice)}
-                  />
-                ) : null}
-
-                {canModel && activeScenarioGraphView === "overlay" ? (
-                  <DebitSpreadScenarioVisualizer
-                    inputs={scenarioVisualizerInputs}
-                    view="multi"
+	                {canModel && activeScenarioGraphView === "overlay" ? (
+	                  <DebitSpreadScenarioVisualizer
+	                    key={`multi-${graphRenderKey}`}
+	                    inputs={visualizedScenarioVisualizerInputs}
+	                    view="multi"
                     selectedUnderlyingPrice={safeScenarioPrice}
                     selectedDte={expirationDays - safeScenarioOffsetDays}
                   />
