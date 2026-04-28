@@ -1168,10 +1168,7 @@ function ScenarioTable({
   ].slice(0, 8);
 
   return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-3 py-3 sm:px-4">
-        <h3 className="text-sm font-semibold text-slate-950 text-balance">Scenario table</h3>
-      </div>
+    <div className="min-w-0 bg-white">
       <div className="divide-y divide-slate-100 sm:hidden">
         {dedupedRows.map((row, index) => (
           <div
@@ -1381,16 +1378,13 @@ export default function DebitSpreadScenarioVisualizer({
 
   return (
     <section className="min-w-0 space-y-4">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="mt-1 font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950 text-balance">
+          <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950 text-balance">
             {isHeatmapView
               ? `What is this ${unitName} worth?`
               : `How does the ${unitName} shift over time?`}
           </h2>
-          <p className="mt-1 text-xs text-slate-500 text-pretty">
-            Theoretical estimates only. Expiry uses payoff logic; non-expiry cells use Black-Scholes call pricing.
-          </p>
         </div>
         {isHeatmapView ? (
           <div
@@ -1425,7 +1419,14 @@ export default function DebitSpreadScenarioVisualizer({
       ) : null}
 
       {isHeatmapView ? (
-        <div className="grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-5">
+        <details className="group rounded-lg border border-slate-200 bg-slate-50 shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700">
+            <span>Range settings</span>
+            <span className="font-mono text-xs font-medium text-slate-500 tabular-nums">
+              {formatCurrency(safeHeatmapMinPrice)}-{formatCurrency(safeHeatmapMaxPrice)} · {heatmapDteSteps} DTE ticks · {heatmapIvPct}% IV
+            </span>
+          </summary>
+          <div className="grid min-w-0 gap-3 border-t border-slate-200 p-3 sm:grid-cols-2 lg:grid-cols-5">
           <label className="block text-xs font-semibold text-slate-600">
             Min price
             <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
@@ -1528,7 +1529,8 @@ export default function DebitSpreadScenarioVisualizer({
               <span className="w-14 text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">{heatmapIvPct}%</span>
             </div>
           </label>
-        </div>
+          </div>
+        </details>
       ) : null}
 
       {isHeatmapView ? (
@@ -1551,11 +1553,19 @@ export default function DebitSpreadScenarioVisualizer({
         />
       )}
 
-      <ScenarioTable
-        selectedPoint={selectedScenario}
-        rows={tableRows}
-        isLongCall={isLongCall}
-      />
+      <details className="group rounded-lg border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700">
+          <span>Scenario table</span>
+          <span className="text-xs text-slate-500">Show exact rows</span>
+        </summary>
+        <div className="border-t border-slate-200">
+          <ScenarioTable
+            selectedPoint={selectedScenario}
+            rows={tableRows}
+            isLongCall={isLongCall}
+          />
+        </div>
+      </details>
     </section>
   );
 }

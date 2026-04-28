@@ -187,6 +187,8 @@ type TimelineTableRow = TimelineRow & { id: string };
 type PriceTableRow = PriceLadderRow & { id: string };
 
 type ComparisonPanelMode = "hidden" | "presets" | "custom";
+type WorkflowTab = "setup" | "opportunities" | "custom" | "analysis";
+type WorkflowLayout = "guided" | "tabbed";
 
 type ComparisonCandidate = {
   id: string;
@@ -258,6 +260,7 @@ type ShareState = {
   comparisonPanelMode: ComparisonPanelMode;
   customComparisons: CustomComparisonConfig[];
   graphComparisonId: string;
+  workflowTab: WorkflowTab;
 };
 
 const CHART_COLORS = {
@@ -316,7 +319,33 @@ const STRATEGY_COPY: Record<OptionStrategy, StrategyCopy> = {
 };
 
 const SHARE_PARAM = "s";
+const WORKFLOW_TAB_PARAM = "tab";
+const WORKFLOW_LAYOUT_PARAM = "view";
 const SHARE_VERSION = "1";
+const DEFAULT_WORKFLOW_TAB: WorkflowTab = "setup";
+const DEFAULT_WORKFLOW_LAYOUT: WorkflowLayout = "guided";
+
+function encodeWorkflowTab(tab: WorkflowTab): string {
+  if (tab === "opportunities") return "o";
+  if (tab === "custom") return "c";
+  if (tab === "analysis") return "a";
+  return "s";
+}
+
+function decodeWorkflowTab(value: string | undefined): WorkflowTab {
+  if (value === "o") return "opportunities";
+  if (value === "c") return "custom";
+  if (value === "a") return "analysis";
+  return DEFAULT_WORKFLOW_TAB;
+}
+
+function encodeWorkflowLayout(layout: WorkflowLayout): string {
+  return layout === "tabbed" ? "t" : "g";
+}
+
+function decodeWorkflowLayout(value: string | undefined): WorkflowLayout {
+  return value === "t" ? "tabbed" : DEFAULT_WORKFLOW_LAYOUT;
+}
 
 function compactNumber(value: number): string {
   return String(roundTo(value, 2)).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
@@ -441,7 +470,8 @@ function encodeShareState(state: ShareState): string {
   if (
     state.comparisonPanelMode !== "hidden" ||
     state.customComparisons.length > 0 ||
-    state.graphComparisonId !== "editor"
+    state.graphComparisonId !== "editor" ||
+    state.workflowTab !== DEFAULT_WORKFLOW_TAB
   ) {
     parts.push(
       state.comparisonPanelMode === "custom"
@@ -451,6 +481,7 @@ function encodeShareState(state: ShareState): string {
           : "h",
       encodeCustomComparisons(state.customComparisons),
       encodeShareText(state.graphComparisonId),
+      encodeWorkflowTab(state.workflowTab),
     );
   }
 
@@ -459,26 +490,66 @@ function encodeShareState(state: ShareState): string {
 
 function getShareStateFromUrl(defaultExpirationDays: number): ShareState | null {
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const searchParams = new URLSearchParams(window.location.search);
+  const explicitWorkflowTab = getWorkflowTabFromUrl();
   const hashState = decodeShareState(hashParams.get(SHARE_PARAM), defaultExpirationDays);
 
   if (hashState) {
-    return hashState;
+    return {
+      ...hashState,
+      workflowTab: explicitWorkflowTab ?? hashState.workflowTab,
+    };
   }
 
-  return decodeShareState(
-    new URLSearchParams(window.location.search).get(SHARE_PARAM),
-    defaultExpirationDays,
-  );
+  const searchState = decodeShareState(searchParams.get(SHARE_PARAM), defaultExpirationDays);
+
+  if (!searchState) {
+    return null;
+  }
+
+  return {
+    ...searchState,
+    workflowTab: explicitWorkflowTab ?? searchState.workflowTab,
+  };
 }
 
-function replaceShareHash(nextState: string) {
+function getWorkflowTabFromUrl(): WorkflowTab | null {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const searchParams = new URLSearchParams(window.location.search);
+  const token = hashParams.get(WORKFLOW_TAB_PARAM) ?? searchParams.get(WORKFLOW_TAB_PARAM);
+
+  return token ? decodeWorkflowTab(token) : null;
+}
+
+function getWorkflowLayoutFromUrl(): WorkflowLayout | null {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const searchParams = new URLSearchParams(window.location.search);
+  const token = hashParams.get(WORKFLOW_LAYOUT_PARAM) ?? searchParams.get(WORKFLOW_LAYOUT_PARAM);
+
+  return token ? decodeWorkflowLayout(token) : null;
+}
+
+function replaceShareHash(
+  nextState: string,
+  workflowTab: WorkflowTab,
+  workflowLayout: WorkflowLayout,
+) {
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
 
-  if (hashParams.get(SHARE_PARAM) === nextState) {
+  const nextWorkflowTab = encodeWorkflowTab(workflowTab);
+  const nextWorkflowLayout = encodeWorkflowLayout(workflowLayout);
+
+  if (
+    hashParams.get(SHARE_PARAM) === nextState &&
+    (hashParams.get(WORKFLOW_TAB_PARAM) ?? encodeWorkflowTab(DEFAULT_WORKFLOW_TAB)) === nextWorkflowTab &&
+    (hashParams.get(WORKFLOW_LAYOUT_PARAM) ?? encodeWorkflowLayout(DEFAULT_WORKFLOW_LAYOUT)) === nextWorkflowLayout
+  ) {
     return;
   }
 
   hashParams.set(SHARE_PARAM, nextState);
+  hashParams.set(WORKFLOW_TAB_PARAM, nextWorkflowTab);
+  hashParams.set(WORKFLOW_LAYOUT_PARAM, nextWorkflowLayout);
   window.history.replaceState(
     null,
     "",
@@ -510,6 +581,7 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     comparisonPanelToken,
     customComparisonsToken,
     graphComparisonToken,
+    workflowTabToken,
   ] = value.split("~");
 
   if (version !== SHARE_VERSION) {
@@ -558,6 +630,7 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
           : "hidden",
     customComparisons: decodeCustomComparisons(customComparisonsToken),
     graphComparisonId: decodeShareText(graphComparisonToken, "editor"),
+    workflowTab: decodeWorkflowTab(workflowTabToken),
   };
 }
 
@@ -724,11 +797,11 @@ function SectionCard({
   return (
     <section
       className={cn(
-        "min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-sm sm:p-4",
+        "min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-sm",
         className,
       )}
     >
-      <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">
+      <div className="mb-3 flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           {eyebrow ? (
             <p
@@ -767,6 +840,203 @@ function MetricCard({ label, value, tone = "default", helper }: MetricCardProps)
         {value}
       </p>
       {helper ? <p className="mt-1 text-sm text-slate-500 text-pretty">{helper}</p> : null}
+    </div>
+  );
+}
+
+function WorkflowLayoutSwitch({
+  activeLayout,
+  onChange,
+}: {
+  activeLayout: WorkflowLayout;
+  onChange: (layout: WorkflowLayout) => void;
+}) {
+  const layouts: Array<{ value: WorkflowLayout; label: string; title: string }> = [
+    {
+      value: "guided",
+      label: "Guided",
+      title: "Guided workspace",
+    },
+    {
+      value: "tabbed",
+      label: "Tabbed",
+      title: "Tabbed workflow",
+    },
+  ];
+
+  return (
+    <div className="flex min-w-0 justify-end">
+      <div
+        className="inline-flex min-w-0 items-center rounded-md border border-slate-200 bg-white p-0.5 shadow-sm"
+        aria-label="Interface layout"
+      >
+        <span className="px-2 text-[11px] font-semibold uppercase text-slate-500">
+          View
+        </span>
+        {layouts.map((layout) => (
+          <button
+            key={layout.value}
+            type="button"
+            aria-pressed={activeLayout === layout.value}
+            title={layout.title}
+            onPointerDown={() => onChange(layout.value)}
+            onMouseDown={() => onChange(layout.value)}
+            onClick={() => onChange(layout.value)}
+            className={cn(
+              "min-w-0 rounded px-2.5 py-1 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+              activeLayout === layout.value
+                ? "bg-slate-950 text-white shadow-sm"
+                : "hover:bg-slate-50 hover:text-slate-950",
+            )}
+          >
+            {layout.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WorkflowStep({
+  step,
+  title,
+  description,
+  children,
+}: {
+  step: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="mb-3 flex min-w-0 items-start gap-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-950 font-mono text-sm font-semibold text-white tabular-nums">
+          {step}
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950 text-balance">
+            {title}
+          </h2>
+          <p className="mt-0.5 text-sm text-slate-500 text-pretty">{description}</p>
+        </div>
+      </div>
+      <div className="min-w-0 space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function WorkflowStepIntro({
+  step,
+  title,
+  description,
+}: {
+  step: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-950 font-mono text-sm font-semibold text-white tabular-nums">
+          {step}
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950 text-balance">
+            {title}
+          </h2>
+          <p className="mt-0.5 text-sm text-slate-500 text-pretty">{description}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function WorkflowTabs({
+  activeTab,
+  onChange,
+}: {
+  activeTab: WorkflowTab;
+  onChange: (tab: WorkflowTab) => void;
+}) {
+  const tabs: Array<{ value: WorkflowTab; label: string }> = [
+    { value: "setup", label: "Setup" },
+    { value: "opportunities", label: "Opportunities" },
+    { value: "custom", label: "Custom strategies" },
+    { value: "analysis", label: "Analysis" },
+  ];
+
+  return (
+    <div
+      className="grid min-w-0 grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1 shadow-sm lg:grid-cols-4"
+      aria-label="Workflow"
+    >
+      {tabs.map((tab) => (
+        <button
+          key={tab.value}
+          type="button"
+          aria-pressed={activeTab === tab.value}
+          onPointerDown={() => onChange(tab.value)}
+          onMouseDown={() => onChange(tab.value)}
+          onClick={() => onChange(tab.value)}
+          className={cn(
+            "min-w-0 truncate rounded-md px-2 py-2 text-sm font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+            activeTab === tab.value && "bg-white text-slate-950 shadow-sm",
+          )}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SetupSummaryStrip({
+  symbol,
+  spot,
+  volatilityPct,
+  capital,
+  expirationDays,
+  strategy,
+  longStrike,
+  shortStrike,
+  allowFractionalContracts,
+}: {
+  symbol: string;
+  spot: number;
+  volatilityPct: number;
+  capital: number;
+  expirationDays: number;
+  strategy: OptionStrategy;
+  longStrike: number;
+  shortStrike: number;
+  allowFractionalContracts: boolean;
+}) {
+  const isSpread = strategy === "debit-call-spread";
+  const items = [
+    ["Ticker", symbol.trim() || "Underlying"],
+    ["Current price", formatCurrency(spot)],
+    ["Current IV", `${Math.round(volatilityPct)}%`],
+    ["Capital", formatCurrency(capital)],
+    ["Position", isSpread ? "Debit call spread" : "Long call"],
+    ["Strikes", isSpread ? `${formatCurrency(longStrike)} / ${formatCurrency(shortStrike)}` : `${formatCurrency(longStrike)} call`],
+    ["DTE", `${expirationDays} days`],
+    ["Sizing", allowFractionalContracts ? "Fractional" : "Whole"],
+  ];
+
+  return (
+    <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {items.map(([label, value]) => (
+        <div
+          key={label}
+          className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+        >
+          <p className="text-[11px] font-semibold uppercase text-slate-500">{label}</p>
+          <p className="mt-1 truncate font-mono text-sm font-semibold text-slate-950 tabular-nums">
+            {value}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1437,10 +1707,10 @@ function NumberSliderField({
   };
 
   return (
-    <div className={cn("min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm", className)}>
+    <div className={cn("min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm", className)}>
       <div
         className={cn(
-          "flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between",
+          "grid grid-cols-[minmax(0,1fr)_5.75rem] items-start gap-2",
           headerClassName,
         )}
       >
@@ -1455,8 +1725,8 @@ function NumberSliderField({
             {help}
           </span>
         </div>
-        <div className="w-full min-w-0 shrink-0 sm:w-24">
-          <div className="flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5">
+        <div className="w-[5.75rem] min-w-0 shrink-0">
+          <div className="flex items-center rounded-md border border-slate-300 bg-white px-2 py-1.5">
             {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
             <input
               type="number"
@@ -1493,11 +1763,11 @@ function NumberSliderField({
         onTouchEnd={endSliderDrag}
         onTouchStart={beginSliderDrag}
         className={cn(
-          "mt-3 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]",
+          "mt-2.5 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]",
           sliderClassName,
         )}
       />
-      <div className="mt-1.5 grid min-h-5 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums sm:text-[11px]">
+      <div className="mt-1 grid min-h-4 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums">
         <span className="truncate whitespace-nowrap">
           {prefix}
           {min}
@@ -1510,13 +1780,13 @@ function NumberSliderField({
         </span>
       </div>
       {quickActions.length > 0 ? (
-        <div className="mt-2 grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="mt-2 grid min-w-0 grid-cols-4 gap-1.5">
           {quickActions.map((action) => (
             <button
               key={action.label}
               type="button"
               onClick={() => onChange(clamp(action.value, 0, max))}
-              className="min-w-0 truncate whitespace-nowrap rounded-md border border-slate-300 bg-white px-1.5 py-1.5 text-[11px] font-medium text-slate-700 shadow-sm hover:border-[#e63946] hover:text-[#e63946] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+              className="min-w-0 truncate whitespace-nowrap rounded-md border border-slate-300 bg-white px-1 py-1.5 text-[10px] font-medium text-slate-700 shadow-sm hover:border-[#e63946] hover:text-[#e63946] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
             >
               {action.label}
             </button>
@@ -3436,11 +3706,11 @@ function ResultsTable<Row extends { id: string; isHighlighted?: boolean }>({
 }: ResultsTableProps<Row>) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-5 py-4">
-        <h3 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950">
+      <div className="border-b border-slate-200 px-3 py-2.5">
+        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">
           {title}
         </h3>
-        <p className="mt-1 text-sm text-slate-500 text-pretty">{subtitle}</p>
+        <p className="mt-1 text-xs text-slate-500 text-pretty">{subtitle}</p>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full border-collapse text-sm">
@@ -3450,7 +3720,7 @@ function ResultsTable<Row extends { id: string; isHighlighted?: boolean }>({
                 <th
                   key={column.key}
                   className={cn(
-                    "px-4 py-3 text-left font-medium",
+                    "px-3 py-2 text-left font-medium",
                     column.align === "right" && "text-right",
                   )}
                 >
@@ -3472,7 +3742,7 @@ function ResultsTable<Row extends { id: string; isHighlighted?: boolean }>({
                   <td
                     key={column.key}
                     className={cn(
-                      "px-4 py-3 align-top font-mono tabular-nums text-slate-950",
+                      "px-3 py-2 align-top font-mono tabular-nums text-slate-950",
                       column.align === "right" && "text-right",
                       column.muted && "text-slate-600",
                     )}
@@ -3525,6 +3795,11 @@ export default function DebitCallSpreadLab({
   >([]);
   const [isCustomComparisonEditorOpen, setIsCustomComparisonEditorOpen] =
     useState(false);
+  const [showDetailedTables, setShowDetailedTables] = useState(false);
+  const [activeWorkflowTab, setActiveWorkflowTab] =
+    useState<WorkflowTab>(DEFAULT_WORKFLOW_TAB);
+  const [workflowLayout, setWorkflowLayout] =
+    useState<WorkflowLayout>(DEFAULT_WORKFLOW_LAYOUT);
   const [customDraft, setCustomDraft] = useState<CustomComparisonDraft>({
     label: "",
     strategy: "debit-call-spread",
@@ -3567,6 +3842,8 @@ export default function DebitCallSpreadLab({
   useEffect(() => {
     let isActive = true;
     const sharedState = getShareStateFromUrl(defaultExpirationDays);
+    const explicitWorkflowTab = getWorkflowTabFromUrl();
+    const explicitWorkflowLayout = getWorkflowLayoutFromUrl();
 
     queueMicrotask(() => {
       if (!isActive) {
@@ -3593,6 +3870,15 @@ export default function DebitCallSpreadLab({
         setComparisonPanelMode(sharedState.comparisonPanelMode);
         setCustomComparisons(sharedState.customComparisons);
         setGraphComparisonId(sharedState.graphComparisonId);
+        setActiveWorkflowTab(sharedState.workflowTab);
+      }
+
+      if (explicitWorkflowTab) {
+        setActiveWorkflowTab(explicitWorkflowTab);
+      }
+
+      if (explicitWorkflowLayout) {
+        setWorkflowLayout(explicitWorkflowLayout);
       }
 
       setIsUrlStateReady(true);
@@ -3626,8 +3912,9 @@ export default function DebitCallSpreadLab({
       comparisonPanelMode,
       customComparisons,
       graphComparisonId,
+      workflowTab: activeWorkflowTab,
     });
-    replaceShareHash(nextState);
+    replaceShareHash(nextState, activeWorkflowTab, workflowLayout);
   }, [
     allowFractionalContracts,
     capital,
@@ -3636,6 +3923,8 @@ export default function DebitCallSpreadLab({
     expirationDays,
     futureVolatilityPct,
     graphComparisonId,
+    activeWorkflowTab,
+    workflowLayout,
     longStrike,
     ratePct,
     safeScenarioOffsetDays,
@@ -3808,6 +4097,41 @@ export default function DebitCallSpreadLab({
       currentMode === "custom" ? "hidden" : "custom",
     );
     setIsCustomComparisonEditorOpen(false);
+  };
+  const showPresetComparisons = () => {
+    if (comparisonPanelMode === "presets" || graphComparisonId.startsWith("custom:")) {
+      setGraphComparisonId("editor");
+    }
+
+    setComparisonPanelMode((currentMode) =>
+      currentMode === "presets" ? "hidden" : "presets",
+    );
+    setIsCustomComparisonEditorOpen(false);
+  };
+  const changeWorkflowTab = (nextTab: WorkflowTab) => {
+    setActiveWorkflowTab(nextTab);
+
+    if (nextTab === "opportunities") {
+      if (graphComparisonId.startsWith("custom:")) {
+        setGraphComparisonId("editor");
+      }
+      setComparisonPanelMode("presets");
+      setIsCustomComparisonEditorOpen(false);
+      return;
+    }
+
+    if (nextTab === "custom") {
+      if (comparisonPanelMode !== "custom") {
+        seedCustomDraftFromCurrent();
+      }
+      if (graphComparisonId.startsWith("preset:")) {
+        setGraphComparisonId("editor");
+      }
+      setComparisonPanelMode("custom");
+    }
+  };
+  const changeWorkflowLayout = (nextLayout: WorkflowLayout) => {
+    setWorkflowLayout(nextLayout);
   };
   const openCustomComparisonEditor = () => {
     if (!isCustomComparisonEditorOpen) {
@@ -4411,6 +4735,242 @@ export default function DebitCallSpreadLab({
       value: getOtmStrike(spot, percent),
     })),
   ];
+  const showGuidedSidebar = workflowLayout === "guided" && isSidebarVisible;
+  const setupInputControls = (
+    <div
+      className={cn(
+        "space-y-3",
+        workflowLayout === "tabbed" &&
+          "grid min-w-0 gap-3 space-y-0 md:grid-cols-2 xl:grid-cols-3",
+      )}
+    >
+      <div className="space-y-2">
+        <SidebarGroupLabel>Position</SidebarGroupLabel>
+        <div
+          className="grid min-w-0 grid-cols-2 gap-2"
+          role="group"
+          aria-label="Option strategy"
+        >
+          {STRATEGY_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={strategy === option.value}
+              title={option.description}
+              onClick={() => {
+                setStrategy(option.value);
+                setScenarioGraphView("map");
+              }}
+              className={cn(
+                "min-w-0 truncate rounded-md border border-slate-300 bg-white px-2 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] sm:px-3 sm:text-sm",
+                strategy === option.value &&
+                  "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="flex min-w-0 items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
+          <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            Ticker
+          </span>
+          <input
+            type="text"
+            value={symbol}
+            onChange={(event) => setSymbol(event.target.value.toUpperCase())}
+            className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-sm font-semibold text-slate-950 outline-none"
+            placeholder="AAPL"
+          />
+        </label>
+
+        <NumberSliderField
+          label="Current price"
+          help={`Used to price the ${strategyCopy.unitName} today.`}
+          min={5}
+          max={currentPriceSliderMax}
+          step={1}
+          value={spot}
+          onChange={updateSpot}
+          prefix="$"
+        />
+
+        <NumberSliderField
+          label="Current IV"
+          help={`Used to estimate today's ${strategyCopy.unitName} cost.`}
+          min={5}
+          max={150}
+          step={1}
+          value={volatilityPct}
+          onChange={updateVolatilityPct}
+          suffix="%"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <SidebarGroupLabel>
+          {isDebitCallSpread ? "Strikes" : "Strike"}
+          {isDebitCallSpread && shortStrike > longStrike ? (
+            <span className="font-mono text-[11px] font-medium normal-case tracking-normal text-slate-500 tabular-nums">
+              {formatCurrency(shortStrike - longStrike)} wide
+            </span>
+          ) : null}
+        </SidebarGroupLabel>
+        {isDebitCallSpread ? (
+          <>
+            <NumberSliderField
+              label="Long call (buy)"
+              help="The strike you buy."
+              min={5}
+              max={longStrikeSliderMax}
+              step={1}
+              value={longStrike}
+              onChange={setLongStrike}
+              prefix="$"
+            />
+
+            <NumberSliderField
+              label="Short call (sell)"
+              help="The strike you sell."
+              min={5}
+              max={shortStrikeSliderMax}
+              step={1}
+              value={shortStrike}
+              onChange={setShortStrike}
+              prefix="$"
+              quickActions={shortStrikeOtmActions}
+            />
+          </>
+        ) : (
+          <NumberSliderField
+            label="Call strike"
+            help="The strike price of the call you buy."
+            min={5}
+            max={longStrikeSliderMax}
+            step={1}
+            value={longStrike}
+            onChange={setLongStrike}
+            prefix="$"
+            quickActions={callStrikeActions}
+          />
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <SidebarGroupLabel>Sizing</SidebarGroupLabel>
+        <NumberSliderField
+          label="Capital to deploy"
+          help={strategyCopy.capitalHelp}
+          min={500}
+          max={100000}
+          step={100}
+          value={capital}
+          onChange={setCapital}
+          prefix="$"
+        />
+
+        <div
+          className="flex min-w-0 flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between"
+          role="group"
+          aria-label="Position sizing"
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="text-sm font-medium text-slate-900">Contracts</span>
+            <InfoIcon label="Whole rounds down so the position fits in cash. Fractional uses the full capital amount as if partial contracts were tradable." />
+          </div>
+          <div className="inline-flex min-w-0 rounded-md border border-slate-300 bg-white p-0.5">
+            {[
+              { label: "Whole", value: false },
+              { label: "Fractional", value: true },
+            ].map((option) => (
+              <button
+                key={option.label}
+                type="button"
+                aria-pressed={allowFractionalContracts === option.value}
+                onClick={() => setAllowFractionalContracts(option.value)}
+                className={cn(
+                  "rounded-sm px-2.5 py-1 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                  allowFractionalContracts === option.value &&
+                    "bg-[#e63946]/15 text-[#9f1d2a]",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <SidebarGroupLabel>
+          Time
+          <span className="font-mono text-[11px] font-medium normal-case tracking-normal text-slate-500 tabular-nums">
+            Expires {formatLongDate(expiryIso)}
+          </span>
+        </SidebarGroupLabel>
+        <NumberSliderField
+          label="Days to expiration"
+          help={`The ${strategyCopy.unitName} value moves toward intrinsic value as DTE approaches zero.`}
+          min={0}
+          max={365}
+          step={1}
+          value={expirationDays}
+          onChange={updateExpirationDays}
+          suffix=" DTE"
+          quickActions={[7, 14, 30, 45, 60, 90].map((days) => ({
+            label: `${days}d`,
+            value: days,
+          }))}
+        />
+      </div>
+
+      <details
+        className={cn(
+          "group rounded-md border border-slate-200 bg-slate-50 shadow-sm",
+          workflowLayout === "tabbed" && "md:col-span-2 xl:col-span-3",
+        )}
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium text-slate-700">
+          <span>Advanced</span>
+          <span className="text-xs text-slate-500 transition-transform group-open:rotate-180">
+            ▾
+          </span>
+        </summary>
+        <div className="space-y-3 border-t border-slate-200 px-3 py-3">
+          <label className="block">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-slate-900">Risk-free rate</span>
+              <InfoIcon label="Annualized rate used in the Black-Scholes model." />
+            </div>
+            <div className="mt-2 flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={ratePctDraft}
+                min={0}
+                max={15}
+                pattern="[0-9]*[.]?[0-9]*"
+                aria-label="Risk-free rate"
+                onBlur={commitRatePctDraft}
+                onKeyDown={handleRatePctKeyDown}
+                onChange={(event) => updateRatePctDraft(event.target.value)}
+                className="w-full border-0 bg-transparent p-0 font-mono text-sm text-slate-950 outline-none"
+              />
+              <span className="text-sm text-slate-500">%</span>
+            </div>
+          </label>
+
+          <div className="rounded-md border border-[#e63946]/30 bg-[#e63946]/10 p-2.5 text-xs text-[#9f1d2a]">
+            <p className="font-medium">Model assumptions</p>
+            <p className="mt-1 leading-5 text-pretty">
+              {strategyCopy.modelAssumptions}
+            </p>
+          </div>
+        </div>
+      </details>
+    </div>
+  );
   return (
     <main className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900">
       <div className="mx-auto w-full max-w-7xl px-2 py-2 sm:px-4 sm:py-3 md:px-6">
@@ -4418,10 +4978,10 @@ export default function DebitCallSpreadLab({
         <div
           className={cn(
             "grid min-w-0 items-start gap-3",
-            isSidebarVisible && "lg:grid-cols-[21rem_minmax(0,1fr)]",
+            showGuidedSidebar && "lg:grid-cols-[19rem_minmax(0,1fr)]",
           )}
         >
-          {isSidebarVisible ? (
+          {showGuidedSidebar ? (
           <aside className="min-w-0 lg:sticky lg:top-3 lg:max-h-[calc(100dvh-1.5rem)] lg:overflow-y-auto lg:overscroll-none lg:pr-1">
             <SectionCard
               title="Inputs"
@@ -4437,7 +4997,7 @@ export default function DebitCallSpreadLab({
                 </button>
               }
             >
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <div className="space-y-2">
                   <SidebarGroupLabel>Position</SidebarGroupLabel>
                   <div
@@ -4664,7 +5224,7 @@ export default function DebitCallSpreadLab({
           ) : null}
 
           <div className="min-w-0 space-y-4">
-            {!isSidebarVisible ? (
+            {workflowLayout === "guided" && !isSidebarVisible ? (
               <div className="flex justify-start">
                 <button
                   type="button"
@@ -4675,38 +5235,124 @@ export default function DebitCallSpreadLab({
                 </button>
               </div>
             ) : null}
-            <section className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-              <div className="flex min-w-0 flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={!canModel}
-                  aria-pressed={comparisonPanelMode === "custom"}
-                  onClick={showCustomComparisons}
-                  className={cn(
-                    "rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
-                    comparisonPanelMode === "custom" &&
-                      "border-[#e63946] bg-[#e63946]/10 text-slate-950",
-                  )}
-                >
-                  Show quick summary
-                </button>
-                <button
-                  type="button"
-                  disabled={!canModel}
-                  aria-expanded={isCustomComparisonEditorOpen}
-                  onClick={openCustomComparisonEditor}
-                  className={cn(
-                    "rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
-                    isCustomComparisonEditorOpen &&
-                      "border-[#e63946] bg-[#e63946]/10 text-slate-950",
-                  )}
-                >
-                  Add strategy
-                </button>
-              </div>
+            <WorkflowLayoutSwitch
+              activeLayout={workflowLayout}
+              onChange={changeWorkflowLayout}
+            />
 
-              {canModel && (comparisonPanelMode === "custom" || isCustomComparisonEditorOpen) ? (
-                <div className="mt-3">
+            {workflowLayout === "tabbed" ? (
+              <WorkflowTabs activeTab={activeWorkflowTab} onChange={changeWorkflowTab} />
+            ) : null}
+
+            {workflowLayout === "guided" ? (
+              <WorkflowStep
+                step="1"
+                title="Market setup"
+                description="Set the stock, volatility, position size, strikes, and time to expiration from the input panel."
+              >
+                <SetupSummaryStrip
+                  symbol={symbol}
+                  spot={spot}
+                  volatilityPct={volatilityPct}
+                  capital={capital}
+                  expirationDays={expirationDays}
+                  strategy={strategy}
+                  longStrike={longStrike}
+                  shortStrike={shortStrike}
+                  allowFractionalContracts={allowFractionalContracts}
+                />
+
+                {validationMessages.length > 0 ? (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+                    <p className="font-medium">Fix these inputs first</p>
+                    <ul className="mt-2 space-y-1">
+                      {validationMessages.map((message) => (
+                        <li key={message}>{message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </WorkflowStep>
+            ) : null}
+
+            {workflowLayout === "tabbed" && activeWorkflowTab === "setup" ? (
+              <SectionCard
+                title="Setup"
+                eyebrow={`${symbol.trim() || "Underlying"} inputs`}
+              >
+                {setupInputControls}
+
+                {validationMessages.length > 0 ? (
+                  <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+                    <p className="font-medium">Fix these inputs first</p>
+                    <ul className="mt-2 space-y-1">
+                      {validationMessages.map((message) => (
+                        <li key={message}>{message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </SectionCard>
+            ) : null}
+
+            {workflowLayout === "guided" ? (
+              <WorkflowStep
+                step="2"
+                title="Strategy selection"
+                description="Review predefined opportunities, create custom strategies, then choose which one the graph should analyze."
+              >
+                <div className="flex min-w-0 flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!canModel}
+                    aria-pressed={comparisonPanelMode === "presets"}
+                    onClick={showPresetComparisons}
+                    className={cn(
+                      "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                      comparisonPanelMode === "presets" &&
+                        "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                    )}
+                  >
+                    Show opportunities
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canModel}
+                    aria-pressed={comparisonPanelMode === "custom"}
+                    onClick={showCustomComparisons}
+                    className={cn(
+                      "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                      comparisonPanelMode === "custom" &&
+                        "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                    )}
+                  >
+                    Show custom comparisons
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canModel}
+                    aria-expanded={isCustomComparisonEditorOpen}
+                    onClick={openCustomComparisonEditor}
+                    className={cn(
+                      "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                      isCustomComparisonEditorOpen &&
+                        "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                    )}
+                  >
+                    Add strategy
+                  </button>
+                </div>
+
+                {canModel && comparisonPanelMode === "presets" && comparisonCards.length > 0 ? (
+                  <OptionComparisonBoard
+                    cards={comparisonCards}
+                    scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
+                    scenarioPrice={safeScenarioPrice}
+                    symbol={symbol}
+                  />
+                ) : null}
+
+                {canModel && (comparisonPanelMode === "custom" || isCustomComparisonEditorOpen) ? (
                   <CustomComparisonBoard
                     cards={customComparisonCards}
                     draft={customDraft}
@@ -4722,9 +5368,65 @@ export default function DebitCallSpreadLab({
                     onRemoveComparison={removeCustomComparison}
                     onUseQuickStart={useCustomQuickStart}
                   />
+                ) : null}
+              </WorkflowStep>
+            ) : null}
+
+            {workflowLayout === "tabbed" && activeWorkflowTab === "opportunities" && canModel && comparisonCards.length > 0 ? (
+              <OptionComparisonBoard
+                cards={comparisonCards}
+                scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
+                scenarioPrice={safeScenarioPrice}
+                symbol={symbol}
+              />
+            ) : null}
+
+            {workflowLayout === "tabbed" && activeWorkflowTab === "custom" && canModel ? (
+              <>
+                <div className="flex min-w-0 flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!canModel}
+                    aria-expanded={isCustomComparisonEditorOpen}
+                    onClick={openCustomComparisonEditor}
+                    className={cn(
+                      "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                      isCustomComparisonEditorOpen &&
+                        "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                    )}
+                  >
+                    Add strategy
+                  </button>
                 </div>
-              ) : null}
-            </section>
+                <CustomComparisonBoard
+                  cards={customComparisonCards}
+                  draft={customDraft}
+                  draftError={customDraftError}
+                  isEditorOpen={isCustomComparisonEditorOpen}
+                  quickStartCards={comparisonCards}
+                  showSummary
+                  scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
+                  scenarioPrice={safeScenarioPrice}
+                  symbol={symbol}
+                  onDraftChange={setCustomDraft}
+                  onAddComparison={addCustomComparison}
+                  onRemoveComparison={removeCustomComparison}
+                  onUseQuickStart={useCustomQuickStart}
+                />
+              </>
+            ) : null}
+
+            {workflowLayout === "guided" ? (
+              <WorkflowStepIntro
+                step="3"
+                title="Scenario analysis"
+                description="Set future market conditions, then inspect how the selected strategy moves."
+              />
+            ) : null}
+
+            {(workflowLayout === "guided" ||
+              (workflowLayout === "tabbed" && activeWorkflowTab === "analysis")) ? (
+              <>
             <SectionCard
               title="Market scenario"
               eyebrow={`${symbol.trim() || "Underlying"} scenario assumptions`}
@@ -4847,15 +5549,6 @@ export default function DebitCallSpreadLab({
               </div>
             </SectionCard>
 
-            {canModel && comparisonPanelMode === "presets" && comparisonCards.length > 0 ? (
-              <OptionComparisonBoard
-                cards={comparisonCards}
-                scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
-                scenarioPrice={safeScenarioPrice}
-                symbol={symbol}
-              />
-            ) : null}
-
             <SectionCard
               title="Scenario curve"
               eyebrow={`${symbol.trim() || "Underlying"} profit & loss by stock price · ${selectedGraphComparison.label}`}
@@ -4912,7 +5605,6 @@ export default function DebitCallSpreadLab({
             >
               <div className="space-y-4">
                 {showScenarioSelectionControls ? (
-                  <>
                     <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
                       <div className="grid divide-y divide-slate-200 md:grid-cols-3 md:divide-x md:divide-y-0">
                         <div className="grid min-w-0 grid-rows-[auto_2.25rem_auto] gap-2.5 p-3 lg:p-4">
@@ -5027,124 +5719,6 @@ export default function DebitCallSpreadLab({
                         </div>
                       </div>
                     </div>
-
-                    <div className="grid min-w-0 gap-2.5 md:grid-cols-3">
-                  <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm sm:p-3">
-                    <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_6.25rem] items-start gap-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <p className="min-w-0 text-sm font-medium leading-tight text-slate-900 text-balance">Future stock price</p>
-                        <InfoIcon label="The stock price to test on the selected future date." />
-                      </div>
-                      <div className="w-[6.25rem] min-w-0 shrink-0">
-                        <div className="flex items-center rounded-md border border-slate-300 bg-white px-2 py-1.5">
-                          <span className="text-sm text-slate-500">$</span>
-                          <input
-                            type="number"
-                            value={displayedScenarioPriceInputValue}
-                            min={scenarioPriceSliderMin}
-                            max={scenarioPriceSliderMax}
-                            step={1}
-                            aria-label="Future stock price"
-                            onFocus={() =>
-                              setScenarioPriceDraft(String(scenarioPriceInputValue))
-                            }
-                            onBlur={(event) =>
-                              commitScenarioPriceDraft(event.currentTarget.value)
-                            }
-                            onKeyDown={handleScenarioPriceKeyDown}
-                            onInput={(event) =>
-                              updateScenarioPriceDraft(event.currentTarget.value)
-                            }
-                            onChange={(event) =>
-                              updateScenarioPriceDraft(event.target.value)
-                            }
-                            className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none tabular-nums"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <input
-                      type="range"
-                      min={scenarioPriceSliderMin}
-                      max={scenarioPriceSliderMax}
-                      step={1}
-                      value={safeScenarioPrice}
-                      aria-label="Future stock price"
-                      onChange={(event) =>
-                        updateScenarioPrice(Number(event.target.value))
-                      }
-                      onMouseDown={blurFocusedField}
-                      onPointerDown={blurFocusedField}
-                      onTouchStart={blurFocusedField}
-                      className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
-                    />
-                    <div className="mt-1.5 grid min-h-5 grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-start gap-1 font-mono text-[10px] text-slate-500 tabular-nums sm:text-[11px]">
-                      <span className="whitespace-nowrap">{formatCurrency(scenarioPriceSliderMin)}</span>
-                      <span className="min-w-0 truncate whitespace-nowrap text-center text-slate-600">
-                        {spot > 0
-                          ? `${safeScenarioPrice >= spot ? "+" : ""}${Math.round(
-                              ((safeScenarioPrice - spot) / spot) * 100,
-                            )}% vs spot ${formatCurrency(spot)}`
-                          : ""}
-                      </span>
-                      <span className="whitespace-nowrap text-right">{formatCurrency(scenarioPriceSliderMax)}</span>
-                    </div>
-                  </div>
-
-                  <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm sm:p-3">
-                    <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_7rem] items-start gap-2">
-	                      <div className="flex min-w-0 items-center gap-2">
-	                        <p className="min-w-0 text-sm font-medium leading-tight text-slate-900 text-balance">Valuation date</p>
-	                        <InfoIcon
-	                          label={`The date used to estimate what the ${visualizedStrategyCopy.unitName} could be worth before expiration.`}
-	                        />
-	                      </div>
-	                      <div className="w-[7rem] text-right">
-	                        <div className="truncate whitespace-nowrap font-mono text-sm leading-tight text-slate-950 tabular-nums">
-	                          {formatLongDate(visualizedSnapshot.selectedDateIso)}
-	                        </div>
-	                        <div className="mt-1 truncate whitespace-nowrap text-[11px] leading-tight text-slate-500">
-	                          {visualizedSnapshot.selectedOffsetDays} days from today
-	                        </div>
-                      </div>
-                    </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={expirationDays}
-                      step={1}
-                      value={safeScenarioOffsetDays}
-                      disabled={expirationDays === 0}
-                      aria-label="Valuation date"
-                      onChange={(event) =>
-                        updateScenarioOffsetDays(Number(event.target.value))
-                      }
-                      onMouseDown={blurFocusedField}
-                      onPointerDown={blurFocusedField}
-                      onTouchStart={blurFocusedField}
-                      className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
-                    />
-                    <div className="mt-1.5 grid min-h-5 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums sm:text-[11px]">
-                      <span className="truncate whitespace-nowrap">{formatLongDate(todayIso)}</span>
-                      <span className="truncate whitespace-nowrap text-right">{formatLongDate(expiryIso)}</span>
-                    </div>
-                  </div>
-
-	                  <NumberSliderField
-	                    label="Future IV"
-	                    help={`Used to estimate the ${visualizedStrategyCopy.unitName} value on the selected future date.`}
-                    min={0}
-                    max={150}
-                    step={1}
-                    value={futureVolatilityPct}
-                    onChange={updateFutureScenarioVolatilityPct}
-                    suffix="%"
-                    className="p-2.5 sm:p-3"
-                    headerClassName="min-h-9 grid grid-cols-[minmax(0,1fr)_6.25rem] items-start gap-2 sm:grid-cols-[minmax(0,1fr)_6.25rem] sm:items-start"
-                    sliderClassName="mt-2.5"
-                  />
-                    </div>
-                  </>
                 ) : null}
 
                 {validationMessages.length > 0 ? (
@@ -5199,23 +5773,50 @@ export default function DebitCallSpreadLab({
               </div>
             </SectionCard>
 
-            <ResultsTable
-              title={`${strategyCopy.unitTitle} value over time at the selected stock price`}
-              subtitle={`These rows keep ${symbol.trim() || "the stock"} fixed at ${formatCurrency(
-                safeScenarioPrice,
-              )} and move the date toward expiry.`}
-              columns={timelineColumns}
-              rows={timelineRows}
-            />
+            <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+              <button
+                type="button"
+                onClick={() => setShowDetailedTables((isOpen) => !isOpen)}
+                aria-expanded={showDetailedTables}
+                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+              >
+                <span>
+                  <span className="block font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">
+                    Detailed tables
+                  </span>
+                  <span className="block text-xs text-slate-500">
+                    Open when you want exact rows by date or stock price.
+                  </span>
+                </span>
+                <span className="text-sm text-slate-500">
+                  {showDetailedTables ? "Hide" : "Show"}
+                </span>
+              </button>
 
-            <ResultsTable
-              title={`${strategyCopy.unitTitle} value by stock price on the selected date`}
-              subtitle={`These rows keep the date fixed at ${formatLongDate(
-                snapshot.selectedDateIso,
-              )} and move the underlying price.`}
-              columns={priceColumns}
-              rows={priceRows}
-            />
+              {showDetailedTables ? (
+                <div className="space-y-3 border-t border-slate-200 p-3">
+                  <ResultsTable
+                    title={`${strategyCopy.unitTitle} value over time at the selected stock price`}
+                    subtitle={`These rows keep ${symbol.trim() || "the stock"} fixed at ${formatCurrency(
+                      safeScenarioPrice,
+                    )} and move the date toward expiry.`}
+                    columns={timelineColumns}
+                    rows={timelineRows}
+                  />
+
+                  <ResultsTable
+                    title={`${strategyCopy.unitTitle} value by stock price on the selected date`}
+                    subtitle={`These rows keep the date fixed at ${formatLongDate(
+                      snapshot.selectedDateIso,
+                    )} and move the underlying price.`}
+                    columns={priceColumns}
+                    rows={priceRows}
+                  />
+                </div>
+              ) : null}
+            </section>
+              </>
+            ) : null}
           </div>
         </div>
       </div>
