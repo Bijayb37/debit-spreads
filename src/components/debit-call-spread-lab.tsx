@@ -188,6 +188,7 @@ type PriceTableRow = PriceLadderRow & { id: string };
 
 type ComparisonPanelMode = "hidden" | "presets" | "custom";
 type WorkflowTab = "setup" | "opportunities" | "custom" | "analysis";
+type WorkflowLayout = "guided" | "tabbed";
 
 type ComparisonCandidate = {
   id: string;
@@ -319,8 +320,10 @@ const STRATEGY_COPY: Record<OptionStrategy, StrategyCopy> = {
 
 const SHARE_PARAM = "s";
 const WORKFLOW_TAB_PARAM = "tab";
+const WORKFLOW_LAYOUT_PARAM = "view";
 const SHARE_VERSION = "1";
 const DEFAULT_WORKFLOW_TAB: WorkflowTab = "setup";
+const DEFAULT_WORKFLOW_LAYOUT: WorkflowLayout = "guided";
 
 function encodeWorkflowTab(tab: WorkflowTab): string {
   if (tab === "opportunities") return "o";
@@ -334,6 +337,14 @@ function decodeWorkflowTab(value: string | undefined): WorkflowTab {
   if (value === "c") return "custom";
   if (value === "a") return "analysis";
   return DEFAULT_WORKFLOW_TAB;
+}
+
+function encodeWorkflowLayout(layout: WorkflowLayout): string {
+  return layout === "tabbed" ? "t" : "g";
+}
+
+function decodeWorkflowLayout(value: string | undefined): WorkflowLayout {
+  return value === "t" ? "tabbed" : DEFAULT_WORKFLOW_LAYOUT;
 }
 
 function compactNumber(value: number): string {
@@ -510,20 +521,35 @@ function getWorkflowTabFromUrl(): WorkflowTab | null {
   return token ? decodeWorkflowTab(token) : null;
 }
 
-function replaceShareHash(nextState: string, workflowTab: WorkflowTab) {
+function getWorkflowLayoutFromUrl(): WorkflowLayout | null {
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const searchParams = new URLSearchParams(window.location.search);
+  const token = hashParams.get(WORKFLOW_LAYOUT_PARAM) ?? searchParams.get(WORKFLOW_LAYOUT_PARAM);
+
+  return token ? decodeWorkflowLayout(token) : null;
+}
+
+function replaceShareHash(
+  nextState: string,
+  workflowTab: WorkflowTab,
+  workflowLayout: WorkflowLayout,
+) {
   const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
 
   const nextWorkflowTab = encodeWorkflowTab(workflowTab);
+  const nextWorkflowLayout = encodeWorkflowLayout(workflowLayout);
 
   if (
     hashParams.get(SHARE_PARAM) === nextState &&
-    (hashParams.get(WORKFLOW_TAB_PARAM) ?? encodeWorkflowTab(DEFAULT_WORKFLOW_TAB)) === nextWorkflowTab
+    (hashParams.get(WORKFLOW_TAB_PARAM) ?? encodeWorkflowTab(DEFAULT_WORKFLOW_TAB)) === nextWorkflowTab &&
+    (hashParams.get(WORKFLOW_LAYOUT_PARAM) ?? encodeWorkflowLayout(DEFAULT_WORKFLOW_LAYOUT)) === nextWorkflowLayout
   ) {
     return;
   }
 
   hashParams.set(SHARE_PARAM, nextState);
   hashParams.set(WORKFLOW_TAB_PARAM, nextWorkflowTab);
+  hashParams.set(WORKFLOW_LAYOUT_PARAM, nextWorkflowLayout);
   window.history.replaceState(
     null,
     "",
@@ -818,6 +844,114 @@ function MetricCard({ label, value, tone = "default", helper }: MetricCardProps)
   );
 }
 
+function WorkflowLayoutSwitch({
+  activeLayout,
+  onChange,
+}: {
+  activeLayout: WorkflowLayout;
+  onChange: (layout: WorkflowLayout) => void;
+}) {
+  const layouts: Array<{ value: WorkflowLayout; label: string; title: string }> = [
+    {
+      value: "guided",
+      label: "Guided",
+      title: "Guided workspace",
+    },
+    {
+      value: "tabbed",
+      label: "Tabbed",
+      title: "Tabbed workflow",
+    },
+  ];
+
+  return (
+    <div className="flex min-w-0 justify-end">
+      <div
+        className="inline-flex min-w-0 items-center rounded-md border border-slate-200 bg-white p-0.5 shadow-sm"
+        aria-label="Interface layout"
+      >
+        <span className="px-2 text-[11px] font-semibold uppercase text-slate-500">
+          View
+        </span>
+        {layouts.map((layout) => (
+          <button
+            key={layout.value}
+            type="button"
+            aria-pressed={activeLayout === layout.value}
+            title={layout.title}
+            onPointerDown={() => onChange(layout.value)}
+            onMouseDown={() => onChange(layout.value)}
+            onClick={() => onChange(layout.value)}
+            className={cn(
+              "min-w-0 rounded px-2.5 py-1 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+              activeLayout === layout.value
+                ? "bg-slate-950 text-white shadow-sm"
+                : "hover:bg-slate-50 hover:text-slate-950",
+            )}
+          >
+            {layout.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function WorkflowStep({
+  step,
+  title,
+  description,
+  children,
+}: {
+  step: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="mb-3 flex min-w-0 items-start gap-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-950 font-mono text-sm font-semibold text-white tabular-nums">
+          {step}
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950 text-balance">
+            {title}
+          </h2>
+          <p className="mt-0.5 text-sm text-slate-500 text-pretty">{description}</p>
+        </div>
+      </div>
+      <div className="min-w-0 space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function WorkflowStepIntro({
+  step,
+  title,
+  description,
+}: {
+  step: string;
+  title: string;
+  description: string;
+}) {
+  return (
+    <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-950 font-mono text-sm font-semibold text-white tabular-nums">
+          {step}
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950 text-balance">
+            {title}
+          </h2>
+          <p className="mt-0.5 text-sm text-slate-500 text-pretty">{description}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function WorkflowTabs({
   activeTab,
   onChange,
@@ -842,6 +976,8 @@ function WorkflowTabs({
           key={tab.value}
           type="button"
           aria-pressed={activeTab === tab.value}
+          onPointerDown={() => onChange(tab.value)}
+          onMouseDown={() => onChange(tab.value)}
           onClick={() => onChange(tab.value)}
           className={cn(
             "min-w-0 truncate rounded-md px-2 py-2 text-sm font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
@@ -855,7 +991,7 @@ function WorkflowTabs({
   );
 }
 
-function SetupTabPanel({
+function SetupSummaryStrip({
   symbol,
   spot,
   volatilityPct,
@@ -864,7 +1000,7 @@ function SetupTabPanel({
   strategy,
   longStrike,
   shortStrike,
-  validationMessages,
+  allowFractionalContracts,
 }: {
   symbol: string;
   spot: number;
@@ -874,49 +1010,34 @@ function SetupTabPanel({
   strategy: OptionStrategy;
   longStrike: number;
   shortStrike: number;
-  validationMessages: string[];
+  allowFractionalContracts: boolean;
 }) {
   const isSpread = strategy === "debit-call-spread";
-  const fields = [
+  const items = [
     ["Ticker", symbol.trim() || "Underlying"],
     ["Current price", formatCurrency(spot)],
     ["Current IV", `${Math.round(volatilityPct)}%`],
-    ["Position size", formatCurrency(capital)],
-    ["Strategy", isSpread ? "Debit call spread" : "Long call"],
+    ["Capital", formatCurrency(capital)],
+    ["Position", isSpread ? "Debit call spread" : "Long call"],
     ["Strikes", isSpread ? `${formatCurrency(longStrike)} / ${formatCurrency(shortStrike)}` : `${formatCurrency(longStrike)} call`],
     ["DTE", `${expirationDays} days`],
+    ["Sizing", allowFractionalContracts ? "Fractional" : "Whole"],
   ];
 
   return (
-    <SectionCard
-      title="Setup"
-      eyebrow={`${symbol.trim() || "Underlying"} inputs`}
-    >
-      <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
-        {fields.map(([label, value]) => (
-          <div
-            key={label}
-            className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
-          >
-            <p className="text-[11px] font-semibold uppercase text-slate-500">{label}</p>
-            <p className="mt-1 truncate font-mono text-sm font-semibold text-slate-950 tabular-nums">
-              {value}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      {validationMessages.length > 0 ? (
-        <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
-          <p className="font-medium">Fix these inputs first</p>
-          <ul className="mt-2 space-y-1">
-            {validationMessages.map((message) => (
-              <li key={message}>{message}</li>
-            ))}
-          </ul>
+    <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {items.map(([label, value]) => (
+        <div
+          key={label}
+          className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+        >
+          <p className="text-[11px] font-semibold uppercase text-slate-500">{label}</p>
+          <p className="mt-1 truncate font-mono text-sm font-semibold text-slate-950 tabular-nums">
+            {value}
+          </p>
         </div>
-      ) : null}
-    </SectionCard>
+      ))}
+    </div>
   );
 }
 
@@ -3677,6 +3798,8 @@ export default function DebitCallSpreadLab({
   const [showDetailedTables, setShowDetailedTables] = useState(false);
   const [activeWorkflowTab, setActiveWorkflowTab] =
     useState<WorkflowTab>(DEFAULT_WORKFLOW_TAB);
+  const [workflowLayout, setWorkflowLayout] =
+    useState<WorkflowLayout>(DEFAULT_WORKFLOW_LAYOUT);
   const [customDraft, setCustomDraft] = useState<CustomComparisonDraft>({
     label: "",
     strategy: "debit-call-spread",
@@ -3720,6 +3843,7 @@ export default function DebitCallSpreadLab({
     let isActive = true;
     const sharedState = getShareStateFromUrl(defaultExpirationDays);
     const explicitWorkflowTab = getWorkflowTabFromUrl();
+    const explicitWorkflowLayout = getWorkflowLayoutFromUrl();
 
     queueMicrotask(() => {
       if (!isActive) {
@@ -3751,6 +3875,10 @@ export default function DebitCallSpreadLab({
 
       if (explicitWorkflowTab) {
         setActiveWorkflowTab(explicitWorkflowTab);
+      }
+
+      if (explicitWorkflowLayout) {
+        setWorkflowLayout(explicitWorkflowLayout);
       }
 
       setIsUrlStateReady(true);
@@ -3786,7 +3914,7 @@ export default function DebitCallSpreadLab({
       graphComparisonId,
       workflowTab: activeWorkflowTab,
     });
-    replaceShareHash(nextState, activeWorkflowTab);
+    replaceShareHash(nextState, activeWorkflowTab, workflowLayout);
   }, [
     allowFractionalContracts,
     capital,
@@ -3796,6 +3924,7 @@ export default function DebitCallSpreadLab({
     futureVolatilityPct,
     graphComparisonId,
     activeWorkflowTab,
+    workflowLayout,
     longStrike,
     ratePct,
     safeScenarioOffsetDays,
@@ -4000,6 +4129,9 @@ export default function DebitCallSpreadLab({
       }
       setComparisonPanelMode("custom");
     }
+  };
+  const changeWorkflowLayout = (nextLayout: WorkflowLayout) => {
+    setWorkflowLayout(nextLayout);
   };
   const openCustomComparisonEditor = () => {
     if (!isCustomComparisonEditorOpen) {
@@ -4603,6 +4735,242 @@ export default function DebitCallSpreadLab({
       value: getOtmStrike(spot, percent),
     })),
   ];
+  const showGuidedSidebar = workflowLayout === "guided" && isSidebarVisible;
+  const setupInputControls = (
+    <div
+      className={cn(
+        "space-y-3",
+        workflowLayout === "tabbed" &&
+          "grid min-w-0 gap-3 space-y-0 md:grid-cols-2 xl:grid-cols-3",
+      )}
+    >
+      <div className="space-y-2">
+        <SidebarGroupLabel>Position</SidebarGroupLabel>
+        <div
+          className="grid min-w-0 grid-cols-2 gap-2"
+          role="group"
+          aria-label="Option strategy"
+        >
+          {STRATEGY_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={strategy === option.value}
+              title={option.description}
+              onClick={() => {
+                setStrategy(option.value);
+                setScenarioGraphView("map");
+              }}
+              className={cn(
+                "min-w-0 truncate rounded-md border border-slate-300 bg-white px-2 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] sm:px-3 sm:text-sm",
+                strategy === option.value &&
+                  "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+              )}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="flex min-w-0 items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
+          <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+            Ticker
+          </span>
+          <input
+            type="text"
+            value={symbol}
+            onChange={(event) => setSymbol(event.target.value.toUpperCase())}
+            className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-sm font-semibold text-slate-950 outline-none"
+            placeholder="AAPL"
+          />
+        </label>
+
+        <NumberSliderField
+          label="Current price"
+          help={`Used to price the ${strategyCopy.unitName} today.`}
+          min={5}
+          max={currentPriceSliderMax}
+          step={1}
+          value={spot}
+          onChange={updateSpot}
+          prefix="$"
+        />
+
+        <NumberSliderField
+          label="Current IV"
+          help={`Used to estimate today's ${strategyCopy.unitName} cost.`}
+          min={5}
+          max={150}
+          step={1}
+          value={volatilityPct}
+          onChange={updateVolatilityPct}
+          suffix="%"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <SidebarGroupLabel>
+          {isDebitCallSpread ? "Strikes" : "Strike"}
+          {isDebitCallSpread && shortStrike > longStrike ? (
+            <span className="font-mono text-[11px] font-medium normal-case tracking-normal text-slate-500 tabular-nums">
+              {formatCurrency(shortStrike - longStrike)} wide
+            </span>
+          ) : null}
+        </SidebarGroupLabel>
+        {isDebitCallSpread ? (
+          <>
+            <NumberSliderField
+              label="Long call (buy)"
+              help="The strike you buy."
+              min={5}
+              max={longStrikeSliderMax}
+              step={1}
+              value={longStrike}
+              onChange={setLongStrike}
+              prefix="$"
+            />
+
+            <NumberSliderField
+              label="Short call (sell)"
+              help="The strike you sell."
+              min={5}
+              max={shortStrikeSliderMax}
+              step={1}
+              value={shortStrike}
+              onChange={setShortStrike}
+              prefix="$"
+              quickActions={shortStrikeOtmActions}
+            />
+          </>
+        ) : (
+          <NumberSliderField
+            label="Call strike"
+            help="The strike price of the call you buy."
+            min={5}
+            max={longStrikeSliderMax}
+            step={1}
+            value={longStrike}
+            onChange={setLongStrike}
+            prefix="$"
+            quickActions={callStrikeActions}
+          />
+        )}
+      </div>
+
+      <div className="space-y-2">
+        <SidebarGroupLabel>Sizing</SidebarGroupLabel>
+        <NumberSliderField
+          label="Capital to deploy"
+          help={strategyCopy.capitalHelp}
+          min={500}
+          max={100000}
+          step={100}
+          value={capital}
+          onChange={setCapital}
+          prefix="$"
+        />
+
+        <div
+          className="flex min-w-0 flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between"
+          role="group"
+          aria-label="Position sizing"
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="text-sm font-medium text-slate-900">Contracts</span>
+            <InfoIcon label="Whole rounds down so the position fits in cash. Fractional uses the full capital amount as if partial contracts were tradable." />
+          </div>
+          <div className="inline-flex min-w-0 rounded-md border border-slate-300 bg-white p-0.5">
+            {[
+              { label: "Whole", value: false },
+              { label: "Fractional", value: true },
+            ].map((option) => (
+              <button
+                key={option.label}
+                type="button"
+                aria-pressed={allowFractionalContracts === option.value}
+                onClick={() => setAllowFractionalContracts(option.value)}
+                className={cn(
+                  "rounded-sm px-2.5 py-1 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                  allowFractionalContracts === option.value &&
+                    "bg-[#e63946]/15 text-[#9f1d2a]",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <SidebarGroupLabel>
+          Time
+          <span className="font-mono text-[11px] font-medium normal-case tracking-normal text-slate-500 tabular-nums">
+            Expires {formatLongDate(expiryIso)}
+          </span>
+        </SidebarGroupLabel>
+        <NumberSliderField
+          label="Days to expiration"
+          help={`The ${strategyCopy.unitName} value moves toward intrinsic value as DTE approaches zero.`}
+          min={0}
+          max={365}
+          step={1}
+          value={expirationDays}
+          onChange={updateExpirationDays}
+          suffix=" DTE"
+          quickActions={[7, 14, 30, 45, 60, 90].map((days) => ({
+            label: `${days}d`,
+            value: days,
+          }))}
+        />
+      </div>
+
+      <details
+        className={cn(
+          "group rounded-md border border-slate-200 bg-slate-50 shadow-sm",
+          workflowLayout === "tabbed" && "md:col-span-2 xl:col-span-3",
+        )}
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium text-slate-700">
+          <span>Advanced</span>
+          <span className="text-xs text-slate-500 transition-transform group-open:rotate-180">
+            ▾
+          </span>
+        </summary>
+        <div className="space-y-3 border-t border-slate-200 px-3 py-3">
+          <label className="block">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium text-slate-900">Risk-free rate</span>
+              <InfoIcon label="Annualized rate used in the Black-Scholes model." />
+            </div>
+            <div className="mt-2 flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={ratePctDraft}
+                min={0}
+                max={15}
+                pattern="[0-9]*[.]?[0-9]*"
+                aria-label="Risk-free rate"
+                onBlur={commitRatePctDraft}
+                onKeyDown={handleRatePctKeyDown}
+                onChange={(event) => updateRatePctDraft(event.target.value)}
+                className="w-full border-0 bg-transparent p-0 font-mono text-sm text-slate-950 outline-none"
+              />
+              <span className="text-sm text-slate-500">%</span>
+            </div>
+          </label>
+
+          <div className="rounded-md border border-[#e63946]/30 bg-[#e63946]/10 p-2.5 text-xs text-[#9f1d2a]">
+            <p className="font-medium">Model assumptions</p>
+            <p className="mt-1 leading-5 text-pretty">
+              {strategyCopy.modelAssumptions}
+            </p>
+          </div>
+        </div>
+      </details>
+    </div>
+  );
   return (
     <main className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900">
       <div className="mx-auto w-full max-w-7xl px-2 py-2 sm:px-4 sm:py-3 md:px-6">
@@ -4610,10 +4978,10 @@ export default function DebitCallSpreadLab({
         <div
           className={cn(
             "grid min-w-0 items-start gap-3",
-            isSidebarVisible && "lg:grid-cols-[19rem_minmax(0,1fr)]",
+            showGuidedSidebar && "lg:grid-cols-[19rem_minmax(0,1fr)]",
           )}
         >
-          {isSidebarVisible ? (
+          {showGuidedSidebar ? (
           <aside className="min-w-0 lg:sticky lg:top-3 lg:max-h-[calc(100dvh-1.5rem)] lg:overflow-y-auto lg:overscroll-none lg:pr-1">
             <SectionCard
               title="Inputs"
@@ -4856,7 +5224,7 @@ export default function DebitCallSpreadLab({
           ) : null}
 
           <div className="min-w-0 space-y-4">
-            {!isSidebarVisible ? (
+            {workflowLayout === "guided" && !isSidebarVisible ? (
               <div className="flex justify-start">
                 <button
                   type="button"
@@ -4867,23 +5235,144 @@ export default function DebitCallSpreadLab({
                 </button>
               </div>
             ) : null}
-            <WorkflowTabs activeTab={activeWorkflowTab} onChange={changeWorkflowTab} />
+            <WorkflowLayoutSwitch
+              activeLayout={workflowLayout}
+              onChange={changeWorkflowLayout}
+            />
 
-            {activeWorkflowTab === "setup" ? (
-              <SetupTabPanel
-                symbol={symbol}
-                spot={spot}
-                volatilityPct={volatilityPct}
-                capital={capital}
-                expirationDays={expirationDays}
-                strategy={strategy}
-                longStrike={longStrike}
-                shortStrike={shortStrike}
-                validationMessages={validationMessages}
-              />
+            {workflowLayout === "tabbed" ? (
+              <WorkflowTabs activeTab={activeWorkflowTab} onChange={changeWorkflowTab} />
             ) : null}
 
-            {activeWorkflowTab === "opportunities" && canModel && comparisonCards.length > 0 ? (
+            {workflowLayout === "guided" ? (
+              <WorkflowStep
+                step="1"
+                title="Market setup"
+                description="Set the stock, volatility, position size, strikes, and time to expiration from the input panel."
+              >
+                <SetupSummaryStrip
+                  symbol={symbol}
+                  spot={spot}
+                  volatilityPct={volatilityPct}
+                  capital={capital}
+                  expirationDays={expirationDays}
+                  strategy={strategy}
+                  longStrike={longStrike}
+                  shortStrike={shortStrike}
+                  allowFractionalContracts={allowFractionalContracts}
+                />
+
+                {validationMessages.length > 0 ? (
+                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+                    <p className="font-medium">Fix these inputs first</p>
+                    <ul className="mt-2 space-y-1">
+                      {validationMessages.map((message) => (
+                        <li key={message}>{message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </WorkflowStep>
+            ) : null}
+
+            {workflowLayout === "tabbed" && activeWorkflowTab === "setup" ? (
+              <SectionCard
+                title="Setup"
+                eyebrow={`${symbol.trim() || "Underlying"} inputs`}
+              >
+                {setupInputControls}
+
+                {validationMessages.length > 0 ? (
+                  <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
+                    <p className="font-medium">Fix these inputs first</p>
+                    <ul className="mt-2 space-y-1">
+                      {validationMessages.map((message) => (
+                        <li key={message}>{message}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </SectionCard>
+            ) : null}
+
+            {workflowLayout === "guided" ? (
+              <WorkflowStep
+                step="2"
+                title="Strategy selection"
+                description="Review predefined opportunities, create custom strategies, then choose which one the graph should analyze."
+              >
+                <div className="flex min-w-0 flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!canModel}
+                    aria-pressed={comparisonPanelMode === "presets"}
+                    onClick={showPresetComparisons}
+                    className={cn(
+                      "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                      comparisonPanelMode === "presets" &&
+                        "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                    )}
+                  >
+                    Show opportunities
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canModel}
+                    aria-pressed={comparisonPanelMode === "custom"}
+                    onClick={showCustomComparisons}
+                    className={cn(
+                      "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                      comparisonPanelMode === "custom" &&
+                        "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                    )}
+                  >
+                    Show custom comparisons
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!canModel}
+                    aria-expanded={isCustomComparisonEditorOpen}
+                    onClick={openCustomComparisonEditor}
+                    className={cn(
+                      "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                      isCustomComparisonEditorOpen &&
+                        "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                    )}
+                  >
+                    Add strategy
+                  </button>
+                </div>
+
+                {canModel && comparisonPanelMode === "presets" && comparisonCards.length > 0 ? (
+                  <OptionComparisonBoard
+                    cards={comparisonCards}
+                    scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
+                    scenarioPrice={safeScenarioPrice}
+                    symbol={symbol}
+                  />
+                ) : null}
+
+                {canModel && (comparisonPanelMode === "custom" || isCustomComparisonEditorOpen) ? (
+                  <CustomComparisonBoard
+                    cards={customComparisonCards}
+                    draft={customDraft}
+                    draftError={customDraftError}
+                    isEditorOpen={isCustomComparisonEditorOpen}
+                    quickStartCards={comparisonCards}
+                    showSummary={comparisonPanelMode === "custom"}
+                    scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
+                    scenarioPrice={safeScenarioPrice}
+                    symbol={symbol}
+                    onDraftChange={setCustomDraft}
+                    onAddComparison={addCustomComparison}
+                    onRemoveComparison={removeCustomComparison}
+                    onUseQuickStart={useCustomQuickStart}
+                  />
+                ) : null}
+              </WorkflowStep>
+            ) : null}
+
+            {workflowLayout === "tabbed" && activeWorkflowTab === "opportunities" && canModel && comparisonCards.length > 0 ? (
               <OptionComparisonBoard
                 cards={comparisonCards}
                 scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
@@ -4892,7 +5381,7 @@ export default function DebitCallSpreadLab({
               />
             ) : null}
 
-            {activeWorkflowTab === "custom" && canModel ? (
+            {workflowLayout === "tabbed" && activeWorkflowTab === "custom" && canModel ? (
               <>
                 <div className="flex min-w-0 flex-wrap gap-2">
                   <button
@@ -4927,7 +5416,16 @@ export default function DebitCallSpreadLab({
               </>
             ) : null}
 
-            {activeWorkflowTab === "analysis" ? (
+            {workflowLayout === "guided" ? (
+              <WorkflowStepIntro
+                step="3"
+                title="Scenario analysis"
+                description="Set future market conditions, then inspect how the selected strategy moves."
+              />
+            ) : null}
+
+            {(workflowLayout === "guided" ||
+              (workflowLayout === "tabbed" && activeWorkflowTab === "analysis")) ? (
               <>
             <SectionCard
               title="Market scenario"
