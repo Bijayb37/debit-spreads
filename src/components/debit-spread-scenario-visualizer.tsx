@@ -111,21 +111,21 @@ function cellColor(point: DebitSpreadScenarioPoint, maxProfit: number | null, ma
   if (point.profitLoss > 0) {
     const ratio = Math.min(point.profitLoss / Math.max(maxProfit ?? maxLoss, 1), 1);
 
-    if (ratio > 0.75) return "bg-emerald-700 text-white";
-    if (ratio > 0.45) return "bg-emerald-500 text-white";
-    if (ratio > 0.2) return "bg-emerald-300 text-emerald-950";
-    return "bg-emerald-100 text-emerald-950";
+    if (ratio > 0.75) return "bg-emerald-800 text-white";
+    if (ratio > 0.45) return "bg-emerald-600 text-white";
+    if (ratio > 0.2) return "bg-emerald-200 text-emerald-950";
+    return "border border-emerald-100 bg-emerald-50 text-emerald-900";
   }
 
   if (point.profitLoss < 0) {
     const ratio = Math.min(Math.abs(point.profitLoss) / Math.max(maxLoss, 1), 1);
 
-    if (ratio > 0.65) return "bg-rose-600 text-white";
-    if (ratio > 0.35) return "bg-rose-300 text-rose-950";
-    return "bg-rose-100 text-rose-950";
+    if (ratio > 0.65) return "bg-rose-700 text-white";
+    if (ratio > 0.35) return "bg-rose-200 text-rose-950";
+    return "border border-rose-100 bg-rose-50 text-rose-900";
   }
 
-  return "bg-slate-100 text-slate-700";
+  return "border border-slate-200 bg-white text-slate-700";
 }
 
 function buildPriceSeries(currentPrice: number, steps = 61): number[] {
@@ -438,11 +438,11 @@ function HeatmapTab({
           </p>
         </div>
         <div className="flex items-center gap-2 text-[11px] text-slate-600">
-          <span className="size-3 rounded-sm bg-rose-500" />
+          <span className="size-3 rounded-sm bg-rose-700" />
           Loss
-          <span className="size-3 rounded-sm bg-slate-100" />
+          <span className="size-3 rounded-sm border border-slate-200 bg-white" />
           Near B/E
-          <span className="size-3 rounded-sm bg-emerald-700" />
+          <span className="size-3 rounded-sm bg-emerald-800" />
           Profit
         </div>
       </div>
@@ -1293,6 +1293,7 @@ export default function DebitSpreadScenarioVisualizer({
   const [heatmapPriceTickSize, setHeatmapPriceTickSize] = useState(() =>
     Math.max(1, Math.round((Math.max(2, inputs.currentPrice * 1.3) - Math.max(1, inputs.currentPrice * 0.7)) / 6)),
   );
+  const [isRangeSettingsOpen, setIsRangeSettingsOpen] = useState(false);
   const [lockedScenario, setLockedScenario] = useState<DebitSpreadScenarioPoint | null>(null);
   const [hoverScenario, setHoverScenario] = useState<DebitSpreadScenarioPoint | null>(null);
   const safeHeatmapMinPrice = Math.max(1, Math.round(Math.min(heatmapMinPrice, heatmapMaxPrice - 1)));
@@ -1354,10 +1355,6 @@ export default function DebitSpreadScenarioVisualizer({
   const selectedScenario = isHeatmapView
     ? resolvedHoverScenario ?? resolvedLockedScenario ?? defaultScenario
     : defaultScenario;
-  const selectedState: SelectedScenarioState = {
-    scenario: selectedScenario,
-    locked: lockedScenario !== null,
-  };
   const tableRows = useMemo(
     () =>
       grid.dteBuckets.map((dte) =>
@@ -1378,159 +1375,203 @@ export default function DebitSpreadScenarioVisualizer({
 
   return (
     <section className="min-w-0 space-y-4">
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950 text-balance">
-            {isHeatmapView
-              ? `What is this ${unitName} worth?`
-              : `How does the ${unitName} shift over time?`}
-          </h2>
-        </div>
-        {isHeatmapView ? (
-          <div
-            className="grid w-full grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:grid-cols-none"
-            aria-label="Scenario metric"
-          >
-            {metricOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => setMetric(option.value)}
-                className={cn(
-                  "min-w-0 truncate rounded-md px-2 py-1.5 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] min-[360px]:text-sm sm:px-3",
-                  activeMetric === option.value && "bg-white text-slate-950 shadow-sm",
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
+      {!isHeatmapView ? (
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950 text-balance">
+              {`How does the ${unitName} shift over time?`}
+            </h2>
           </div>
-        ) : null}
-      </div>
-
-      {isHeatmapView ? (
-        <SelectedScenarioPanel
-          selected={selectedState.scenario}
-          summary={grid.summary}
-          locked={selectedState.locked}
-          onUnlock={() => setLockedScenario(null)}
-          isLongCall={isLongCall}
-        />
+        </div>
       ) : null}
 
       {isHeatmapView ? (
-        <details className="group rounded-lg border border-slate-200 bg-slate-50 shadow-sm">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700">
-            <span>Range settings</span>
-            <span className="font-mono text-xs font-medium text-slate-500 tabular-nums">
-              {formatCurrency(safeHeatmapMinPrice)}-{formatCurrency(safeHeatmapMaxPrice)} · {heatmapDteSteps} DTE ticks · {heatmapIvPct}% IV
-            </span>
-          </summary>
-          <div className="grid min-w-0 gap-3 border-t border-slate-200 p-3 sm:grid-cols-2 lg:grid-cols-5">
-          <label className="block text-xs font-semibold text-slate-600">
-            Min price
-            <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
-              <span className="text-slate-500">$</span>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={heatmapMinPrice}
-                onChange={(event) => setHeatmapMinPrice(Number(event.target.value))}
-                className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
-              />
-            </div>
-            <MobileRangeValueControl
-              label="Min"
-              prefix="$"
-              min={1}
-              max={Math.max(1, safeHeatmapMaxPrice - 1)}
-              value={safeHeatmapMinPrice}
-              onChange={setHeatmapMinPrice}
-            />
-          </label>
-          <label className="block text-xs font-semibold text-slate-600">
-            Max price
-            <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
-              <span className="text-slate-500">$</span>
-              <input
-                type="number"
-                min={2}
-                step={1}
-                value={heatmapMaxPrice}
-                onChange={(event) => setHeatmapMaxPrice(Number(event.target.value))}
-                className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
-              />
-            </div>
-            <MobileRangeValueControl
-              label="Max"
-              prefix="$"
-              min={safeHeatmapMinPrice + 1}
-              max={Math.max(safeHeatmapMaxPrice, Math.round(inputs.currentPrice * 1.8), safeHeatmapMinPrice + 2)}
-              value={safeHeatmapMaxPrice}
-              onChange={setHeatmapMaxPrice}
-            />
-          </label>
-          <label className="block text-xs font-semibold text-slate-600">
-            Price tick value
-            <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
-              <span className="text-slate-500">$</span>
-              <input
-                type="number"
-                min={1}
-                step={1}
-                value={heatmapPriceTickSize}
-                onChange={(event) => setHeatmapPriceTickSize(Number(event.target.value))}
-                className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
-              />
-            </div>
-            <MobileRangeValueControl
-              label="Tick"
-              prefix="$"
-              min={1}
-              max={Math.max(1, safeHeatmapMaxPrice - safeHeatmapMinPrice)}
-              value={safeHeatmapPriceTickSize}
-              onChange={setHeatmapPriceTickSize}
-            />
-          </label>
-          <label className="block text-xs font-semibold text-slate-600">
-            DTE ticks
-            <div className="mt-2 flex items-center gap-3">
-              <input
-                type="range"
-                min={2}
-                max={15}
-                step={1}
-                value={heatmapDteSteps}
-                onChange={(event) => setHeatmapDteSteps(Number(event.target.value))}
-                onMouseDown={blurFocusedField}
-                onPointerDown={blurFocusedField}
-                onTouchStart={blurFocusedField}
-                className="w-full min-w-0 accent-[#e63946]"
-              />
-              <span className="w-8 text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">{heatmapDteSteps}</span>
-            </div>
-          </label>
-          <label className="block text-xs font-semibold text-slate-600">
-            IV
-            <div className="mt-2 flex items-center gap-3">
-              <input
-                type="range"
-                min={0}
-                max={150}
-                step={1}
-                value={heatmapIvPct}
-                onChange={(event) => setHeatmapIvPct(Number(event.target.value))}
-                onMouseDown={blurFocusedField}
-                onPointerDown={blurFocusedField}
-                onTouchStart={blurFocusedField}
-                className="w-full min-w-0 accent-[#e63946]"
-              />
-              <span className="w-14 text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">{heatmapIvPct}%</span>
-            </div>
-          </label>
+        <section className="min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2">
+            <button
+              type="button"
+              aria-expanded={isRangeSettingsOpen}
+              aria-label={
+                isRangeSettingsOpen ? "Close range settings" : "Open range settings"
+              }
+              onClick={() => setIsRangeSettingsOpen((currentValue) => !currentValue)}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+            >
+              <span
+                aria-hidden
+                className="flex size-7 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-slate-50 text-slate-700 shadow-sm"
+              >
+                <svg
+                  viewBox="0 0 20 20"
+                  className="size-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.25"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d={isRangeSettingsOpen ? "M5 12l5-5 5 5" : "M5 8l5 5 5-5"} />
+                </svg>
+              </span>
+              <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-slate-950">
+                  Range settings
+                </span>
+                <span className="min-w-0 truncate font-mono text-xs text-slate-600 tabular-nums">
+                  {formatCurrency(safeHeatmapMinPrice)}-{formatCurrency(safeHeatmapMaxPrice)} · {heatmapDteSteps} DTE ticks · {heatmapIvPct}% IV
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-expanded={isRangeSettingsOpen}
+              onClick={() => setIsRangeSettingsOpen((currentValue) => !currentValue)}
+              className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+            >
+              {isRangeSettingsOpen ? "Done" : "Edit"}
+            </button>
           </div>
-        </details>
+          {isRangeSettingsOpen ? (
+            <div className="grid min-w-0 gap-2 border-t border-slate-200 bg-slate-50 p-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(15rem,1.25fr)_repeat(5,minmax(8rem,1fr))]">
+              <div className="min-w-0 rounded-md border border-slate-200 bg-white p-2 shadow-sm">
+                <p className="text-[10px] font-semibold uppercase text-slate-500">Cell value</p>
+                <div
+                  className="mt-1 grid w-full grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-0.5"
+                  aria-label="Scenario metric"
+                >
+                  {metricOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setMetric(option.value)}
+                      className={cn(
+                        "min-w-0 truncate rounded px-1.5 py-1 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                        activeMetric === option.value && "bg-[#e63946] text-white shadow-sm",
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label className="block min-w-0 rounded-md border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-600 shadow-sm">
+                <span className="text-[10px] font-semibold uppercase text-slate-500">Min price</span>
+                <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
+                  <span className="text-slate-500">$</span>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={heatmapMinPrice}
+                    onChange={(event) => setHeatmapMinPrice(Number(event.target.value))}
+                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
+                  />
+                </div>
+                <MobileRangeValueControl
+                  label="Min"
+                  prefix="$"
+                  min={1}
+                  max={Math.max(1, safeHeatmapMaxPrice - 1)}
+                  value={safeHeatmapMinPrice}
+                  onChange={setHeatmapMinPrice}
+                />
+              </label>
+
+              <label className="block min-w-0 rounded-md border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-600 shadow-sm">
+                <span className="text-[10px] font-semibold uppercase text-slate-500">Max price</span>
+                <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
+                  <span className="text-slate-500">$</span>
+                  <input
+                    type="number"
+                    min={2}
+                    step={1}
+                    value={heatmapMaxPrice}
+                    onChange={(event) => setHeatmapMaxPrice(Number(event.target.value))}
+                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
+                  />
+                </div>
+                <MobileRangeValueControl
+                  label="Max"
+                  prefix="$"
+                  min={safeHeatmapMinPrice + 1}
+                  max={Math.max(
+                    safeHeatmapMaxPrice,
+                    Math.round(inputs.currentPrice * 1.8),
+                    safeHeatmapMinPrice + 2,
+                  )}
+                  value={safeHeatmapMaxPrice}
+                  onChange={setHeatmapMaxPrice}
+                />
+              </label>
+
+              <label className="block min-w-0 rounded-md border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-600 shadow-sm">
+                <span className="text-[10px] font-semibold uppercase text-slate-500">Price tick</span>
+                <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
+                  <span className="text-slate-500">$</span>
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={heatmapPriceTickSize}
+                    onChange={(event) => setHeatmapPriceTickSize(Number(event.target.value))}
+                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
+                  />
+                </div>
+                <MobileRangeValueControl
+                  label="Tick"
+                  prefix="$"
+                  min={1}
+                  max={Math.max(1, safeHeatmapMaxPrice - safeHeatmapMinPrice)}
+                  value={safeHeatmapPriceTickSize}
+                  onChange={setHeatmapPriceTickSize}
+                />
+              </label>
+
+              <label className="block min-w-0 rounded-md border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-600 shadow-sm">
+                <span className="text-[10px] font-semibold uppercase text-slate-500">DTE ticks</span>
+                <div className="mt-2 grid min-h-8 grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-2">
+                  <input
+                    type="range"
+                    min={2}
+                    max={15}
+                    step={1}
+                    value={heatmapDteSteps}
+                    onChange={(event) => setHeatmapDteSteps(Number(event.target.value))}
+                    onMouseDown={blurFocusedField}
+                    onPointerDown={blurFocusedField}
+                    onTouchStart={blurFocusedField}
+                    className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
+                  />
+                  <span className="text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">
+                    {heatmapDteSteps}
+                  </span>
+                </div>
+              </label>
+
+              <label className="block min-w-0 rounded-md border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-600 shadow-sm">
+                <span className="text-[10px] font-semibold uppercase text-slate-500">IV</span>
+                <div className="mt-2 grid min-h-8 grid-cols-[minmax(0,1fr)_3rem] items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={150}
+                    step={1}
+                    value={heatmapIvPct}
+                    onChange={(event) => setHeatmapIvPct(Number(event.target.value))}
+                    onMouseDown={blurFocusedField}
+                    onPointerDown={blurFocusedField}
+                    onTouchStart={blurFocusedField}
+                    className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
+                  />
+                  <span className="text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">
+                    {heatmapIvPct}%
+                  </span>
+                </div>
+              </label>
+            </div>
+          ) : null}
+        </section>
       ) : null}
 
       {isHeatmapView ? (
