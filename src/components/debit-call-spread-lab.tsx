@@ -6485,7 +6485,7 @@ export default function DebitCallSpreadLab({
         className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900"
       >
         <div className="mx-auto w-full max-w-7xl px-2 py-2 sm:px-4 sm:py-3 md:px-6">
-          <h1 className="sr-only">Callculator</h1>
+          <h1 className="sr-only">Callculator debit spread strategy simulator</h1>
           <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
             Loading workspace...
           </div>
@@ -6717,7 +6717,7 @@ export default function DebitCallSpreadLab({
       className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900"
     >
       <div className="mx-auto w-full max-w-7xl px-2 py-2 sm:px-4 sm:py-3 md:px-6">
-        <h1 className="sr-only">Callculator</h1>
+        <h1 className="sr-only">Callculator debit spread strategy simulator</h1>
         <div
           className={cn(
             "grid min-w-0 items-start gap-2",
