@@ -3,7 +3,7 @@ const YEAR_DAYS = 365;
 
 export const CONTRACT_MULTIPLIER = 100;
 
-export type OptionStrategy = "debit-call-spread" | "long-call";
+export type OptionStrategy = "debit-call-spread" | "debit-put-spread" | "long-call";
 
 type BlackScholesCallInput = {
   spot: number;
@@ -193,6 +193,44 @@ export function blackScholesCall({
   );
 }
 
+export function blackScholesPut({
+  spot,
+  strike,
+  timeYears,
+  volatility,
+  rate,
+  dividendYield,
+}: BlackScholesCallInput): number {
+  const safeSpot = Math.max(spot, 0.0001);
+  const safeStrike = Math.max(strike, 0.0001);
+  const safeTime = Math.max(timeYears, 0);
+  const safeVolatility = Math.max(volatility, 0);
+
+  if (safeTime === 0) {
+    return Math.max(safeStrike - safeSpot, 0);
+  }
+
+  if (safeVolatility === 0) {
+    return Math.max(
+      safeStrike * Math.exp(-rate * safeTime) -
+        safeSpot * Math.exp(-dividendYield * safeTime),
+      0,
+    );
+  }
+
+  const rootTime = Math.sqrt(safeTime);
+  const d1 =
+    (Math.log(safeSpot / safeStrike) +
+      (rate - dividendYield + 0.5 * safeVolatility * safeVolatility) * safeTime) /
+    (safeVolatility * rootTime);
+  const d2 = d1 - safeVolatility * rootTime;
+
+  return (
+    safeStrike * Math.exp(-rate * safeTime) * normalCdf(-d2) -
+    safeSpot * Math.exp(-dividendYield * safeTime) * normalCdf(-d1)
+  );
+}
+
 export function priceLongCall(input: BlackScholesCallInput): number {
   return blackScholesCall(input);
 }
@@ -240,6 +278,49 @@ export function priceDebitCallSpread({
   return clamp(longCall - shortCall, 0, width);
 }
 
+export function priceDebitPutSpread({
+  spot,
+  longStrike,
+  shortStrike,
+  timeYears,
+  volatility,
+  rate,
+  dividendYield,
+}: PriceDebitCallSpreadInput): number {
+  const width = Math.max(longStrike - shortStrike, 0);
+
+  if (width === 0) {
+    return 0;
+  }
+
+  if (timeYears === 0) {
+    return clamp(
+      Math.max(longStrike - spot, 0) - Math.max(shortStrike - spot, 0),
+      0,
+      width,
+    );
+  }
+
+  const longPut = blackScholesPut({
+    spot,
+    strike: longStrike,
+    timeYears,
+    volatility,
+    rate,
+    dividendYield,
+  });
+  const shortPut = blackScholesPut({
+    spot,
+    strike: shortStrike,
+    timeYears,
+    volatility,
+    rate,
+    dividendYield,
+  });
+
+  return clamp(longPut - shortPut, 0, width);
+}
+
 function priceStrategy({
   strategy,
   spot,
@@ -254,6 +335,18 @@ function priceStrategy({
     return priceLongCall({
       spot,
       strike: longStrike,
+      timeYears,
+      volatility,
+      rate,
+      dividendYield,
+    });
+  }
+
+  if (strategy === "debit-put-spread") {
+    return priceDebitPutSpread({
+      spot,
+      longStrike,
+      shortStrike,
       timeYears,
       volatility,
       rate,
@@ -280,6 +373,16 @@ function intrinsicStrategyValue(
 ): number {
   if (strategy === "long-call") {
     return Math.max(spot - longStrike, 0);
+  }
+
+  if (strategy === "debit-put-spread") {
+    const width = Math.max(longStrike - shortStrike, 0);
+
+    return clamp(
+      Math.max(longStrike - spot, 0) - Math.max(shortStrike - spot, 0),
+      0,
+      width,
+    );
   }
 
   const width = Math.max(shortStrike - longStrike, 0);
@@ -323,7 +426,12 @@ export function createScenarioSnapshot({
   const futureVolatility = Math.max(futureVolatilityPct, 0) / 100;
   const rate = ratePct / 100;
   const dividendYield = dividendYieldPct / 100;
-  const width = strategy === "debit-call-spread" ? Math.max(shortStrike - longStrike, 0) : 0;
+  const width =
+    strategy === "long-call"
+      ? 0
+      : strategy === "debit-put-spread"
+        ? Math.max(longStrike - shortStrike, 0)
+        : Math.max(shortStrike - longStrike, 0);
   const unitCost = priceStrategy({
     strategy,
     spot,
@@ -358,9 +466,11 @@ export function createScenarioSnapshot({
     scenarioUnitValue * CONTRACT_MULTIPLIER * contracts;
   const pnl = scenarioPositionValue - totalCost;
   const roi = totalCost > 0 ? pnl / totalCost : 0;
-  const maxValuePerUnit = strategy === "debit-call-spread" ? width : null;
+  const maxValuePerUnit = strategy === "long-call" ? null : width;
   const maxProfitPerUnit =
-    strategy === "debit-call-spread" ? width - unitCost : null;
+    strategy === "long-call" ? null : width - unitCost;
+  const breakEvenAtExpiry =
+    strategy === "debit-put-spread" ? longStrike - unitCost : longStrike + unitCost;
 
   return {
     strategy,
@@ -377,8 +487,8 @@ export function createScenarioSnapshot({
     cashLeft: capital - totalCost,
     maxValuePerUnit,
     maxProfitPerUnit,
-    isProfitCapped: strategy === "debit-call-spread",
-    breakEvenAtExpiry: longStrike + unitCost,
+    isProfitCapped: strategy !== "long-call",
+    breakEvenAtExpiry,
     scenarioUnitValue,
     scenarioPositionValue,
     pnl,
@@ -465,9 +575,10 @@ export function buildPriceLadderRows(inputs: StrategyInputs): PriceLadderRow[] {
   const futureVolatility = Math.max(inputs.futureVolatilityPct, 0) / 100;
   const rate = inputs.ratePct / 100;
   const dividendYield = inputs.dividendYieldPct / 100;
-  const upperStrike = inputs.strategy === "long-call" ? inputs.longStrike : inputs.shortStrike;
+  const upperStrike = inputs.strategy === "debit-call-spread" ? inputs.shortStrike : inputs.longStrike;
+  const lowerStrike = inputs.strategy === "debit-put-spread" ? inputs.shortStrike : inputs.longStrike;
   const anchorPrice = Math.max(inputs.spot, inputs.scenarioPrice, upperStrike);
-  const floorPrice = Math.max(1, Math.min(inputs.longStrike, inputs.spot, inputs.scenarioPrice) * 0.7);
+  const floorPrice = Math.max(1, Math.min(lowerStrike, inputs.spot, inputs.scenarioPrice) * 0.7);
   const ceilingPrice = Math.max(
     anchorPrice * 1.3,
     inputs.strategy === "debit-call-spread" ? inputs.shortStrike + snapshot.width : inputs.longStrike * 1.5,
@@ -511,14 +622,15 @@ export function buildPriceCurve(inputs: StrategyInputs): PriceCurvePoint[] {
   const futureVolatility = Math.max(inputs.futureVolatilityPct, 0) / 100;
   const rate = inputs.ratePct / 100;
   const dividendYield = inputs.dividendYieldPct / 100;
-  const upperStrike = inputs.strategy === "long-call" ? inputs.longStrike : inputs.shortStrike;
+  const upperStrike = inputs.strategy === "debit-call-spread" ? inputs.shortStrike : inputs.longStrike;
+  const lowerStrike = inputs.strategy === "debit-put-spread" ? inputs.shortStrike : inputs.longStrike;
   const ceilingPrice = Math.max(
     inputs.scenarioPrice,
     upperStrike,
     inputs.spot,
     inputs.longStrike,
   );
-  const minPrice = Math.max(1, Math.min(inputs.longStrike, inputs.spot) * 0.7);
+  const minPrice = Math.max(1, Math.min(lowerStrike, inputs.spot) * 0.7);
   const maxPrice = Math.max(
     ceilingPrice * 1.4,
     inputs.strategy === "debit-call-spread" ? inputs.shortStrike + snapshot.width : inputs.longStrike * 1.5,

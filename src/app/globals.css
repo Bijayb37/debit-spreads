@@ -3,6 +3,53 @@
 :root {
   --background: #f5f5f4;
   --foreground: #0f172a;
+  --accent: #0284c7;
+  --accent-hover: #0369a1;
+  --accent-strong: #075985;
+  --accent-soft: #e0f2fe;
+  --accent-faint: #f0f9ff;
+  --accent-border: #7dd3fc;
+  --accent-ring: rgb(2 132 199 / 0.2);
+}
+
+[data-color-scheme="teal"] {
+  --accent: #0f5f59;
+  --accent-hover: #134e4a;
+  --accent-strong: #0f3f3b;
+  --accent-soft: #d9eeeb;
+  --accent-faint: #f4faf9;
+  --accent-border: #86bdb6;
+  --accent-ring: rgb(15 95 89 / 0.22);
+}
+
+[data-color-scheme="graphite"] {
+  --accent: #475569;
+  --accent-hover: #334155;
+  --accent-strong: #1e293b;
+  --accent-soft: #e2e8f0;
+  --accent-faint: #f8fafc;
+  --accent-border: #94a3b8;
+  --accent-ring: rgb(71 85 105 / 0.24);
+}
+
+[data-color-scheme="red"] {
+  --accent: #e63946;
+  --accent-hover: #cf2433;
+  --accent-strong: #9f1d2a;
+  --accent-soft: #fde8eb;
+  --accent-faint: #fff5f6;
+  --accent-border: #f5a3aa;
+  --accent-ring: rgb(230 57 70 / 0.22);
+}
+
+[data-color-scheme="green"] {
+  --accent: #047857;
+  --accent-hover: #065f46;
+  --accent-strong: #064e3b;
+  --accent-soft: #dff3ea;
+  --accent-faint: #f3fbf7;
+  --accent-border: #8bcfb7;
+  --accent-ring: rgb(4 120 87 / 0.22);
 }
 
 @theme inline {
@@ -59,10 +106,17 @@ input[type="range"]::-webkit-slider-thumb {
   appearance: none;
   height: 1rem;
   width: 1rem;
+  margin-top: -0.25rem;
   border-radius: 9999px;
   border: 0;
-  background: #e63946;
+  background: var(--accent);
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.25);
+}
+
+input[type="range"]::-webkit-slider-runnable-track {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: transparent;
 }
 
 input[type="range"]::-moz-range-thumb {
@@ -70,6 +124,18 @@ input[type="range"]::-moz-range-thumb {
   width: 1rem;
   border-radius: 9999px;
   border: 0;
-  background: #e63946;
+  background: var(--accent);
   box-shadow: 0 1px 2px rgb(15 23 42 / 0.25);
+}
+
+input[type="range"]::-moz-range-track {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: #e2e8f0;
+}
+
+input[type="range"]::-moz-range-progress {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--accent);
 }

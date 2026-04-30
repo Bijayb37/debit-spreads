@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { KeyboardEvent, PointerEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from "react";
 import DebitSpreadScenarioVisualizer from "@/components/debit-spread-scenario-visualizer";
 import { cn } from "@/lib/cn";
 import {
@@ -54,6 +54,7 @@ type TooltipPosition = {
 };
 
 type ScenarioGraphView = "decay" | "overlay" | "map";
+type ColorScheme = "blue" | "teal" | "graphite" | "red" | "green";
 
 type TimeDecayPoint = {
   offsetDays: number;
@@ -196,11 +197,20 @@ type ComparisonCandidate = {
   label: string;
   note: string;
   strategy: OptionStrategy;
+  symbol?: string;
+  todayIso?: string;
+  spot?: number;
   longStrike: number;
   shortStrike: number;
+  volatilityPct?: number;
+  futureVolatilityPct?: number;
   capital: number;
   expirationDays: number;
   allowFractionalContracts: boolean;
+  scenarioPrice?: number;
+  scenarioOffsetDays?: number;
+  ratePct?: number;
+  dividendYieldPct?: number;
 };
 
 type ComparisonCardData = ComparisonCandidate & {
@@ -208,18 +218,26 @@ type ComparisonCardData = ComparisonCandidate & {
   maxProfitAtExpiry: number | null;
   maxReturnAtExpiry: number | null;
   maxLossAtExpiry: number;
-  rank: number;
 };
 
 type CustomComparisonConfig = {
   id: string;
   label: string;
   strategy: OptionStrategy;
+  symbol?: string;
+  todayIso?: string;
+  spot?: number;
   longStrike: number;
   shortStrike: number;
+  volatilityPct?: number;
+  futureVolatilityPct?: number;
   capital: number;
   expirationDays: number;
   allowFractionalContracts: boolean;
+  scenarioPrice?: number;
+  scenarioOffsetDays?: number;
+  ratePct?: number;
+  dividendYieldPct?: number;
 };
 
 type CustomComparisonDraft = Omit<CustomComparisonConfig, "id">;
@@ -274,10 +292,19 @@ const CHART_COLORS = {
   inkMuted: "#64748b",
   line: "#cbd5e1",
   grid: "#f1f5f9",
-  accent: "#e63946",
+  accent: "var(--accent)",
   pine: "#059669",
   loss: "#be123c",
 };
+
+function getRangeTrackStyle(value: number, min: number, max: number): CSSProperties {
+  const span = max - min;
+  const progress = span > 0 ? clamp(((value - min) / span) * 100, 0, 100) : 0;
+
+  return {
+    background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${progress}%, #e2e8f0 ${progress}%, #e2e8f0 100%)`,
+  };
+}
 
 const STRATEGY_OPTIONS: Array<{
   value: OptionStrategy;
@@ -288,6 +315,11 @@ const STRATEGY_OPTIONS: Array<{
     value: "debit-call-spread",
     label: "Debit call spread",
     description: "Buy one call and sell a higher-strike call.",
+  },
+  {
+    value: "debit-put-spread",
+    label: "Debit put spread",
+    description: "Buy one put and sell a lower-strike put.",
   },
   {
     value: "long-call",
@@ -308,6 +340,17 @@ const STRATEGY_COPY: Record<OptionStrategy, StrategyCopy> = {
       "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. Both call legs share the same IV in each estimate.",
     capitalHelp: "The app buys as many full 1x1 spreads as this amount allows.",
   },
+  "debit-put-spread": {
+    unitName: "spread",
+    unitTitle: "Spread",
+    contractName: "1x1 put spread",
+    contractPlural: "full put spreads",
+    costMetricLabel: "Put spread cost today",
+    unitColumnLabel: "Spread / 1 put spread",
+    modelAssumptions:
+      "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. Both put legs share the same IV in each estimate.",
+    capitalHelp: "The app buys as many full 1x1 put spreads as this amount allows.",
+  },
   "long-call": {
     unitName: "call",
     unitTitle: "Call",
@@ -326,6 +369,49 @@ const WORKFLOW_TAB_PARAM = "tab";
 const SHARE_VERSION = "1";
 const DEFAULT_WORKFLOW_TAB: WorkflowTab = "setup";
 const DEFAULT_DECISION_COMPARISON_VIEW: DecisionComparisonView = "cards";
+const DEFAULT_SCENARIO_GRAPH_VIEW: ScenarioGraphView = "decay";
+const COLOR_SCHEME_STORAGE_KEY = "callculator-color-scheme";
+
+const COLOR_SCHEME_OPTIONS: Array<{
+  value: ColorScheme;
+  label: string;
+  swatchClassName: string;
+}> = [
+  {
+    value: "blue",
+    label: "Blue",
+    swatchClassName: "bg-sky-600",
+  },
+  {
+    value: "teal",
+    label: "Teal",
+    swatchClassName: "bg-[#0f5f59]",
+  },
+  {
+    value: "graphite",
+    label: "Graphite",
+    swatchClassName: "bg-slate-600",
+  },
+  {
+    value: "red",
+    label: "Red",
+    swatchClassName: "bg-[#e63946]",
+  },
+  {
+    value: "green",
+    label: "Green",
+    swatchClassName: "bg-emerald-700",
+  },
+];
+
+function decodeColorScheme(value: string | null | undefined): ColorScheme {
+  return value === "teal" ||
+    value === "graphite" ||
+    value === "red" ||
+    value === "green"
+    ? value
+    : "blue";
+}
 
 function encodeWorkflowTab(tab: WorkflowTab): string {
   if (tab === "decision") return "d";
@@ -349,6 +435,18 @@ function decodeDecisionComparisonView(value: string | undefined | null): Decisio
   if (value === "matrix") return "matrix";
   if (value === "verdict") return "table";
   return null;
+}
+
+function encodeStrategyToken(strategy: OptionStrategy): string {
+  if (strategy === "long-call") return "l";
+  if (strategy === "debit-put-spread") return "p";
+  return "d";
+}
+
+function decodeStrategyToken(value: string | undefined): OptionStrategy {
+  if (value === "l") return "long-call";
+  if (value === "p") return "debit-put-spread";
+  return "debit-call-spread";
 }
 
 function getDecisionComparisonViewFromUrl(): DecisionComparisonView | null {
@@ -376,6 +474,15 @@ function parseShareNumber(value: string | undefined, fallback: number): number {
   return Number.isFinite(nextValue) ? nextValue : fallback;
 }
 
+function parseOptionalShareNumber(value: string | undefined): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue) ? nextValue : undefined;
+}
+
 function decodeShareText(value: string | undefined, fallback: string): string {
   if (!value) {
     return fallback;
@@ -393,7 +500,7 @@ function encodeCustomComparisons(comparisons: CustomComparisonConfig[]): string 
     .slice(0, 12)
     .map((comparison) =>
       [
-        comparison.strategy === "long-call" ? "l" : "d",
+        encodeStrategyToken(comparison.strategy),
         compactNumber(comparison.longStrike),
         compactNumber(comparison.shortStrike),
         compactNumber(comparison.capital),
@@ -401,6 +508,23 @@ function encodeCustomComparisons(comparisons: CustomComparisonConfig[]): string 
         encodeShareText(comparison.label),
         encodeShareText(comparison.id),
         compactNumber(comparison.expirationDays),
+        encodeShareText(comparison.todayIso ?? ""),
+        comparison.spot === undefined ? "" : compactNumber(comparison.spot),
+        comparison.volatilityPct === undefined ? "" : compactNumber(comparison.volatilityPct),
+        comparison.futureVolatilityPct === undefined
+          ? ""
+          : compactNumber(comparison.futureVolatilityPct),
+        comparison.scenarioPrice === undefined
+          ? ""
+          : compactNumber(comparison.scenarioPrice),
+        comparison.scenarioOffsetDays === undefined
+          ? ""
+          : compactNumber(comparison.scenarioOffsetDays),
+        comparison.ratePct === undefined ? "" : compactNumber(comparison.ratePct),
+        comparison.dividendYieldPct === undefined
+          ? ""
+          : compactNumber(comparison.dividendYieldPct),
+        encodeShareText(comparison.symbol ?? ""),
       ].join(","),
     )
     .join(";");
@@ -424,14 +548,26 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
         labelToken,
         idToken,
         expirationDaysToken,
+        todayIsoToken,
+        spotToken,
+        volatilityPctToken,
+        futureVolatilityPctToken,
+        scenarioPriceToken,
+        scenarioOffsetDaysToken,
+        rateToken,
+        dividendYieldToken,
+        symbolToken,
       ] = entry.split(",");
-      const strategy: OptionStrategy =
-        strategyToken === "l" ? "long-call" : "debit-call-spread";
+      const strategy = decodeStrategyToken(strategyToken);
       const longStrike = Math.max(1, Math.round(parseShareNumber(longStrikeToken, 100)));
-      const shortStrike =
-        strategy === "long-call"
-          ? longStrike
-          : Math.max(longStrike + 1, Math.round(parseShareNumber(shortStrikeToken, longStrike + 10)));
+      const shortStrike = normalizeShortStrikeForStrategy(
+        strategy,
+        longStrike,
+        parseShareNumber(
+          shortStrikeToken,
+          strategy === "debit-put-spread" ? longStrike - 10 : longStrike + 10,
+        ),
+      );
       const capital = Math.max(0, Math.round(parseShareNumber(capitalToken, 10000)));
       const expirationDays = clamp(
         Math.round(parseShareNumber(expirationDaysToken, 60)),
@@ -452,6 +588,15 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
         expirationDays,
         allowFractionalContracts: fractionalToken === "1",
         id: decodeShareText(idToken, `shared-custom-${index}`),
+        todayIso: decodeShareText(todayIsoToken, "") || undefined,
+        spot: parseOptionalShareNumber(spotToken),
+        volatilityPct: parseOptionalShareNumber(volatilityPctToken),
+        futureVolatilityPct: parseOptionalShareNumber(futureVolatilityPctToken),
+        scenarioPrice: parseOptionalShareNumber(scenarioPriceToken),
+        scenarioOffsetDays: parseOptionalShareNumber(scenarioOffsetDaysToken),
+        ratePct: parseOptionalShareNumber(rateToken),
+        dividendYieldPct: parseOptionalShareNumber(dividendYieldToken),
+        symbol: decodeShareText(symbolToken, "") || undefined,
       }];
     });
 }
@@ -459,7 +604,7 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
 function encodeShareState(state: ShareState): string {
   const parts = [
     SHARE_VERSION,
-    state.strategy === "long-call" ? "l" : "d",
+    encodeStrategyToken(state.strategy),
     encodeShareText(state.symbol),
     compactNumber(state.spot),
     compactNumber(state.volatilityPct),
@@ -595,9 +740,11 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     0,
     1095,
   );
+  const strategy = decodeStrategyToken(strategyToken);
+  const longStrike = Math.max(1, Math.round(parseShareNumber(longStrikeToken, 120)));
 
   return {
-    strategy: strategyToken === "l" ? "long-call" : "debit-call-spread",
+    strategy,
     symbol: decodeShareText(symbolToken, "NVDA").toUpperCase(),
     spot: Math.max(1, Math.round(parseShareNumber(spotToken, 100))),
     volatilityPct: clamp(Math.round(parseShareNumber(volatilityToken, 50)), 0, 300),
@@ -606,8 +753,15 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
       0,
       300,
     ),
-    longStrike: Math.max(1, Math.round(parseShareNumber(longStrikeToken, 120))),
-    shortStrike: Math.max(1, Math.round(parseShareNumber(shortStrikeToken, 130))),
+    longStrike,
+    shortStrike: normalizeShortStrikeForStrategy(
+      strategy,
+      longStrike,
+      parseShareNumber(
+        shortStrikeToken,
+        strategy === "debit-put-spread" ? longStrike - 10 : longStrike + 10,
+      ),
+    ),
     capital: Math.max(0, Math.round(parseShareNumber(capitalToken, 10000))),
     allowFractionalContracts: fractionalToken === "1",
     expirationDays,
@@ -623,7 +777,9 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
         ? "decay"
         : graphToken === "o"
           ? "overlay"
-          : "map",
+          : graphToken === "m"
+            ? "map"
+            : DEFAULT_SCENARIO_GRAPH_VIEW,
     comparisonPanelMode:
       comparisonPanelToken === "c"
         ? "custom"
@@ -749,6 +905,30 @@ function getOtmStrike(spotPrice: number, percent: number): number {
   return Math.round(spotPrice * (1 + percent / 100));
 }
 
+function getOtmPutStrike(spotPrice: number, percent: number): number {
+  return Math.max(1, Math.round(spotPrice * (1 - percent / 100)));
+}
+
+function isDebitSpreadStrategy(strategy: OptionStrategy): boolean {
+  return strategy === "debit-call-spread" || strategy === "debit-put-spread";
+}
+
+function normalizeShortStrikeForStrategy(
+  strategy: OptionStrategy,
+  longStrike: number,
+  shortStrike: number,
+): number {
+  if (strategy === "long-call") {
+    return longStrike;
+  }
+
+  if (strategy === "debit-put-spread") {
+    return Math.max(1, Math.min(Math.round(shortStrike), Math.round(longStrike) - 1));
+  }
+
+  return Math.max(Math.round(shortStrike), Math.round(longStrike) + 1);
+}
+
 function handleNumberKeyDown(
   event: KeyboardEvent<HTMLInputElement>,
   onChange: (value: number) => void,
@@ -778,6 +958,10 @@ function blurFocusedField() {
   if (document.activeElement instanceof HTMLElement) {
     document.activeElement.blur();
   }
+}
+
+function normalizeSymbol(value: string): string {
+  return value.trim().toUpperCase();
 }
 
 function SidebarGroupLabel({ children }: { children: ReactNode }) {
@@ -810,7 +994,7 @@ function SectionCard({
             {eyebrow ? (
               <p
                 className={cn(
-                  "text-sm font-medium text-[#e63946]",
+                  "text-sm font-medium text-[var(--accent)]",
                   eyebrowClassName,
                 )}
               >
@@ -838,7 +1022,7 @@ function MetricCard({ label, value, tone = "default", helper }: MetricCardProps)
           "mt-2 font-mono text-2xl font-semibold tabular-nums",
           tone === "positive" && "text-emerald-700",
           tone === "negative" && "text-rose-700",
-          tone === "accent" && "text-[#e63946]",
+          tone === "accent" && "text-[var(--accent)]",
           tone === "default" && "text-slate-950",
         )}
       >
@@ -934,7 +1118,7 @@ function WorkflowTabs({
             onMouseDown={() => onChange(tab.value)}
             onClick={() => onChange(tab.value)}
             className={cn(
-              "group flex min-w-0 items-center justify-center gap-1 rounded-md px-1 py-2 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] sm:gap-2 sm:px-2 sm:text-sm",
+              "group flex min-w-0 items-center justify-center gap-1 rounded-md px-1 py-2 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:gap-2 sm:px-2 sm:text-sm",
               isActive && "bg-white text-slate-950 shadow-sm",
             )}
           >
@@ -942,7 +1126,7 @@ function WorkflowTabs({
               className={cn(
                 "flex size-5 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-semibold tabular-nums",
                 isActive
-                  ? "bg-[#e63946] text-white"
+                  ? "bg-[var(--accent)] text-white"
                   : "bg-slate-200 text-slate-600 group-hover:bg-slate-300",
               )}
               aria-hidden
@@ -954,6 +1138,60 @@ function WorkflowTabs({
         );
       })}
     </div>
+  );
+}
+
+function SettingsWidget({
+  colorScheme,
+  onColorSchemeChange,
+}: {
+  colorScheme: ColorScheme;
+  onColorSchemeChange: (scheme: ColorScheme) => void;
+}) {
+  return (
+    <details className="relative h-full">
+      <summary className="flex h-full min-h-[2.875rem] list-none items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
+        Settings
+      </summary>
+      <div className="absolute right-0 z-20 mt-2 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase text-slate-500">Color scheme</p>
+          <div className="mt-2 grid gap-1.5" role="radiogroup" aria-label="Color scheme">
+            {COLOR_SCHEME_OPTIONS.map((option) => {
+              const isSelected = colorScheme === option.value;
+
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  onClick={(event) => {
+                    onColorSchemeChange(option.value);
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                  }}
+                  className={cn(
+                    "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm font-semibold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                    isSelected
+                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-[var(--accent)] hover:bg-slate-50",
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className={cn("size-4 shrink-0 rounded-full", option.swatchClassName)}
+                  />
+                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  {isSelected ? (
+                    <span className="font-mono text-xs text-[var(--accent-strong)]">On</span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </details>
   );
 }
 
@@ -973,10 +1211,10 @@ function StrategyShelfToggle({
       aria-controls="strategy-shelf"
       onClick={onClick}
       className={cn(
-        "flex min-w-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+        "flex min-w-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
         isOpen
-          ? "border-[#e63946] bg-[#e63946]/10 text-slate-950"
-          : "border-slate-300 bg-white text-slate-700 hover:border-[#e63946] hover:text-slate-950",
+          ? "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950"
+          : "border-slate-300 bg-white text-slate-700 hover:border-[var(--accent)] hover:text-slate-950",
       )}
     >
       <span className="truncate">Strategies</span>
@@ -998,14 +1236,8 @@ function ActiveSetupStrip({
   shortStrike,
   isOpen,
   strategyCount,
-  isStrategyShelfOpen,
   onToggle,
-  onSetupOpen,
-  onStrategiesToggle,
-  onSymbolChange,
-  onSpotChange,
-  onVolatilityPctChange,
-  onCapitalChange,
+  onOpen,
   strategiesPanel,
 }: {
   symbol: string;
@@ -1018,167 +1250,93 @@ function ActiveSetupStrip({
   shortStrike: number;
   isOpen: boolean;
   strategyCount: number;
-  isStrategyShelfOpen: boolean;
   onToggle: () => void;
-  onSetupOpen: () => void;
-  onStrategiesToggle: () => void;
-  onSymbolChange: (symbol: string) => void;
-  onSpotChange: (value: number) => void;
-  onVolatilityPctChange: (value: number) => void;
-  onCapitalChange: (value: number) => void;
+  onOpen: () => void;
   strategiesPanel?: ReactNode;
 }) {
-  const isSpread = strategy === "debit-call-spread";
+  const isSpread = isDebitSpreadStrategy(strategy);
   const structure = isSpread
     ? `${formatCurrency(longStrike)} / ${formatCurrency(shortStrike)}`
     : `${formatCurrency(longStrike)} call`;
-  const isSetupPanelOpen = isOpen && !isStrategyShelfOpen;
-  const isStrategiesPanelOpen = isOpen && isStrategyShelfOpen;
-  const strategyLabel = isSpread ? "Debit spread" : "Long call";
+  const strategyLabel = getStrategyDisplayLabel(strategy);
+  const savedStrategyLabel = `${strategyCount} saved`;
 
   return (
     <div className="min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="grid min-w-0 gap-2 px-3 py-2 md:grid-cols-2">
-        <button
-          type="button"
-          aria-expanded={isSetupPanelOpen}
-          aria-label={isSetupPanelOpen ? "Close setup details" : "Open setup details"}
-          title={isSetupPanelOpen ? "Close setup details" : "Open setup details"}
-          onClick={isSetupPanelOpen ? onToggle : onSetupOpen}
-          className={cn(
-            "flex min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs text-slate-600 shadow-sm hover:border-[#e63946] hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
-            isSetupPanelOpen
-              ? "border-[#e63946] bg-[#e63946]/10"
-              : "border-slate-200 bg-slate-50",
-          )}
+      <button
+        type="button"
+        aria-expanded={isOpen}
+        aria-controls="setup-strategy-panel"
+        aria-label={isOpen ? "Close setup and strategies" : "Open setup and strategies"}
+        title={isOpen ? "Close setup and strategies" : "Open setup and strategies"}
+        onClick={isOpen ? onToggle : onOpen}
+        className={cn(
+          "flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left text-sm text-slate-600 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:px-3",
+          isOpen
+            ? "border-[var(--accent)] bg-[var(--accent-soft)]"
+            : "border-transparent bg-slate-50 hover:border-[var(--accent)] hover:bg-white",
+        )}
+      >
+        <span
+          aria-hidden
+          className="flex size-7 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm"
         >
-          <span
-            aria-hidden
-            className="flex size-7 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-slate-50 text-slate-700 shadow-sm"
+          <svg
+            viewBox="0 0 20 20"
+            className="size-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.25"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           >
-            <svg
-              viewBox="0 0 20 20"
-              className="size-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.25"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d={isSetupPanelOpen ? "M5 12l5-5 5 5" : "M5 8l5 5 5-5"} />
-            </svg>
+            <path d={isOpen ? "M5 12l5-5 5 5" : "M5 8l5 5 5-5"} />
+          </svg>
+        </span>
+        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1">
+          <span className="shrink-0 text-[11px] font-semibold uppercase text-slate-500">
+            Setup + strategy
           </span>
-          <span className="min-w-0">
-            <span className="block text-[10px] font-semibold uppercase text-slate-500">
-              Setup
-            </span>
-            <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
-              <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-slate-950">
+          <span className="inline-flex min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 shadow-sm">
+              <span className="font-[family:var(--font-space-grotesk)] text-[15px] font-semibold leading-none text-slate-950">
                 {symbol.trim() || "Underlying"}
               </span>
-              <span className="font-mono tabular-nums">{formatCurrency(spot)} spot</span>
-              <span className="font-mono tabular-nums">
+              <span className="hidden h-4 w-px bg-slate-200 sm:block" aria-hidden />
+              <span className="font-mono text-[13px] font-medium tabular-nums text-slate-700">
+                {formatCurrency(spot)} spot
+              </span>
+              <span className="font-mono text-[13px] font-medium tabular-nums text-slate-700">
                 {Math.round(volatilityPct)}% IV
               </span>
-              <span className="font-mono tabular-nums">{formatCurrency(capital)}</span>
-            </span>
-          </span>
-        </button>
-
-        <button
-          type="button"
-          aria-expanded={isStrategiesPanelOpen}
-          aria-controls="strategy-shelf"
-          aria-label={isStrategiesPanelOpen ? "Close strategies" : "Open strategies"}
-          title={isStrategiesPanelOpen ? "Close strategies" : "Open strategies"}
-          onClick={isStrategiesPanelOpen ? onToggle : onStrategiesToggle}
-          className={cn(
-            "flex min-w-0 cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs text-slate-600 shadow-sm hover:border-[#e63946] hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
-            isStrategiesPanelOpen
-              ? "border-[#e63946] bg-[#e63946]/10"
-              : "border-slate-200 bg-slate-50",
-          )}
-        >
-          <span
-            aria-hidden
-            className="flex size-7 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm"
-          >
-            <svg
-              viewBox="0 0 20 20"
-              className="size-4"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.25"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d={isStrategiesPanelOpen ? "M5 12l5-5 5 5" : "M5 8l5 5 5-5"} />
-            </svg>
-          </span>
-          <span className="min-w-0">
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="block text-[10px] font-semibold uppercase text-slate-500">
-                Strategies
-              </span>
-              <span className="rounded-full bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-slate-500 tabular-nums">
-                {strategyCount}
+              <span className="font-mono text-[13px] font-medium tabular-nums text-slate-700">
+                {formatCurrency(capital)}
               </span>
             </span>
-            <span className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
-              <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-slate-950">
+          <span className="inline-flex min-w-0 items-center gap-2 rounded-md border border-[var(--accent-border)] bg-[var(--accent-faint)] px-2 py-1">
+              <span className="font-[family:var(--font-space-grotesk)] text-[15px] font-semibold leading-none text-slate-950">
                 {strategyLabel}
               </span>
-              <span className="min-w-0 truncate font-mono tabular-nums">{structure}</span>
-              <span className="font-mono tabular-nums">{expirationDays} DTE</span>
+              <span className="hidden h-4 w-px bg-[var(--accent-border)] sm:block" aria-hidden />
+              <span className="min-w-0 truncate font-mono text-[13px] font-medium tabular-nums text-slate-700">
+                {structure}
+              </span>
+              <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-slate-700">
+                {expirationDays} DTE
+              </span>
             </span>
-          </span>
-        </button>
-      </div>
+        </span>
+        <span className="hidden shrink-0 rounded-full border border-[var(--accent-border)] bg-white px-2.5 py-1 font-mono text-xs font-semibold text-slate-700 tabular-nums md:inline-flex">
+          {savedStrategyLabel}
+        </span>
+      </button>
 
       {isOpen ? (
-        <div className="border-t border-slate-200">
-          {isStrategyShelfOpen && strategiesPanel ? (
-            <div className="p-3">{strategiesPanel}</div>
-          ) : (
-            <div className="grid min-w-0 gap-3 p-3 sm:grid-cols-2 lg:grid-cols-4">
-              <label className="block min-w-0">
-                <span className="text-xs font-medium text-slate-500">Ticker</span>
-                <input
-                  type="text"
-                  value={symbol}
-                  onChange={(event) => onSymbolChange(event.target.value.toUpperCase())}
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 font-mono text-sm font-medium text-slate-950 shadow-sm outline-none focus:border-[#e63946]"
-                  placeholder="AAPL"
-                />
-              </label>
-
-              <CompactNumberInput
-                label="Current price"
-                value={spot}
-                min={1}
-                prefix="$"
-                onChange={(value) => onSpotChange(Math.max(1, value))}
-              />
-
-              <CompactNumberInput
-                label="Current IV"
-                value={volatilityPct}
-                min={0}
-                suffix="%"
-                onChange={(value) => onVolatilityPctChange(clamp(value, 0, 150))}
-              />
-
-              <CompactNumberInput
-                label="Capital"
-                value={capital}
-                min={0}
-                prefix="$"
-                step={100}
-                onChange={(value) => onCapitalChange(Math.max(0, Math.round(value)))}
-              />
-
+        <div id="setup-strategy-panel" className="border-t border-slate-200">
+          {strategiesPanel ? (
+            <div id="strategy-shelf" className="p-3">
+              {strategiesPanel}
             </div>
-          )}
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -1225,6 +1383,12 @@ function getComparisonStrikeLabel(candidate: ComparisonCandidate): string {
   return `${formatCurrency(candidate.longStrike)} / ${formatCurrency(candidate.shortStrike)}`;
 }
 
+function getStrategyDisplayLabel(strategy: OptionStrategy): string {
+  if (strategy === "long-call") return "Long call";
+  if (strategy === "debit-put-spread") return "Debit put spread";
+  return "Debit call spread";
+}
+
 function getCustomComparisonLabel(draft: CustomComparisonDraft): string {
   if (draft.label.trim()) {
     return draft.label.trim();
@@ -1234,24 +1398,42 @@ function getCustomComparisonLabel(draft: CustomComparisonDraft): string {
     return `${formatCurrency(draft.longStrike)} long call`;
   }
 
-  return `${formatCurrency(draft.longStrike)} / ${formatCurrency(draft.shortStrike)} spread`;
+  return `${formatCurrency(draft.longStrike)} / ${formatCurrency(draft.shortStrike)} ${
+    draft.strategy === "debit-put-spread" ? "put" : "call"
+  } spread`;
 }
 
 function applyComparisonToInputs(
   candidate: ComparisonCandidate,
   inputs: StrategyInputs,
 ): StrategyInputs {
+  const lockedTodayIso = candidate.todayIso ?? inputs.todayIso;
+  const lockedExpirationDays = clamp(Math.round(candidate.expirationDays), 1, 1095);
+
   return {
     ...inputs,
+    todayIso: lockedTodayIso,
     strategy: candidate.strategy,
+    spot: candidate.spot ?? inputs.spot,
     longStrike: candidate.longStrike,
-    shortStrike:
-      candidate.strategy === "long-call"
-        ? candidate.longStrike
-        : Math.max(candidate.shortStrike, candidate.longStrike + 1),
+    shortStrike: normalizeShortStrikeForStrategy(
+      candidate.strategy,
+      candidate.longStrike,
+      candidate.shortStrike,
+    ),
+    volatilityPct: candidate.volatilityPct ?? inputs.volatilityPct,
+    futureVolatilityPct: candidate.futureVolatilityPct ?? inputs.futureVolatilityPct,
     capital: candidate.capital,
-    expiryIso: addDaysToIso(inputs.todayIso, candidate.expirationDays),
+    expiryIso: addDaysToIso(lockedTodayIso, lockedExpirationDays),
     allowFractionalContracts: candidate.allowFractionalContracts,
+    scenarioPrice: inputs.scenarioPrice,
+    scenarioOffsetDays: clamp(
+      Math.round(inputs.scenarioOffsetDays),
+      0,
+      lockedExpirationDays,
+    ),
+    ratePct: candidate.ratePct ?? inputs.ratePct,
+    dividendYieldPct: candidate.dividendYieldPct ?? inputs.dividendYieldPct,
   };
 }
 
@@ -1281,27 +1463,22 @@ function buildComparisonCard(
         ? candidateMaxProfit / candidateSnapshot.totalCost
         : null,
     maxLossAtExpiry: -candidateSnapshot.totalCost,
-    rank: 0,
   };
-}
-
-function rankComparisonCards(cards: ComparisonCardData[]): ComparisonCardData[] {
-  return cards.map((card, index) => ({ ...card, rank: index + 1 }));
 }
 
 function getComparisonCardTone(card: ComparisonCardData) {
   if (card.id === "current") {
     return {
-      accent: "bg-[#e63946]",
-      badge: "border-[#e63946]/30 bg-[#e63946]/10 text-[#9f1d2a]",
-      surface: "bg-[#e63946]/5",
+      accent: "bg-[var(--accent)]",
+      badge: "border-[var(--accent-border)] bg-[var(--accent-soft)] text-[var(--accent-strong)]",
+      surface: "bg-[var(--accent-faint)]",
       label: "Editor",
     };
   }
 
   if (card.strategy === "long-call") {
     return {
-      accent: "bg-sky-500",
+      accent: "bg-[var(--accent)]",
       badge: "border-sky-200 bg-sky-50 text-sky-800",
       surface: "bg-sky-50",
       label: "Uncapped",
@@ -1337,9 +1514,9 @@ function getComparisonCardTone(card: ComparisonCardData) {
 
   if (card.id.includes("30-otm")) {
     return {
-      accent: "bg-rose-500",
-      badge: "border-rose-200 bg-rose-50 text-rose-800",
-      surface: "bg-rose-50",
+      accent: "bg-blue-500",
+      badge: "border-blue-200 bg-blue-50 text-blue-800",
+      surface: "bg-blue-50",
       label: "Furthest",
     };
   }
@@ -1352,18 +1529,45 @@ function getComparisonCardTone(card: ComparisonCardData) {
   };
 }
 
+function orderSelectedCardsFirst<Row extends { id: string }>(
+  cards: Row[],
+  selectedCardId?: string | null,
+): Row[] {
+  if (!selectedCardId) {
+    return cards;
+  }
+
+  const selectedIndex = cards.findIndex((card) => card.id === selectedCardId);
+
+  if (selectedIndex <= 0) {
+    return cards;
+  }
+
+  return [
+    cards[selectedIndex],
+    ...cards.slice(0, selectedIndex),
+    ...cards.slice(selectedIndex + 1),
+  ];
+}
+
 function ComparisonCardGrid({
   cards,
+  prioritizeSelected = true,
   selectedCardId,
   onRemoveCard,
 }: {
   cards: ComparisonCardData[];
+  prioritizeSelected?: boolean;
   selectedCardId?: string | null;
   onRemoveCard?: (id: string) => void;
 }) {
+  const orderedCards = prioritizeSelected
+    ? orderSelectedCardsFirst(cards, selectedCardId)
+    : cards;
+
   return (
     <div className="grid min-w-0 gap-3 lg:grid-cols-2 xl:grid-cols-3">
-      {cards.map((card) => {
+      {orderedCards.map((card) => {
         const isCurrent = card.id === "current";
         const isSelected = card.id === selectedCardId;
         const pnlIsPositive = card.snapshot.pnl >= 0;
@@ -1387,28 +1591,25 @@ function ComparisonCardGrid({
             className={cn(
               "min-w-0 overflow-hidden rounded-lg border bg-white shadow-sm",
               "border-slate-200",
-              isCurrent && "border-[#e63946]/40 ring-1 ring-[#e63946]/20",
-              isSelected && "border-[#e63946] ring-1 ring-[#e63946]/20",
+              isCurrent && "border-[var(--accent-border)] ring-1 ring-[var(--accent-ring)]",
+              isSelected && "border-[var(--accent)] ring-1 ring-[var(--accent-ring)]",
             )}
           >
             <div
               className={cn(
                 "h-1 w-full",
-                pnlIsPositive ? "bg-emerald-600" : "bg-[#e63946]",
+                pnlIsPositive ? "bg-emerald-600" : "bg-rose-600",
               )}
             />
             <div className="p-3">
               <div className="flex min-w-0 items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="rounded-md bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-500 tabular-nums">
-                      #{card.rank}
-                    </span>
                     <h3 className="truncate text-sm font-semibold text-slate-950 text-balance">
                       {card.label}
                     </h3>
                     {isSelected ? (
-                      <span className="rounded-full border border-[#e63946]/25 bg-[#e63946]/10 px-2 py-0.5 text-[10px] font-semibold text-[#9f1d2a]">
+                      <span className="rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent-strong)]">
                         Selected
                       </span>
                     ) : null}
@@ -1423,7 +1624,7 @@ function ComparisonCardGrid({
                       type="button"
                       aria-label={`Remove ${card.label}`}
                       onClick={() => onRemoveCard(card.id)}
-                      className="inline-flex size-6 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-500 shadow-sm hover:border-rose-300 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+                      className="inline-flex size-6 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-500 shadow-sm hover:border-rose-300 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
                     >
                       x
                     </button>
@@ -1494,13 +1695,13 @@ function CompactStrategyList({
 }) {
   return (
     <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="hidden grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_5rem_6rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase text-slate-500 md:grid">
+      <div className="hidden grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_6rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase text-slate-500 md:grid">
         <span>Strategy</span>
         <span className="text-right">P/L</span>
         <span className="text-right">Return</span>
         <span className="text-right">B/E</span>
         <span className="text-right">DTE</span>
-        <span className="text-right">Contracts</span>
+        <span className="text-right">Cost basis</span>
         <span className="text-right">Actions</span>
       </div>
       <div className="divide-y divide-slate-200">
@@ -1508,21 +1709,10 @@ function CompactStrategyList({
           const isSelected = card.id === selectedCardId;
           const pnlIsPositive = card.snapshot.pnl >= 0;
           const tone = getComparisonCardTone(card);
-
-          return (
-            <article
-              key={card.id}
-              className={cn(
-                "grid min-w-0 gap-2 px-3 py-2 text-sm md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_5rem_6rem] md:items-center",
-                "bg-white",
-                isSelected && "bg-slate-50 ring-1 ring-inset ring-slate-300",
-              )}
-            >
+          const rowContent = (
+            <>
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className="rounded-full bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none text-slate-500 tabular-nums">
-                    #{card.rank}
-                  </span>
                   <span className="truncate font-semibold text-slate-950">
                     {card.label}
                   </span>
@@ -1534,6 +1724,11 @@ function CompactStrategyList({
                   >
                     {tone.label}
                   </span>
+                  {isSelected ? (
+                    <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                      Selected
+                    </span>
+                  ) : null}
                 </div>
                 <p className="mt-0.5 truncate font-mono text-xs text-slate-500 tabular-nums">
                   {getComparisonStrikeLabel(card)}
@@ -1586,38 +1781,59 @@ function CompactStrategyList({
                 </div>
                 <div className="min-w-0 md:text-right">
                   <p className="text-[10px] font-semibold uppercase text-slate-500 md:hidden">
-                    Contracts
+                    Cost basis
                   </p>
                   <p className="truncate font-mono font-semibold text-slate-950 tabular-nums">
-                    {formatQuantity(card.snapshot.contracts)}
+                    {formatCurrency(card.snapshot.totalCost)}
                   </p>
                 </div>
-                <div className="flex min-w-0 justify-end gap-1">
-                  {onAnalyzeCard ? (
-                    <button
-                      type="button"
-                      onClick={() => onAnalyzeCard(card)}
-                      className={cn(
-                        "rounded-md border px-2.5 py-1 text-xs font-semibold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
-                        isSelected
-                          ? "border-[#e63946] bg-[#e63946]/10 text-slate-950"
-                          : "border-slate-300 bg-white text-slate-700 hover:border-[#e63946] hover:text-slate-950",
-                      )}
-                    >
-                      {isSelected ? "Selected" : "Select"}
-                    </button>
-                  ) : null}
-                  {onRemoveCard ? (
-                    <button
-                      type="button"
-                      aria-label={`Remove ${card.label}`}
-                      onClick={() => onRemoveCard(card.id)}
-                      className="inline-flex size-7 items-center justify-center rounded-md border border-transparent bg-transparent text-sm font-semibold text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
-                    >
-                      x
-                    </button>
-                  ) : null}
-                </div>
+              </div>
+            </>
+          );
+          const rowContentClassName = cn(
+            "relative z-20 grid min-w-0 gap-2 px-3 py-2 text-left text-sm pointer-events-none",
+            "md:col-span-6 md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem] md:items-center",
+          );
+
+          return (
+            <article
+              key={card.id}
+              className={cn(
+                "group relative grid min-w-0 bg-white text-sm transition-colors md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_6rem] md:items-stretch",
+                onAnalyzeCard && !isSelected && "hover:bg-[var(--accent-faint)] focus-within:bg-[var(--accent-faint)]",
+                isSelected && "bg-[var(--accent-soft)]",
+              )}
+            >
+              {isSelected ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute inset-y-0 left-0 z-20 w-1 bg-[var(--accent)]"
+                />
+              ) : null}
+
+              {onAnalyzeCard ? (
+                <button
+                  type="button"
+                  aria-pressed={isSelected}
+                  aria-label={`Select ${card.label}`}
+                  onClick={() => onAnalyzeCard(card)}
+                  className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]"
+                />
+              ) : null}
+
+              <div className={rowContentClassName}>{rowContent}</div>
+
+              <div className="pointer-events-none relative z-20 flex min-w-0 justify-end gap-1 px-3 pb-2 md:items-center md:px-3 md:py-2">
+                {onRemoveCard ? (
+                  <button
+                    type="button"
+                    aria-label={`Remove ${card.label}`}
+                    onClick={() => onRemoveCard(card.id)}
+                    className="pointer-events-auto inline-flex size-7 items-center justify-center rounded-md border border-transparent bg-transparent text-sm font-semibold text-slate-400 group-hover:text-slate-500 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                  >
+                    x
+                  </button>
+                ) : null}
               </div>
             </article>
           );
@@ -1672,33 +1888,225 @@ function getMaxProfitAtExpiryLabel(card: ComparisonCardData): string {
     : formatCurrency(card.maxProfitAtExpiry);
 }
 
-function getDecisionScoreRows(cards: ComparisonCardData[]) {
-  const pnlValues = cards.map((card) => card.snapshot.pnl);
-  const roiValues = cards.map((card) => card.snapshot.roi);
-  const costValues = cards.map((card) => card.snapshot.totalCost);
-  const breakEvenValues = cards.map((card) => card.snapshot.breakEvenAtExpiry);
-  const normalize = (value: number, values: number[]) => {
-    const minValue = Math.min(...values);
-    const maxValue = Math.max(...values);
+function getCompactMaxProfitAtExpiryLabel(card: ComparisonCardData): string {
+  if (card.maxProfitAtExpiry === null) {
+    return "Uncapped";
+  }
 
-    if (maxValue === minValue) {
-      return 0.5;
-    }
+  return card.maxReturnAtExpiry !== null
+    ? `${formatCompactCurrency(card.maxProfitAtExpiry)} ${formatPercent(card.maxReturnAtExpiry)}`
+    : formatCompactCurrency(card.maxProfitAtExpiry);
+}
 
-    return (value - minValue) / (maxValue - minValue);
-  };
+function getOutcomeStrategyTitle(card: ComparisonCardData): string {
+  if (card.strategy === "long-call") {
+    return getComparisonStrikeLabel(card);
+  }
 
-  return cards
-    .map((card) => {
-      const pnlScore = normalize(card.snapshot.pnl, pnlValues);
-      const roiScore = normalize(card.snapshot.roi, roiValues);
-      const costScore = 1 - normalize(card.snapshot.totalCost, costValues);
-      const breakEvenScore = 1 - normalize(card.snapshot.breakEvenAtExpiry, breakEvenValues);
-      const score = pnlScore * 0.45 + roiScore * 0.3 + costScore * 0.15 + breakEvenScore * 0.1;
+  return `${getComparisonStrikeLabel(card)} ${
+    card.strategy === "debit-put-spread" ? "put" : "call"
+  } spread`;
+}
 
-      return { card, score };
-    })
-    .sort((first, second) => second.score - first.score);
+function DecisionOutcomeCards({
+  cards,
+  selectedCardId,
+}: {
+  cards: ComparisonCardData[];
+  selectedCardId?: string | null;
+}) {
+  const orderedCards = orderSelectedCardsFirst(cards, selectedCardId);
+
+  return (
+    <div className="grid min-w-0 gap-2 md:grid-cols-2 xl:grid-cols-4">
+      {orderedCards.map((card) => {
+        const pnlIsPositive = card.snapshot.pnl >= 0;
+        const isSelected = card.id === selectedCardId;
+        const metrics = [
+          {
+            label: "DTE",
+            value: String(card.snapshot.expirationDays),
+            valueClassName: "text-slate-950",
+          },
+          {
+            label: "B/E",
+            value: formatCurrency(card.snapshot.breakEvenAtExpiry),
+            valueClassName: "text-slate-950",
+          },
+          {
+            label: "Max at expiry",
+            value: getCompactMaxProfitAtExpiryLabel(card),
+            valueClassName: "text-slate-950",
+          },
+        ];
+
+        return (
+          <article
+            key={card.id}
+            className="min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm"
+          >
+            <div className="flex min-w-0 items-center justify-between gap-2 bg-slate-950 px-3 py-2 text-white">
+              <h3 className="min-w-0 truncate font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-tight text-balance">
+                {getOutcomeStrategyTitle(card)}
+              </h3>
+              {isSelected ? (
+                <span className="shrink-0 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                  Selected
+                </span>
+              ) : null}
+            </div>
+
+            <div className="space-y-2 p-2.5">
+              <div className="grid min-w-0 grid-cols-3 gap-2 rounded-md bg-slate-50 p-2">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium text-slate-500">Position value</p>
+                  <p className="mt-1 truncate font-mono text-sm font-semibold leading-none text-slate-950 tabular-nums">
+                    {formatCurrency(card.snapshot.scenarioPositionValue)}
+                  </p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium text-slate-500">P/L</p>
+                  <p
+                    className={cn(
+                      "mt-1 truncate font-mono text-base font-semibold leading-none tabular-nums",
+                      pnlIsPositive ? "text-emerald-700" : "text-rose-700",
+                    )}
+                  >
+                    {pnlIsPositive ? "+" : ""}
+                    {formatCurrency(card.snapshot.pnl)}
+                  </p>
+                </div>
+                <div className="min-w-0 text-right">
+                  <p className="text-[11px] font-medium text-slate-500">Return</p>
+                  <p className="mt-1 truncate font-mono text-sm font-semibold leading-none text-slate-950 tabular-nums">
+                    {formatPercent(card.snapshot.roi)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid min-w-0 grid-cols-3 gap-2">
+                {metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="min-w-0 rounded-md border border-slate-100 bg-white px-2 py-1.5 shadow-sm"
+                  >
+                    <p className="text-[11px] font-medium text-slate-500">{metric.label}</p>
+                    <p
+                      className={cn(
+                        "mt-0.5 truncate font-mono text-xs font-semibold tabular-nums",
+                        metric.valueClassName,
+                      )}
+                    >
+                      {metric.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function DecisionOutcomeMatrix({
+  cards,
+  selectedCardId,
+}: {
+  cards: ComparisonCardData[];
+  selectedCardId?: string | null;
+}) {
+  const orderedCards = orderSelectedCardsFirst(cards, selectedCardId);
+  const matrixMetrics = [
+    {
+      label: "Scenario",
+      getValue: (card: ComparisonCardData) =>
+        `${card.snapshot.pnl >= 0 ? "Profit" : "Loss"} ${formatPercent(card.snapshot.roi)}`,
+      getValueClassName: () => "text-slate-950",
+    },
+    {
+      label: "P/L",
+      getValue: (card: ComparisonCardData) =>
+        `${card.snapshot.pnl >= 0 ? "+" : ""}${formatCurrency(card.snapshot.pnl)}`,
+      getValueClassName: (card: ComparisonCardData) =>
+        card.snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
+    },
+    {
+      label: "Return",
+      getValue: (card: ComparisonCardData) => formatPercent(card.snapshot.roi),
+      getValueClassName: () => "text-slate-950",
+    },
+    {
+      label: "Cost",
+      getValue: (card: ComparisonCardData) => formatCurrency(card.snapshot.totalCost),
+      getValueClassName: () => "text-slate-950",
+    },
+    {
+      label: "B/E",
+      getValue: (card: ComparisonCardData) => formatCurrency(card.snapshot.breakEvenAtExpiry),
+      getValueClassName: () => "text-slate-950",
+    },
+    {
+      label: "Max at expiry",
+      getValue: (card: ComparisonCardData) => getCompactMaxProfitAtExpiryLabel(card),
+      getValueClassName: () => "text-slate-950",
+    },
+  ];
+
+  return (
+    <div className="grid min-w-0 gap-2 lg:grid-cols-2 xl:grid-cols-3">
+      {matrixMetrics.map((metric) => (
+        <article
+          key={metric.label}
+          className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-md"
+        >
+          <div className="bg-slate-950 px-3 py-2.5 text-white">
+            <p className="text-xs font-medium text-slate-300">Metric</p>
+            <h3 className="mt-1 font-[family:var(--font-space-grotesk)] text-base font-semibold leading-tight text-balance">
+              {metric.label}
+            </h3>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {orderedCards.map((card) => {
+              const isSelected = card.id === selectedCardId;
+              const value = metric.getValue(card);
+
+              return (
+                <div
+                  key={card.id}
+                  className={cn(
+                    "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5",
+                    isSelected && "bg-[var(--accent-faint)]",
+                  )}
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-950">
+                      {getOutcomeStrategyTitle(card)}
+                    </p>
+                    <p className="mt-0.5 truncate font-mono text-xs text-slate-500 tabular-nums">
+                      {card.strategy === "long-call"
+                        ? formatCurrency(card.longStrike)
+                        : `${formatCurrency(card.longStrike)} / ${formatCurrency(card.shortStrike)}`}
+                    </p>
+                  </div>
+                  <p
+                    className={cn(
+                      "max-w-32 truncate text-right font-mono text-sm font-semibold tabular-nums",
+                      metric.getValueClassName(card),
+                    )}
+                    title={value}
+                  >
+                    {value}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        </article>
+      ))}
+    </div>
+  );
 }
 
 function DecisionMethodCard({
@@ -1761,7 +2169,7 @@ function DecisionMethodCard({
         <button
           type="button"
           onClick={() => onAnalyzeCard(card)}
-          className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+          className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
         >
           {isSelected ? "Selected" : "Select"}
         </button>
@@ -1775,127 +2183,44 @@ function DecisionComparisonBoard({
   selectedCardId,
   view,
   onViewChange,
-  onAnalyzeCard,
 }: {
   cards: ComparisonCardData[];
   selectedCardId?: string | null;
   view: DecisionComparisonView;
   onViewChange: (view: DecisionComparisonView) => void;
-  onAnalyzeCard?: ComparisonCardAction;
 }) {
-  const scoreRows = getDecisionScoreRows(cards);
-  const topPick = scoreRows[0]?.card;
-  const bestDollars = [...cards].sort((first, second) => second.snapshot.pnl - first.snapshot.pnl)[0];
-  const bestReturn = [...cards].sort((first, second) => second.snapshot.roi - first.snapshot.roi)[0];
-  const lowestRisk = [...cards].sort((first, second) => first.snapshot.totalCost - second.snapshot.totalCost)[0];
-  const easiestBreakEven = [...cards].sort(
-    (first, second) => first.snapshot.breakEvenAtExpiry - second.snapshot.breakEvenAtExpiry,
-  )[0];
-  const mostUpside = [...cards].sort((first, second) => {
-    if (first.maxProfitAtExpiry === null && second.maxProfitAtExpiry !== null) return -1;
-    if (first.maxProfitAtExpiry !== null && second.maxProfitAtExpiry === null) return 1;
-    return (second.maxProfitAtExpiry ?? 0) - (first.maxProfitAtExpiry ?? 0);
-  })[0];
   const decisionViews: Array<{ value: DecisionComparisonView; label: string }> = [
     { value: "cards", label: "Cards" },
     { value: "table", label: "Table" },
     { value: "matrix", label: "Matrix" },
   ];
-  const boardCopy: Record<DecisionComparisonView, { title: string }> = {
-    cards: {
-      title: "Outcome cards",
-    },
-    table: {
-      title: "Strategy table",
-    },
-    matrix: {
-      title: "Outcome matrix",
-    },
-  };
-  const scoreByCardId = new Map(scoreRows.map((row) => [row.card.id, row.score]));
-  const getScoreLabel = (card: ComparisonCardData) =>
-    `${Math.round((scoreByCardId.get(card.id) ?? 0) * 100)}/100`;
-  const matrixObjectives = topPick
-    ? [
-        {
-          id: "overall",
-          label: "Best all-around choice",
-          helper: "Most balanced mix of profit, return, cash at risk, and break-even.",
-          winner: topPick,
-          renderValue: (card: ComparisonCardData) => getScoreLabel(card),
-          sortCards: (first: ComparisonCardData, second: ComparisonCardData) =>
-            (scoreByCardId.get(second.id) ?? 0) - (scoreByCardId.get(first.id) ?? 0),
-        },
-        {
-          id: "profit",
-          label: "Most dollars if right",
-          helper: "Highest estimated P/L at the selected stock price and date.",
-          winner: bestDollars,
-          renderValue: (card: ComparisonCardData) =>
-            `${card.snapshot.pnl >= 0 ? "+" : ""}${formatCurrency(card.snapshot.pnl)}`,
-          sortCards: (first: ComparisonCardData, second: ComparisonCardData) =>
-            second.snapshot.pnl - first.snapshot.pnl,
-        },
-        {
-          id: "return",
-          label: "Best return on cash",
-          helper: "Highest percentage return on the capital actually deployed.",
-          winner: bestReturn,
-          renderValue: (card: ComparisonCardData) => formatPercent(card.snapshot.roi),
-          sortCards: (first: ComparisonCardData, second: ComparisonCardData) =>
-            second.snapshot.roi - first.snapshot.roi,
-        },
-        {
-          id: "risk",
-          label: "Smallest cash at risk",
-          helper: "Lowest entry cost. This is also the maximum loss for these long-premium strategies.",
-          winner: lowestRisk,
-          renderValue: (card: ComparisonCardData) => formatCurrency(card.snapshot.totalCost),
-          sortCards: (first: ComparisonCardData, second: ComparisonCardData) =>
-            first.snapshot.totalCost - second.snapshot.totalCost,
-        },
-        {
-          id: "breakeven",
-          label: "Easiest break-even",
-          helper: "Lowest expiry break-even, useful when the stock idea is directional but uncertain.",
-          winner: easiestBreakEven,
-          renderValue: (card: ComparisonCardData) =>
-            formatCurrency(card.snapshot.breakEvenAtExpiry),
-          sortCards: (first: ComparisonCardData, second: ComparisonCardData) =>
-            first.snapshot.breakEvenAtExpiry - second.snapshot.breakEvenAtExpiry,
-        },
-        {
-          id: "upside",
-          label: "Most expiry upside",
-          helper: "Largest maximum payoff if the idea keeps working through expiration.",
-          winner: mostUpside,
-          renderValue: (card: ComparisonCardData) => getMaxProfitAtExpiryLabel(card),
-          sortCards: (first: ComparisonCardData, second: ComparisonCardData) => {
-            if (first.maxProfitAtExpiry === null && second.maxProfitAtExpiry !== null) return -1;
-            if (first.maxProfitAtExpiry !== null && second.maxProfitAtExpiry === null) return 1;
-            return (second.maxProfitAtExpiry ?? 0) - (first.maxProfitAtExpiry ?? 0);
-          },
-        },
-      ]
-    : [];
+  const activeView = view === "table" || view === "matrix" ? view : "cards";
+  const orderedCards = orderSelectedCardsFirst(cards, selectedCardId);
+  const title =
+    activeView === "table"
+      ? "Strategy table"
+      : activeView === "matrix"
+        ? "Outcome matrix"
+        : "Outcome cards";
 
   return (
     <SectionCard
-      title={boardCopy[view].title}
+      title={title}
+      className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden sm:w-auto sm:max-w-none [&_h2]:text-base [&_h2]:font-semibold"
       action={
         <div
-          className="grid min-w-0 grid-cols-3 rounded-md border border-slate-200 bg-slate-100 p-0.5 shadow-sm"
+          className="grid w-full min-w-0 grid-cols-3 rounded-md border border-slate-200 bg-slate-100 p-0.5 shadow-sm"
           aria-label="Comparison view"
         >
           {decisionViews.map((option) => (
             <button
               key={option.value}
               type="button"
-              aria-pressed={view === option.value}
+              aria-pressed={activeView === option.value}
               onClick={() => onViewChange(option.value)}
               className={cn(
-                "min-w-0 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
-                view === option.value && "bg-white text-slate-950 shadow-sm",
+                "min-w-0 rounded px-2.5 py-1 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                activeView === option.value && "bg-white text-slate-950 shadow-sm",
               )}
             >
               {option.label}
@@ -1904,22 +2229,27 @@ function DecisionComparisonBoard({
         </div>
       }
     >
-      {!topPick ? (
+      {cards.length === 0 ? (
         <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
           Add or fix a setup to compare strategies.
         </div>
-      ) : view === "cards" ? (
-        <ComparisonCardGrid
-          cards={cards}
+      ) : activeView === "cards" ? (
+        <DecisionOutcomeCards
+          cards={orderedCards}
           selectedCardId={selectedCardId}
         />
-      ) : view === "table" ? (
+      ) : activeView === "matrix" ? (
+        <DecisionOutcomeMatrix
+          cards={orderedCards}
+          selectedCardId={selectedCardId}
+        />
+      ) : (
         <div className="space-y-3">
           <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
             <table className="min-w-full border-collapse text-sm">
               <thead className="bg-slate-950 text-white">
                 <tr>
-                  {["Position", "Strategy", "Scenario", "P/L", "Return", "Cost", "B/E", "Max at expiry"].map((label) => (
+                  {["Strategy", "Scenario", "P/L", "Return", "Cost", "B/E", "Max at expiry"].map((label) => (
                     <th key={label} className="px-3 py-2 text-left font-medium">
                       {label}
                     </th>
@@ -1927,16 +2257,12 @@ function DecisionComparisonBoard({
                 </tr>
               </thead>
               <tbody>
-                {cards.map((card) => {
-                  const score = scoreByCardId.get(card.id) ?? 0;
+                {orderedCards.map((card) => {
                   return (
                     <tr
                       key={card.id}
                       className="border-t border-slate-100"
                     >
-                      <td className="px-3 py-3 font-mono font-semibold tabular-nums text-slate-950">
-                        #{card.rank}
-                      </td>
                       <td className="px-3 py-3">
                         <p className="font-semibold text-slate-950">{card.label}</p>
                         <p className="font-mono text-xs text-slate-500 tabular-nums">
@@ -1944,7 +2270,6 @@ function DecisionComparisonBoard({
                         </p>
                       </td>
                       <td className="max-w-64 px-3 py-3 text-xs leading-5 text-slate-600 text-pretty">
-                        Score {Math.round(score * 100)}.{" "}
                         {card.snapshot.pnl >= 0 ? "Profitable" : "Losing"} in this scenario
                         with {formatPercent(card.snapshot.roi)} return.
                       </td>
@@ -1976,95 +2301,6 @@ function DecisionComparisonBoard({
             </table>
           </div>
         </div>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-          <table className="min-w-full border-collapse text-sm">
-            <thead className="bg-slate-50 text-[10px] font-semibold uppercase text-slate-500">
-              <tr>
-                {["Objective", "Winner", "Value", "Ranking"].map((label) => (
-                  <th
-                    key={label}
-                    className={cn(
-                      "px-3 py-2 font-medium",
-                      label === "Value" ? "text-right" : "text-left",
-                    )}
-                  >
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {matrixObjectives.map((objective) => {
-                const orderedCards = [...cards].sort(objective.sortCards);
-                const winnerValue = objective.renderValue(objective.winner);
-
-                return (
-                  <tr key={objective.id} className="border-t border-slate-100">
-                    <td className="max-w-64 px-3 py-2 align-top">
-                      <p className="font-semibold text-slate-950">{objective.label}</p>
-                      <p className="mt-0.5 text-xs leading-5 text-slate-500 text-pretty">
-                        {objective.helper}
-                      </p>
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <p className="font-semibold text-slate-950">{objective.winner.label}</p>
-                      <p className="mt-0.5 font-mono text-xs text-slate-500 tabular-nums">
-                        {getComparisonStrikeLabel(objective.winner)}
-                      </p>
-                    </td>
-                    <td className="px-3 py-2 text-right align-top font-mono font-semibold text-emerald-700 tabular-nums">
-                      {winnerValue}
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <div className="flex min-w-0 flex-wrap gap-1.5">
-                        {orderedCards.map((card, index) => {
-                          const isWinner = card.id === objective.winner.id;
-                          const isSelected = card.id === selectedCardId;
-                          const value = objective.renderValue(card);
-                          const chip = (
-                            <span
-                              className={cn(
-                                "inline-flex max-w-full items-center gap-1 rounded-md border px-2 py-1 text-xs shadow-sm",
-                                isWinner
-                                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                                  : "border-slate-200 bg-slate-50 text-slate-700",
-                                isSelected && "border-[#e63946] bg-[#e63946]/10 text-slate-950",
-                              )}
-                            >
-                              <span className="font-mono text-[10px] font-semibold tabular-nums">
-                                #{index + 1}
-                              </span>
-                              <span className="max-w-36 truncate font-semibold">
-                                {card.label}
-                              </span>
-                              <span className="font-mono text-[10px] tabular-nums text-slate-500">
-                                {value}
-                              </span>
-                            </span>
-                          );
-
-                          return onAnalyzeCard ? (
-                            <button
-                              key={card.id}
-                              type="button"
-                              onClick={() => onAnalyzeCard(card)}
-                              className="min-w-0 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
-                            >
-                              {chip}
-                            </button>
-                          ) : (
-                            <span key={card.id}>{chip}</span>
-                          );
-                        })}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
       )}
     </SectionCard>
   );
@@ -2078,6 +2314,7 @@ function CompactNumberInput({
   suffix,
   min = 0,
   step = 1,
+  className,
 }: {
   label: string;
   value: number;
@@ -2086,6 +2323,7 @@ function CompactNumberInput({
   suffix?: string;
   min?: number;
   step?: number;
+  className?: string;
 }) {
   const [draftValue, setDraftValue] = useState<string | null>(null);
   const displayedValue = draftValue ?? String(value);
@@ -2102,9 +2340,9 @@ function CompactNumberInput({
   };
 
   return (
-    <label className="block min-w-0">
+    <label className={cn("block min-w-0", className)}>
       <span className="text-xs font-medium text-slate-500">{label}</span>
-      <div className="mt-1 flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 shadow-sm">
+      <div className="mt-0.5 flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1 shadow-sm">
         {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
         <input
           type="number"
@@ -2144,16 +2382,18 @@ function CustomComparisonBoard({
   draftError,
   embedded = false,
   isEditorOpen,
+  setupForm,
   quickStartCards,
   selectedCardId,
   showSummary,
+  showSetupForm = false,
   scenarioDateLabel,
   scenarioPrice,
   symbol,
   onDraftChange,
   onAddComparison,
-  onAddCurrentStrategy,
   onOpenEditor,
+  onToggleSetupForm,
   onAnalyzeCard,
   onClose,
   onRemoveComparison,
@@ -2164,28 +2404,31 @@ function CustomComparisonBoard({
   draftError: string | null;
   embedded?: boolean;
   isEditorOpen: boolean;
+  setupForm?: ReactNode;
   quickStartCards: ComparisonCardData[];
   selectedCardId?: string | null;
   showSummary: boolean;
+  showSetupForm?: boolean;
   scenarioDateLabel: string;
   scenarioPrice: number;
   symbol: string;
   onDraftChange: (draft: CustomComparisonDraft) => void;
   onAddComparison: () => void;
-  onAddCurrentStrategy?: () => void;
   onOpenEditor?: () => void;
+  onToggleSetupForm?: () => void;
   onAnalyzeCard?: ComparisonCardAction;
   onClose?: () => void;
   onRemoveComparison: (id: string) => void;
   onUseQuickStart: (card: ComparisonCardData) => void;
 }) {
-  const isSpreadDraft = draft.strategy === "debit-call-spread";
+  const isSpreadDraft = isDebitSpreadStrategy(draft.strategy);
+  const isPutSpreadDraft = draft.strategy === "debit-put-spread";
   const actionContent =
-    isEditorOpen || onOpenEditor || onAddCurrentStrategy ? (
+    isEditorOpen || onOpenEditor ? (
       <div className="flex min-w-0 flex-wrap justify-end gap-2">
         {isEditorOpen && quickStartCards.length > 0 ? (
           <details className="relative">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]">
+            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
               Start with
               <span className="text-slate-500">▾</span>
             </summary>
@@ -2198,7 +2441,7 @@ function CustomComparisonBoard({
                     onUseQuickStart(card);
                     event.currentTarget.closest("details")?.removeAttribute("open");
                   }}
-                  className="rounded-md px-2.5 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-[#e63946]/10 hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+                  className="rounded-md px-2.5 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-[var(--accent-soft)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
                 >
                   {card.label}
                 </button>
@@ -2206,20 +2449,30 @@ function CustomComparisonBoard({
             </div>
           </details>
         ) : null}
-        {isEditorOpen && onAddCurrentStrategy ? (
+        {isEditorOpen ? (
           <button
             type="button"
-            onClick={onAddCurrentStrategy}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+            disabled={Boolean(draftError)}
+            onClick={onAddComparison}
+            className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
           >
-            Use current setup
+            Save strategy
+          </button>
+        ) : null}
+        {!isEditorOpen && onToggleSetupForm ? (
+          <button
+            type="button"
+            onClick={onToggleSetupForm}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+          >
+            {showSetupForm ? "Hide setup" : "Show setup"}
           </button>
         ) : null}
         {!isEditorOpen && onOpenEditor ? (
           <button
             type="button"
             onClick={onOpenEditor}
-            className="rounded-md border border-[#e63946] bg-[#e63946] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#cf2433] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+            className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
           >
             Add strategy
           </button>
@@ -2228,7 +2481,7 @@ function CustomComparisonBoard({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
           >
             Close
           </button>
@@ -2237,12 +2490,18 @@ function CustomComparisonBoard({
     ) : null;
   const boardContent = (
     <>
+      {showSetupForm && setupForm ? (
+        <div className="rounded-md border border-slate-200 bg-slate-50 p-2 shadow-sm">
+          {setupForm}
+        </div>
+      ) : null}
+
       {isEditorOpen ? (
         <>
-          <div className="grid min-w-0 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm lg:grid-cols-[minmax(0,1fr)_auto]">
-            <div className="grid min-w-0 gap-3 sm:grid-cols-2 xl:grid-cols-6">
-              <label className="block min-w-0 sm:col-span-2 xl:col-span-1">
-                <span className="text-xs font-medium text-slate-500">Name</span>
+          <div className={cn("rounded-md border border-slate-200 bg-slate-50 p-2 shadow-sm", showSetupForm && setupForm && "mt-2")}>
+            <div className="grid min-w-0 gap-x-2 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-12">
+              <label className="block min-w-0 sm:col-span-2 lg:col-span-2 xl:col-span-3">
+                <span className="text-xs font-medium text-slate-500">Strategy name</span>
                 <input
                   type="text"
                   value={draft.label}
@@ -2250,14 +2509,14 @@ function CustomComparisonBoard({
                   onChange={(event) =>
                     onDraftChange({ ...draft, label: event.target.value })
                   }
-                  className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-950 shadow-sm outline-none placeholder:text-slate-400 focus:border-[#e63946]"
+                  className="mt-0.5 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm font-medium text-slate-950 shadow-sm outline-none placeholder:text-slate-400 focus:border-[var(--accent)]"
                 />
               </label>
 
-              <div className="min-w-0">
-                <span className="text-xs font-medium text-slate-500">Type</span>
+              <div className="min-w-0 lg:col-span-2 xl:col-span-2">
+                <span className="text-xs font-medium text-slate-500">Strategy type</span>
                 <div
-                  className="mt-1 grid grid-cols-2 rounded-md border border-slate-300 bg-white p-0.5 shadow-sm"
+	                  className="mt-0.5 grid grid-cols-3 rounded-md border border-slate-300 bg-white p-0.5 shadow-sm"
                   role="group"
                   aria-label="Custom comparison type"
                 >
@@ -2270,48 +2529,72 @@ function CustomComparisonBoard({
                         onDraftChange({
                           ...draft,
                           strategy: option.value,
-                          shortStrike:
-                            option.value === "long-call"
-                              ? draft.longStrike
-                              : Math.max(draft.shortStrike, draft.longStrike + 1),
+                          shortStrike: normalizeShortStrikeForStrategy(
+                            option.value,
+                            draft.longStrike,
+                            option.value === "debit-put-spread"
+                              ? Math.min(draft.shortStrike, draft.longStrike - 1)
+                              : draft.shortStrike,
+                          ),
                         })
                       }
                       className={cn(
-                        "min-w-0 truncate rounded px-2 py-1.5 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+	                        "min-w-0 truncate rounded px-2 py-1 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
                         draft.strategy === option.value &&
-                          "bg-[#e63946]/10 text-slate-950 shadow-sm",
+                          "bg-[var(--accent-soft)] text-slate-950 shadow-sm",
                       )}
                     >
-                      {option.value === "long-call" ? "Call" : "Spread"}
+                      {option.value === "long-call"
+                        ? "Call"
+                        : option.value === "debit-put-spread"
+                          ? "Put spread"
+                          : "Call spread"}
                     </button>
                   ))}
                 </div>
               </div>
 
               <CompactNumberInput
-                label={isSpreadDraft ? "Long strike" : "Strike"}
+                label={
+                  isSpreadDraft
+                    ? isPutSpreadDraft
+                      ? "Long put"
+                      : "Long call"
+                    : "Strike"
+                }
                 value={draft.longStrike}
                 min={1}
                 prefix="$"
+                className="lg:col-span-1 xl:col-span-2"
                 onChange={(nextValue) =>
                   onDraftChange({
                     ...draft,
                     longStrike: Math.max(1, nextValue),
-                    shortStrike: isSpreadDraft
-                      ? Math.max(draft.shortStrike, nextValue + 1)
-                      : Math.max(1, nextValue),
+                    shortStrike: normalizeShortStrikeForStrategy(
+                      draft.strategy,
+                      Math.max(1, nextValue),
+                      draft.shortStrike,
+                    ),
                   })
                 }
               />
 
               {isSpreadDraft ? (
                 <CompactNumberInput
-                  label="Short strike"
+                  label={isPutSpreadDraft ? "Short put" : "Short call"}
                   value={draft.shortStrike}
                   min={1}
                   prefix="$"
+                  className="lg:col-span-1 xl:col-span-2"
                   onChange={(nextValue) =>
-                    onDraftChange({ ...draft, shortStrike: Math.max(1, nextValue) })
+                    onDraftChange({
+                      ...draft,
+                      shortStrike: normalizeShortStrikeForStrategy(
+                        draft.strategy,
+                        draft.longStrike,
+                        nextValue,
+                      ),
+                    })
                   }
                 />
               ) : null}
@@ -2322,6 +2605,7 @@ function CustomComparisonBoard({
                 min={0}
                 prefix="$"
                 step={100}
+                className="lg:col-span-2 xl:col-span-2"
                 onChange={(nextValue) =>
                   onDraftChange({ ...draft, capital: Math.max(0, nextValue) })
                 }
@@ -2333,6 +2617,7 @@ function CustomComparisonBoard({
                 min={1}
                 suffix="d"
                 step={1}
+                className="lg:col-span-1 xl:col-span-2"
                 onChange={(nextValue) =>
                   onDraftChange({
                     ...draft,
@@ -2340,10 +2625,8 @@ function CustomComparisonBoard({
                   })
                 }
               />
-            </div>
 
-            <div className="flex min-w-0 flex-col justify-end gap-2">
-              <label className="flex min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
+              <label className="flex min-h-8 min-w-0 items-center gap-2 self-end rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 shadow-sm lg:col-span-1 xl:col-span-1">
                 <input
                   type="checkbox"
                   checked={draft.allowFractionalContracts}
@@ -2353,18 +2636,10 @@ function CustomComparisonBoard({
                       allowFractionalContracts: event.target.checked,
                     })
                   }
-                  className="size-4 accent-[#e63946]"
+                  className="size-4 accent-[var(--accent)]"
                 />
                 <span>Fractional</span>
               </label>
-              <button
-                type="button"
-                disabled={Boolean(draftError)}
-                onClick={onAddComparison}
-                className="rounded-md border border-[#e63946] bg-[#e63946] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#cf2433] disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
-              >
-                Save strategy
-              </button>
             </div>
           </div>
 
@@ -2375,7 +2650,7 @@ function CustomComparisonBoard({
       ) : null}
 
       {showSummary ? (
-        <div className={isEditorOpen ? "mt-4" : undefined}>
+        <div className={isEditorOpen || (showSetupForm && setupForm) ? "mt-3" : undefined}>
           {cards.length > 0 ? (
             embedded ? (
               <CompactStrategyList
@@ -2387,6 +2662,7 @@ function CustomComparisonBoard({
             ) : (
               <ComparisonCardGrid
                 cards={cards}
+                prioritizeSelected={false}
                 selectedCardId={selectedCardId}
                 onRemoveCard={onRemoveComparison}
               />
@@ -2509,7 +2785,7 @@ function InfoIcon({ label }: InfoIconProps) {
           setIsHovered(true);
         }}
         onPointerLeave={() => setIsHovered(false)}
-        className="inline-flex size-5 items-center justify-center rounded-full border border-slate-300 bg-white font-[family:var(--font-space-grotesk)] text-xs font-semibold text-slate-500 shadow-sm hover:border-[#e63946] hover:text-[#e63946] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+        className="inline-flex size-5 items-center justify-center rounded-full border border-slate-300 bg-white font-[family:var(--font-space-grotesk)] text-xs font-semibold text-slate-500 shadow-sm hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
       >
         i
       </button>
@@ -2651,8 +2927,9 @@ function NumberSliderField({
         onTouchCancel={endSliderDrag}
         onTouchEnd={endSliderDrag}
         onTouchStart={beginSliderDrag}
+        style={getRangeTrackStyle(safeSliderValue, min, sliderMax)}
         className={cn(
-          "mt-2.5 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]",
+          "mt-2.5 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]",
           sliderClassName,
         )}
       />
@@ -2675,7 +2952,7 @@ function NumberSliderField({
               key={action.label}
               type="button"
               onClick={() => onChange(clamp(action.value, 0, max))}
-              className="min-w-0 truncate whitespace-nowrap rounded-md border border-slate-300 bg-white px-1 py-1.5 text-[10px] font-medium text-slate-700 shadow-sm hover:border-[#e63946] hover:text-[#e63946] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+              className="min-w-0 truncate whitespace-nowrap rounded-md border border-slate-300 bg-white px-1 py-1.5 text-[10px] font-medium text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
             >
               {action.label}
             </button>
@@ -2886,7 +3163,7 @@ function PnlScenarioChart({
             </span>
           ) : null}
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[#e63946]" />
+            <span className="size-2 rounded-full bg-[var(--accent)]" />
             Selected
             <span
               className={cn(
@@ -3414,7 +3691,7 @@ function TimeDecayChart({
             Cost basis
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[#e63946]" />
+            <span className="size-2 rounded-full bg-[var(--accent)]" />
             Selected
             <span
               className={cn(
@@ -4316,7 +4593,7 @@ function ScenarioValueMap({
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600">
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[#e63946]" />
+            <span className="size-2 rounded-full bg-[var(--accent)]" />
             Selected
           </span>
           {currentSpot >= minPrice && currentSpot <= maxPrice ? (
@@ -4624,7 +4901,7 @@ function ResultsTable<Row extends { id: string; isHighlighted?: boolean }>({
                 key={row.id}
                 className={cn(
                   "border-t border-slate-100",
-                  row.isHighlighted && "bg-[#e63946]/10",
+                  row.isHighlighted && "bg-[var(--accent-soft)]",
                 )}
               >
                 {columns.map((column) => (
@@ -4671,7 +4948,7 @@ export default function DebitCallSpreadLab({
     null,
   );
   const [scenarioGraphView, setScenarioGraphView] =
-    useState<ScenarioGraphView>("map");
+    useState<ScenarioGraphView>(DEFAULT_SCENARIO_GRAPH_VIEW);
   const [scenarioOffsetDays, setScenarioOffsetDays] = useState(
     Math.round(defaultExpirationDays / 2),
   );
@@ -4691,7 +4968,9 @@ export default function DebitCallSpreadLab({
   const workflowLayout: string = "tabbed";
   const [decisionComparisonView, setDecisionComparisonView] =
     useState<DecisionComparisonView>(DEFAULT_DECISION_COMPARISON_VIEW);
+  const [colorScheme, setColorScheme] = useState<ColorScheme>("blue");
   const [isCoreSetupOpen, setIsCoreSetupOpen] = useState(false);
+  const [isSetupFormVisible, setIsSetupFormVisible] = useState(false);
   const [isMarketScenarioOpen, setIsMarketScenarioOpen] = useState(false);
   const [customDraft, setCustomDraft] = useState<CustomComparisonDraft>({
     label: "",
@@ -4702,15 +4981,20 @@ export default function DebitCallSpreadLab({
     expirationDays,
     allowFractionalContracts,
   });
+  const customComparisonIdCounter = useRef(0);
+  const hasLoadedColorScheme = useRef(false);
   const [graphComparisonId, setGraphComparisonId] = useState("editor");
   const isDebitCallSpread = strategy === "debit-call-spread";
+  const isDebitPutSpread = strategy === "debit-put-spread";
+  const isDebitSpread = isDebitSpreadStrategy(strategy);
   const strategyCopy = STRATEGY_COPY[strategy];
   const upperStrike = isDebitCallSpread ? shortStrike : longStrike;
+  const lowerStrike = isDebitPutSpread ? shortStrike : longStrike;
 
-  const scenarioPriceSliderMin = Math.max(1, Math.floor(spot * 0.7));
+  const scenarioPriceSliderMin = Math.max(1, Math.floor(Math.min(spot, lowerStrike) * 0.7));
   const scenarioPriceSliderMax = Math.max(
     scenarioPriceSliderMin,
-    Math.ceil(upperStrike * 1.3),
+    getSliderMax(spot, scenarioPrice, longStrike, upperStrike),
   );
   const safeScenarioPrice = Math.round(
     clamp(scenarioPrice, scenarioPriceSliderMin, scenarioPriceSliderMax),
@@ -4728,7 +5012,9 @@ export default function DebitCallSpreadLab({
     baseStrikeSliderMax,
     isDebitCallSpread ? shortStrike + 20 : longStrike + 20,
   );
-  const shortStrikeSliderMax = Math.max(baseStrikeSliderMax + 20, longStrike + 5);
+  const shortStrikeSliderMax = isDebitPutSpread
+    ? Math.max(5, longStrike - 1)
+    : Math.max(baseStrikeSliderMax + 20, longStrike + 5);
   const expiryIso = addDaysToIso(todayIso, expirationDays);
   const marketScenarioMaxOffsetDays = Math.max(
     expirationDays,
@@ -4741,6 +5027,35 @@ export default function DebitCallSpreadLab({
     marketScenarioMaxOffsetDays,
   );
   const marketScenarioDateIso = addDaysToIso(todayIso, safeScenarioOffsetDays);
+
+  useEffect(() => {
+    let isActive = true;
+
+    queueMicrotask(() => {
+      if (!isActive || typeof window === "undefined") {
+        return;
+      }
+
+      hasLoadedColorScheme.current = true;
+      setColorScheme(decodeColorScheme(window.localStorage.getItem(COLOR_SCHEME_STORAGE_KEY)));
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (!hasLoadedColorScheme.current) {
+      return;
+    }
+
+    window.localStorage.setItem(COLOR_SCHEME_STORAGE_KEY, colorScheme);
+  }, [colorScheme]);
 
   useEffect(() => {
     let isActive = true;
@@ -4844,7 +5159,11 @@ export default function DebitCallSpreadLab({
 
     setSpot(nextSpot);
     setLongStrike(nextSpot);
-    setShortStrike(getOtmStrike(nextSpot, 10));
+    setShortStrike(
+      strategy === "debit-put-spread"
+        ? getOtmPutStrike(nextSpot, 10)
+        : getOtmStrike(nextSpot, 10),
+    );
   };
   const updateVolatilityPct = (nextValue: number) => {
     setVolatilityPct(nextValue);
@@ -4971,7 +5290,9 @@ export default function DebitCallSpreadLab({
       label: "",
       strategy,
       longStrike,
-      shortStrike: isDebitCallSpread ? shortStrike : longStrike,
+      shortStrike: isDebitSpread
+        ? normalizeShortStrikeForStrategy(strategy, longStrike, shortStrike)
+        : longStrike,
       capital,
       expirationDays,
       allowFractionalContracts,
@@ -4982,10 +5303,11 @@ export default function DebitCallSpreadLab({
       label: card.label,
       strategy: card.strategy,
       longStrike: card.longStrike,
-      shortStrike:
-        card.strategy === "long-call"
-          ? card.longStrike
-          : Math.max(card.shortStrike, card.longStrike + 1),
+      shortStrike: normalizeShortStrikeForStrategy(
+        card.strategy,
+        card.longStrike,
+        card.shortStrike,
+      ),
       capital: card.capital,
       expirationDays: card.expirationDays,
       allowFractionalContracts: card.allowFractionalContracts,
@@ -5001,6 +5323,7 @@ export default function DebitCallSpreadLab({
     }
     setComparisonPanelMode("custom");
     setIsCustomComparisonEditorOpen(false);
+    setIsSetupFormVisible(false);
     setIsStrategyShelfOpen((currentValue) => !currentValue);
   };
   const openCustomComparisonEditor = () => {
@@ -5014,6 +5337,7 @@ export default function DebitCallSpreadLab({
 
     setComparisonPanelMode("custom");
     setIsStrategyShelfOpen(true);
+    setIsSetupFormVisible(true);
     setIsCustomComparisonEditorOpen(true);
   };
   const showPresetComparisons = () => {
@@ -5058,9 +5382,10 @@ export default function DebitCallSpreadLab({
   const customDraftError =
     customDraft.longStrike <= 0
       ? "Long strike has to be greater than zero."
-      : customDraft.strategy === "debit-call-spread" &&
-          customDraft.shortStrike <= customDraft.longStrike
-        ? "Short strike has to be above the long strike."
+      : customDraft.strategy === "debit-call-spread" && customDraft.shortStrike <= customDraft.longStrike
+        ? "Short call strike has to be above the long call strike."
+      : customDraft.strategy === "debit-put-spread" && customDraft.shortStrike >= customDraft.longStrike
+        ? "Short put strike has to be below the long put strike."
         : customDraft.capital <= 0
           ? "Capital needs to be greater than zero."
           : customDraft.expirationDays <= 0
@@ -5073,11 +5398,15 @@ export default function DebitCallSpreadLab({
 
     const nextStrategy = customDraft.strategy;
     const nextLongStrike = Math.max(1, Math.round(customDraft.longStrike));
-    const nextShortStrike =
-      nextStrategy === "long-call"
-        ? nextLongStrike
-        : Math.max(nextLongStrike + 1, Math.round(customDraft.shortStrike));
-    const nextId = `custom-${Date.now()}-${customComparisons.length}`;
+    const nextShortStrike = normalizeShortStrikeForStrategy(
+      nextStrategy,
+      nextLongStrike,
+      customDraft.shortStrike,
+    );
+    const nextSymbol = normalizeSymbol(symbol);
+    const nextExpirationDays = clamp(Math.round(customDraft.expirationDays), 1, 1095);
+    customComparisonIdCounter.current += 1;
+    const nextId = `custom-${customComparisonIdCounter.current}-${customComparisons.length}`;
 
     setCustomComparisons((currentComparisons) => [
       ...currentComparisons,
@@ -5092,27 +5421,33 @@ export default function DebitCallSpreadLab({
         longStrike: nextLongStrike,
         shortStrike: nextShortStrike,
         capital: Math.max(1, Math.round(customDraft.capital)),
-        expirationDays: clamp(Math.round(customDraft.expirationDays), 1, 1095),
+        expirationDays: nextExpirationDays,
         allowFractionalContracts: customDraft.allowFractionalContracts,
+        symbol: nextSymbol,
+        todayIso,
+        spot,
+        volatilityPct,
+        futureVolatilityPct,
+        ratePct,
+        dividendYieldPct: 0,
       },
     ]);
     setGraphComparisonId(`custom:${nextId}`);
 
     setCustomDraft((currentDraft) => ({ ...currentDraft, label: "" }));
     setIsCustomComparisonEditorOpen(false);
+    setIsSetupFormVisible(false);
     setIsStrategyShelfOpen(true);
   };
   const addCurrentStrategyComparison = () => {
-    if (!canModel) {
-      return;
-    }
-
     const nextLongStrike = Math.max(1, Math.round(longStrike));
-    const nextShortStrike =
-      strategy === "long-call"
-        ? nextLongStrike
-        : Math.max(nextLongStrike + 1, Math.round(shortStrike));
+    const nextShortStrike = normalizeShortStrikeForStrategy(
+      strategy,
+      nextLongStrike,
+      shortStrike,
+    );
     const nextCapital = Math.max(1, Math.round(capital));
+    const nextSymbol = normalizeSymbol(symbol);
     const nextExpirationDays = clamp(Math.round(expirationDays), 1, 1095);
     const matchingComparison = customComparisons.find((comparison) =>
       comparison.strategy === strategy &&
@@ -5120,18 +5455,27 @@ export default function DebitCallSpreadLab({
       comparison.shortStrike === nextShortStrike &&
       comparison.capital === nextCapital &&
       comparison.expirationDays === nextExpirationDays &&
-      comparison.allowFractionalContracts === allowFractionalContracts,
+      comparison.allowFractionalContracts === allowFractionalContracts &&
+      comparison.symbol === nextSymbol &&
+      comparison.todayIso === todayIso &&
+      comparison.spot === spot &&
+      comparison.volatilityPct === volatilityPct &&
+      comparison.futureVolatilityPct === futureVolatilityPct &&
+      comparison.ratePct === ratePct &&
+      comparison.dividendYieldPct === 0,
     );
 
     if (matchingComparison) {
       setComparisonPanelMode("custom");
       setGraphComparisonId(`custom:${matchingComparison.id}`);
       setIsCustomComparisonEditorOpen(false);
+      setIsSetupFormVisible(false);
       setIsStrategyShelfOpen(true);
       return;
     }
 
-    const nextId = `custom-${Date.now()}-${customComparisons.length}`;
+    customComparisonIdCounter.current += 1;
+    const nextId = `custom-${customComparisonIdCounter.current}-${customComparisons.length}`;
     const nextComparison: CustomComparisonConfig = {
       id: nextId,
       label: getCustomComparisonLabel({
@@ -5139,16 +5483,23 @@ export default function DebitCallSpreadLab({
         strategy,
         longStrike: nextLongStrike,
         shortStrike: nextShortStrike,
-        capital,
-        expirationDays,
-        allowFractionalContracts,
-      }),
+      capital,
+      expirationDays,
+      allowFractionalContracts,
+    }),
       strategy,
       longStrike: nextLongStrike,
       shortStrike: nextShortStrike,
       capital: nextCapital,
       expirationDays: nextExpirationDays,
       allowFractionalContracts,
+      symbol: nextSymbol,
+      todayIso,
+      spot,
+      volatilityPct,
+      futureVolatilityPct,
+      ratePct,
+      dividendYieldPct: 0,
     };
 
     setCustomComparisons((currentComparisons) => [
@@ -5158,6 +5509,7 @@ export default function DebitCallSpreadLab({
     setComparisonPanelMode("custom");
     setGraphComparisonId(`custom:${nextId}`);
     setIsCustomComparisonEditorOpen(false);
+    setIsSetupFormVisible(false);
     setIsStrategyShelfOpen(true);
   };
   const removeCustomComparison = (id: string) => {
@@ -5173,7 +5525,33 @@ export default function DebitCallSpreadLab({
     setGraphComparisonId(`preset:${card.id}`);
     setIsCustomComparisonEditorOpen(false);
   };
+  const loadComparisonSetup = (card: ComparisonCardData) => {
+    const nextSymbol = normalizeSymbol(card.symbol ?? symbol);
+    const nextLongStrike = Math.max(1, Math.round(card.longStrike));
+    const nextExpirationDays = clamp(Math.round(card.expirationDays), 1, 1095);
+    const nextRatePct = clamp(card.ratePct ?? ratePct, 0, 15);
+
+    if (nextSymbol) {
+      setSymbol(nextSymbol);
+    }
+    setStrategy(card.strategy);
+    setLongStrike(nextLongStrike);
+    setShortStrike(
+      normalizeShortStrikeForStrategy(card.strategy, nextLongStrike, card.shortStrike),
+    );
+    setSpot(Math.max(1, Math.round(card.spot ?? spot)));
+    setVolatilityPct(clamp(Math.round(card.volatilityPct ?? volatilityPct), 0, 300));
+    setFutureVolatilityPct(
+      clamp(Math.round(card.futureVolatilityPct ?? futureVolatilityPct), 0, 300),
+    );
+    setCapital(Math.max(1, Math.round(card.capital)));
+    setAllowFractionalContracts(card.allowFractionalContracts);
+    setExpirationDays(nextExpirationDays);
+    setRatePct(nextRatePct);
+    setRatePctDraft(compactNumber(nextRatePct));
+  };
   const analyzeCustomComparison = (card: ComparisonCardData) => {
+    loadComparisonSetup(card);
     setComparisonPanelMode("custom");
     setGraphComparisonId(`custom:${card.id}`);
   };
@@ -5191,15 +5569,18 @@ export default function DebitCallSpreadLab({
   if (futureVolatilityPct < 0) {
     validationMessages.push("Future IV cannot be negative.");
   }
-  if (longStrike <= 0 || (isDebitCallSpread && shortStrike <= 0)) {
+  if (longStrike <= 0 || (isDebitSpread && shortStrike <= 0)) {
     validationMessages.push(
-      isDebitCallSpread
+      isDebitSpread
         ? "Strike prices have to be greater than zero."
         : "Call strike has to be greater than zero.",
     );
   }
   if (isDebitCallSpread && shortStrike <= longStrike) {
     validationMessages.push("For a debit call spread, the short strike must be above the long strike.");
+  }
+  if (isDebitPutSpread && shortStrike >= longStrike) {
+    validationMessages.push("For a debit put spread, the short strike must be below the long strike.");
   }
   if (capital <= 0) {
     validationMessages.push("Capital needs to be greater than zero.");
@@ -5258,15 +5639,15 @@ export default function DebitCallSpreadLab({
   const activeScenarioGraphView: ScenarioGraphView =
     scenarioGraphView === "overlay" || scenarioGraphView === "decay" || scenarioGraphView === "map"
       ? scenarioGraphView
-      : "map";
+      : DEFAULT_SCENARIO_GRAPH_VIEW;
   const scenarioGraphOptions: Array<{
     value: ScenarioGraphView;
     label: string;
     shortLabel: string;
   }> = [
     { value: "map", label: "Heat map", shortLabel: "Heat" },
-    { value: "overlay", label: "Multi-date", shortLabel: "Dates" },
     { value: "decay", label: "Time value", shortLabel: "Time" },
+    { value: "overlay", label: "Multi-date", shortLabel: "Dates" },
   ];
   const isTabbedAnalysis =
     workflowLayout === "tabbed" && activeWorkflowTab === "analysis";
@@ -5312,7 +5693,7 @@ export default function DebitCallSpreadLab({
       },
       {
         id: "spread-5-otm",
-        label: "5% OTM spread",
+        label: "5% OTM call spread",
         note: "Closer target with a higher chance of finishing in range.",
         strategy: "debit-call-spread",
         longStrike: atmStrike,
@@ -5323,8 +5704,8 @@ export default function DebitCallSpreadLab({
       },
       {
         id: "spread-10-otm",
-        label: "10% OTM spread",
-        note: "Balanced spread matching the default short-strike idea.",
+        label: "10% OTM call spread",
+        note: "Balanced call spread matching the default short-strike idea.",
         strategy: "debit-call-spread",
         longStrike: atmStrike,
         shortStrike: Math.max(atmStrike + 1, getOtmStrike(spot, 10)),
@@ -5334,7 +5715,7 @@ export default function DebitCallSpreadLab({
       },
       {
         id: "spread-20-otm",
-        label: "20% OTM spread",
+        label: "20% OTM call spread",
         note: "Cheaper, more aggressive target with a wider payoff window.",
         strategy: "debit-call-spread",
         longStrike: atmStrike,
@@ -5345,7 +5726,7 @@ export default function DebitCallSpreadLab({
       },
       {
         id: "spread-30-otm",
-        label: "30% OTM spread",
+        label: "30% OTM call spread",
         note: "Lowest cost preset with the furthest upside target.",
         strategy: "debit-call-spread",
         longStrike: atmStrike,
@@ -5354,14 +5735,45 @@ export default function DebitCallSpreadLab({
         expirationDays,
         allowFractionalContracts,
       },
+      {
+        id: "put-spread-5-otm",
+        label: "5% OTM put spread",
+        note: "Closer downside hedge with defined risk.",
+        strategy: "debit-put-spread",
+        longStrike: atmStrike,
+        shortStrike: getOtmPutStrike(spot, 5),
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+      {
+        id: "put-spread-10-otm",
+        label: "10% OTM put spread",
+        note: "Balanced put spread for a moderate downside target.",
+        strategy: "debit-put-spread",
+        longStrike: atmStrike,
+        shortStrike: getOtmPutStrike(spot, 10),
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+      {
+        id: "put-spread-20-otm",
+        label: "20% OTM put spread",
+        note: "Lower-cost bearish target with capped downside profit.",
+        strategy: "debit-put-spread",
+        longStrike: atmStrike,
+        shortStrike: getOtmPutStrike(spot, 20),
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
     ];
 
-    return rankComparisonCards(
-      candidates.flatMap((candidate) => {
-        const card = buildComparisonCard(candidate, inputs);
-        return card ? [card] : [];
-      }),
-    );
+    return candidates.flatMap((candidate) => {
+      const card = buildComparisonCard(candidate, inputs);
+      return card ? [card] : [];
+    });
   }, [
     allowFractionalContracts,
     canModel,
@@ -5374,47 +5786,32 @@ export default function DebitCallSpreadLab({
     strategy,
   ]);
   const customComparisonCards = useMemo<ComparisonCardData[]>(() => {
-    if (!canModel) {
-      return [];
-    }
-
-    return rankComparisonCards(
-      customComparisons.flatMap((comparison) => {
-        const card = buildComparisonCard(
-          {
-            ...comparison,
-            note: "",
-          },
-          inputs,
-        );
-        return card ? [card] : [];
-      }),
-    );
-  }, [canModel, customComparisons, inputs]);
+    return customComparisons.flatMap((comparison) => {
+      const card = buildComparisonCard(
+        {
+          ...comparison,
+          note: "",
+        },
+        inputs,
+      );
+      return card ? [card] : [];
+    });
+  }, [customComparisons, inputs]);
   const hasSavedComparisonCards = customComparisonCards.length > 0;
   const effectiveComparisonPanelMode: ComparisonPanelMode =
     comparisonPanelMode === "hidden"
       ? "hidden"
       : hasSavedComparisonCards
         ? "custom"
-        : "presets";
-  const comparisonBoardCards = hasSavedComparisonCards
-    ? customComparisonCards
-    : comparisonCards;
-  const analyzeComparisonBoardCard = hasSavedComparisonCards
-    ? analyzeCustomComparison
-    : analyzePresetComparison;
+        : "hidden";
+  const comparisonBoardCards = customComparisonCards;
   const visibleComparisonCards = useMemo(() => {
-    if (effectiveComparisonPanelMode === "presets") {
-      return comparisonCards;
-    }
-
     if (effectiveComparisonPanelMode === "custom") {
       return customComparisonCards;
     }
 
     return [];
-  }, [comparisonCards, customComparisonCards, effectiveComparisonPanelMode]);
+  }, [customComparisonCards, effectiveComparisonPanelMode]);
   const graphComparisonOptions = useMemo<GraphComparisonOption[]>(() => {
     const currentCandidate: ComparisonCandidate = {
       id: "current-editor",
@@ -5432,7 +5829,7 @@ export default function DebitCallSpreadLab({
     )}`;
     const comparisonOptions = visibleComparisonCards.map((card) => ({
       id: `${effectiveComparisonPanelMode === "custom" ? "custom" : "preset"}:${card.id}`,
-      label: `#${card.rank} ${card.label}`,
+      label: card.label,
       detail: `${getComparisonStrikeLabel(card)} · ${formatPercent(card.snapshot.roi)}`,
       inputs: applyComparisonToInputs(card, inputs),
       snapshot: card.snapshot,
@@ -5476,9 +5873,10 @@ export default function DebitCallSpreadLab({
   const visualizedSnapshot = selectedGraphComparison.snapshot;
   const visualizedStrategy = visualizedInputs.strategy;
   const visualizedStrategyCopy = STRATEGY_COPY[visualizedStrategy];
-  const visualizedIsDebitCallSpread = visualizedStrategy === "debit-call-spread";
+  const visualizedIsDebitSpread = isDebitSpreadStrategy(visualizedStrategy);
+  const visualizedIsDebitPutSpread = visualizedStrategy === "debit-put-spread";
   const analyzedStrategyName = selectedGraphComparison.label.replace(/^#\d+\s+/, "");
-  const analyzedStructureLabel = visualizedIsDebitCallSpread
+  const analyzedStructureLabel = visualizedIsDebitSpread
     ? `${formatCurrency(visualizedInputs.longStrike)} / ${formatCurrency(visualizedInputs.shortStrike)}`
     : `${formatCurrency(visualizedInputs.longStrike)} call`;
   const visualizedMaxProfitAtExpiry =
@@ -5634,29 +6032,29 @@ export default function DebitCallSpreadLab({
     visualizedSnapshot.totalCost,
   ]);
   const scenarioMapRange = useMemo(() => {
-    const minMapPrice = Math.max(1, Math.floor(spot * 0.7));
+    const minMapPrice = Math.max(1, Math.floor(Math.min(spot, lowerStrike) * 0.7));
     const maxMapPrice = Math.max(scenarioPriceSliderMax, Math.ceil(spot * 1.05));
 
     return {
       minPrice: minMapPrice,
       maxPrice: Math.ceil(maxMapPrice),
     };
-  }, [scenarioPriceSliderMax, spot]);
+  }, [lowerStrike, scenarioPriceSliderMax, spot]);
   const priceMarkers = useMemo<PriceMarker[]>(() => {
     const markers: PriceMarker[] = [
       { value: visualizedInputs.spot, label: "Spot" },
       {
         value: visualizedInputs.longStrike,
-        label: visualizedIsDebitCallSpread ? "Long" : "Strike",
+        label: visualizedIsDebitSpread ? "Long" : "Strike",
       },
     ];
-    if (visualizedIsDebitCallSpread) {
+    if (visualizedIsDebitSpread) {
       markers.push({ value: visualizedInputs.shortStrike, label: "Short" });
     }
     return markers
       .filter((marker) => Number.isFinite(marker.value) && marker.value > 0)
       .sort((a, b) => a.value - b.value);
-  }, [visualizedInputs, visualizedIsDebitCallSpread]);
+  }, [visualizedInputs, visualizedIsDebitSpread]);
   const getScenarioTooltipPoint = (price: number, offsetDays: number) => {
     const hoverSnapshot = createScenarioSnapshot({
       ...visualizedInputs,
@@ -5768,6 +6166,10 @@ export default function DebitCallSpreadLab({
     label: `${percent}% OTM`,
     value: getOtmStrike(spot, percent),
   }));
+  const shortPutStrikeOtmActions = [5, 10, 20, 30].map((percent) => ({
+    label: `${percent}% OTM`,
+    value: getOtmPutStrike(spot, percent),
+  }));
   const callStrikeActions = [
     {
       label: "ATM",
@@ -5776,6 +6178,16 @@ export default function DebitCallSpreadLab({
     ...[5, 10, 20].map((percent) => ({
       label: `${percent}% OTM`,
       value: getOtmStrike(spot, percent),
+    })),
+  ];
+  const putStrikeActions = [
+    {
+      label: "ATM",
+      value: Math.round(spot),
+    },
+    ...[5, 10, 20].map((percent) => ({
+      label: `${percent}% OTM`,
+      value: getOtmPutStrike(spot, percent),
     })),
   ];
   const showGuidedSidebar = workflowLayout === "guided" && isSidebarVisible;
@@ -5886,9 +6298,9 @@ export default function DebitCallSpreadLab({
                 aria-pressed={allowFractionalContracts === option.value}
                 onClick={() => setAllowFractionalContracts(option.value)}
                 className={cn(
-                  "rounded-sm px-2.5 py-1 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
+                  "rounded-sm px-2.5 py-1 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
                   allowFractionalContracts === option.value &&
-                    "bg-[#e63946]/15 text-[#9f1d2a]",
+                    "bg-[var(--accent-soft)] text-[var(--accent-strong)]",
                 )}
               >
                 {option.label}
@@ -5928,7 +6340,7 @@ export default function DebitCallSpreadLab({
               </div>
             </label>
 
-            <div className="rounded-md border border-[#e63946]/30 bg-[#e63946]/10 p-2.5 text-xs text-[#9f1d2a]">
+            <div className="rounded-md border border-[var(--accent-border)] bg-[var(--accent-soft)] p-2.5 text-xs text-[var(--accent-strong)]">
               <p className="font-medium">Model assumptions</p>
               <p className="mt-1 leading-5 text-pretty">
                 {strategyCopy.modelAssumptions}
@@ -5942,12 +6354,14 @@ export default function DebitCallSpreadLab({
         {stepHeader(
           "2",
           "Pick a strategy",
-          isDebitCallSpread
+          strategy === "debit-call-spread"
             ? "Buy one call and sell a higher-strike call. Defined risk, capped upside."
-            : "Buy a single call. Higher risk, uncapped upside.",
+            : strategy === "debit-put-spread"
+              ? "Buy one put and sell a lower-strike put. Defined risk, capped downside profit."
+              : "Buy a single call. Higher risk, uncapped upside.",
         )}
         <div
-          className="grid min-w-0 grid-cols-2 gap-2"
+          className="grid min-w-0 grid-cols-3 gap-2"
           role="group"
           aria-label="Option strategy"
         >
@@ -5959,49 +6373,76 @@ export default function DebitCallSpreadLab({
               title={option.description}
               onClick={() => {
                 setStrategy(option.value);
+                setLongStrike(Math.max(1, Math.round(spot)));
+                setShortStrike(
+                  option.value === "debit-put-spread"
+                    ? getOtmPutStrike(spot, 10)
+                    : option.value === "debit-call-spread"
+                      ? getOtmStrike(spot, 10)
+                      : Math.max(1, Math.round(spot)),
+                );
                 setScenarioGraphView("map");
               }}
               className={cn(
-                "min-w-0 truncate rounded-md border border-slate-300 bg-white px-2 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] sm:px-3 sm:text-sm",
+                "min-w-0 truncate rounded-md border border-slate-300 bg-white px-2 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:px-3 sm:text-sm",
                 strategy === option.value &&
-                  "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                  "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950",
               )}
             >
               {option.label}
             </button>
           ))}
         </div>
-        {isDebitCallSpread && shortStrike > longStrike ? (
+        {isDebitSpread && (
+          isDebitCallSpread ? shortStrike > longStrike : shortStrike < longStrike
+        ) ? (
           <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <span className="font-semibold text-slate-900">
-              {formatCurrency(shortStrike - longStrike)} wide
+              {formatCurrency(Math.abs(shortStrike - longStrike))} wide
             </span>{" "}
             spread between long and short strikes.
           </p>
         ) : null}
-        {isDebitCallSpread ? (
+        {isDebitSpread ? (
           <>
             <NumberSliderField
-              label="Long call (buy)"
+              label={isDebitPutSpread ? "Long put (buy)" : "Long call (buy)"}
               help="The strike you buy."
               min={5}
               max={longStrikeSliderMax}
               step={1}
               value={longStrike}
-              onChange={setLongStrike}
+              onChange={(nextValue) => {
+                const nextLongStrike = Math.max(1, nextValue);
+                setLongStrike(nextLongStrike);
+                setShortStrike((currentShortStrike) =>
+                  normalizeShortStrikeForStrategy(
+                    strategy,
+                    nextLongStrike,
+                    currentShortStrike,
+                  ),
+                );
+              }}
               prefix="$"
+              quickActions={isDebitPutSpread ? putStrikeActions : undefined}
             />
 
             <NumberSliderField
-              label="Short call (sell)"
+              label={isDebitPutSpread ? "Short put (sell)" : "Short call (sell)"}
               help="The strike you sell."
               min={5}
               max={shortStrikeSliderMax}
               step={1}
               value={shortStrike}
-              onChange={setShortStrike}
+              onChange={(nextValue) =>
+                setShortStrike(
+                  normalizeShortStrikeForStrategy(strategy, longStrike, nextValue),
+                )
+              }
               prefix="$"
-              quickActions={shortStrikeOtmActions}
+              quickActions={
+                isDebitPutSpread ? shortPutStrikeOtmActions : shortStrikeOtmActions
+              }
             />
           </>
         ) : (
@@ -6028,7 +6469,7 @@ export default function DebitCallSpreadLab({
                 changeWorkflowTab("decision");
               }
             }}
-            className="rounded-md border border-[#e63946] bg-[#e63946] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#cf2433] disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+            className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
           >
             {workflowLayout === "tabbed" ? "Create Strategy" : "Add strategy"}
           </button>
@@ -6039,7 +6480,10 @@ export default function DebitCallSpreadLab({
 
   if (!isUrlStateReady) {
     return (
-      <main className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900">
+      <main
+        data-color-scheme={colorScheme}
+        className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900"
+      >
         <div className="mx-auto w-full max-w-7xl px-2 py-2 sm:px-4 sm:py-3 md:px-6">
           <h1 className="sr-only">Callculator</h1>
           <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
@@ -6097,7 +6541,12 @@ export default function DebitCallSpreadLab({
           onMouseDown={blurFocusedField}
           onPointerDown={blurFocusedField}
           onTouchStart={blurFocusedField}
-          className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
+          style={getRangeTrackStyle(
+            safeScenarioPrice,
+            scenarioPriceSliderMin,
+            scenarioPriceSliderMax,
+          )}
+          className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
         />
         <div className="mt-1.5 grid min-h-5 grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-start gap-1 font-mono text-[10px] text-slate-500 tabular-nums sm:text-[11px]">
           <span className="whitespace-nowrap">{formatCurrency(scenarioPriceSliderMin)}</span>
@@ -6141,7 +6590,8 @@ export default function DebitCallSpreadLab({
           onMouseDown={blurFocusedField}
           onPointerDown={blurFocusedField}
           onTouchStart={blurFocusedField}
-          className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
+          style={getRangeTrackStyle(safeScenarioOffsetDays, 0, marketScenarioMaxOffsetDays)}
+          className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
         />
         <div className="mt-1.5 grid min-h-5 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums sm:text-[11px]">
           <span className="truncate whitespace-nowrap">{formatLongDate(todayIso)}</span>
@@ -6179,7 +6629,7 @@ export default function DebitCallSpreadLab({
             isMarketScenarioOpen ? "Close market scenario" : "Open market scenario"
           }
           onClick={() => setIsMarketScenarioOpen((currentValue) => !currentValue)}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
         >
           <span
             aria-hidden
@@ -6210,7 +6660,7 @@ export default function DebitCallSpreadLab({
           type="button"
           aria-expanded={isMarketScenarioOpen}
           onClick={() => setIsMarketScenarioOpen((currentValue) => !currentValue)}
-          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
         >
           {isMarketScenarioOpen ? "Done" : "Edit"}
         </button>
@@ -6221,8 +6671,51 @@ export default function DebitCallSpreadLab({
     </section>
   );
 
+  const setupFormFields = (
+    <div className="grid min-w-0 gap-x-2 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-4">
+      <label className="block min-w-0">
+        <span className="text-xs font-medium text-slate-500">Ticker</span>
+        <input
+          type="text"
+          value={symbol}
+          onChange={(event) => setSymbol(event.target.value.toUpperCase())}
+          className="mt-0.5 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 font-mono text-sm font-medium text-slate-950 shadow-sm outline-none focus:border-[var(--accent)]"
+          placeholder="AAPL"
+        />
+      </label>
+
+      <CompactNumberInput
+        label="Current price"
+        value={spot}
+        min={1}
+        prefix="$"
+        onChange={(value) => updateSpot(Math.max(1, value))}
+      />
+
+      <CompactNumberInput
+        label="Current IV"
+        value={volatilityPct}
+        min={0}
+        suffix="%"
+        onChange={(value) => updateVolatilityPct(clamp(value, 0, 150))}
+      />
+
+      <CompactNumberInput
+        label="Capital"
+        value={capital}
+        min={0}
+        prefix="$"
+        step={100}
+        onChange={(value) => setCapital(Math.max(0, Math.round(value)))}
+      />
+    </div>
+  );
+
   return (
-    <main className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900">
+    <main
+      data-color-scheme={colorScheme}
+      className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900"
+    >
       <div className="mx-auto w-full max-w-7xl px-2 py-2 sm:px-4 sm:py-3 md:px-6">
         <h1 className="sr-only">Callculator</h1>
         <div
@@ -6241,7 +6734,7 @@ export default function DebitCallSpreadLab({
                 <button
                   type="button"
                   onClick={() => setIsSidebarVisible(false)}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-[#e63946] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] sm:w-auto"
+                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:w-auto"
                 >
                   Hide inputs
                 </button>
@@ -6258,7 +6751,7 @@ export default function DebitCallSpreadLab({
                 <button
                   type="button"
                   onClick={() => setIsSidebarVisible(true)}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-[#e63946] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
                 >
                   Show inputs
                 </button>
@@ -6273,13 +6766,19 @@ export default function DebitCallSpreadLab({
               {workflowLayout === "tabbed" ? (
                 <WorkflowTabs activeTab={activeWorkflowTab} onChange={changeWorkflowTab} />
               ) : null}
-              {workflowLayout === "guided" ? (
-                <StrategyShelfToggle
-                  count={customComparisonCards.length}
-                  isOpen={isStrategyShelfOpen}
-                  onClick={showCustomComparisons}
+              <div className="flex min-w-0 flex-wrap items-stretch justify-end gap-2">
+                {workflowLayout === "guided" ? (
+                  <StrategyShelfToggle
+                    count={customComparisonCards.length}
+                    isOpen={isStrategyShelfOpen}
+                    onClick={showCustomComparisons}
+                  />
+                ) : null}
+                <SettingsWidget
+                  colorScheme={colorScheme}
+                  onColorSchemeChange={setColorScheme}
                 />
-              ) : null}
+              </div>
             </div>
 
             {showTabbedSetupContext ? (
@@ -6294,13 +6793,12 @@ export default function DebitCallSpreadLab({
                 shortStrike={shortStrike}
                 isOpen={isCoreSetupOpen}
                 strategyCount={customComparisonCards.length}
-                isStrategyShelfOpen={isStrategyShelfOpen}
-                onToggle={() => setIsCoreSetupOpen(false)}
-                onSetupOpen={() => {
-                  setIsCoreSetupOpen(true);
+                onToggle={() => {
+                  setIsCoreSetupOpen(false);
                   setIsStrategyShelfOpen(false);
+                  setIsSetupFormVisible(false);
                 }}
-                onStrategiesToggle={() => {
+                onOpen={() => {
                   if (comparisonPanelMode !== "custom") {
                     seedCustomDraftFromCurrent();
                   }
@@ -6309,13 +6807,10 @@ export default function DebitCallSpreadLab({
                   }
                   setComparisonPanelMode("custom");
                   setIsCustomComparisonEditorOpen(false);
+                  setIsSetupFormVisible(false);
                   setIsCoreSetupOpen(true);
                   setIsStrategyShelfOpen(true);
                 }}
-                onSymbolChange={setSymbol}
-                onSpotChange={updateSpot}
-                onVolatilityPctChange={updateVolatilityPct}
-                onCapitalChange={setCapital}
                 strategiesPanel={
                   <CustomComparisonBoard
                     cards={customComparisonCards}
@@ -6323,19 +6818,26 @@ export default function DebitCallSpreadLab({
                     draftError={customDraftError}
                     embedded
                     isEditorOpen={isCustomComparisonEditorOpen}
+                    setupForm={setupFormFields}
                     quickStartCards={isCustomComparisonEditorOpen ? comparisonCards : []}
                     selectedCardId={selectedCustomCardId}
                     showSummary
+                    showSetupForm={isSetupFormVisible}
                     scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
                     scenarioPrice={safeScenarioPrice}
                     symbol={symbol}
                     onDraftChange={setCustomDraft}
                     onAddComparison={addCustomComparison}
-                    onAddCurrentStrategy={canModel ? addCurrentStrategyComparison : undefined}
                     onAnalyzeCard={analyzeCustomComparison}
-                    onClose={() => setIsCustomComparisonEditorOpen(false)}
+                    onClose={() => {
+                      setIsCustomComparisonEditorOpen(false);
+                      setIsSetupFormVisible(false);
+                    }}
                     onOpenEditor={openCustomComparisonEditor}
                     onRemoveComparison={removeCustomComparison}
+                    onToggleSetupForm={() =>
+                      setIsSetupFormVisible((currentValue) => !currentValue)
+                    }
                     onUseQuickStart={useCustomQuickStart}
                   />
                 }
@@ -6357,7 +6859,6 @@ export default function DebitCallSpreadLab({
                   symbol={symbol}
                   onDraftChange={setCustomDraft}
                   onAddComparison={addCustomComparison}
-                  onAddCurrentStrategy={canModel ? addCurrentStrategyComparison : undefined}
                   onAnalyzeCard={analyzeCustomComparison}
                   onClose={() => setIsCustomComparisonEditorOpen(false)}
                   onOpenEditor={openCustomComparisonEditor}
@@ -6430,19 +6931,18 @@ export default function DebitCallSpreadLab({
               <div className="space-y-2">
                 {marketScenarioCard}
 
-                {canModel && comparisonBoardCards.length > 0 ? (
+                {comparisonBoardCards.length > 0 ? (
                   <DecisionComparisonBoard
                     cards={comparisonBoardCards}
                     selectedCardId={selectedComparisonBoardCardId}
                     view={decisionComparisonView}
                     onViewChange={changeDecisionComparisonView}
-                    onAnalyzeCard={analyzeComparisonBoardCard}
                   />
                 ) : (
                   <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600 shadow-sm">
                     <p className="font-medium text-slate-900">Pick a strategy in step 1 first.</p>
                     <p className="mt-1 text-xs text-slate-500">
-                      Once your inputs are valid, the comparison board will rank the available methods.
+                      Once your inputs are valid, the comparison board will show the available outcomes.
                     </p>
                   </div>
                 )}
@@ -6527,7 +7027,7 @@ export default function DebitCallSpreadLab({
                       value={selectedGraphComparison.id}
                       onChange={(event) => setGraphComparisonId(event.target.value)}
                       title={selectedGraphComparison.detail}
-                      className="min-w-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm outline-none focus:border-[#e63946]"
+                      className="min-w-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm outline-none focus:border-[var(--accent)]"
                       aria-label={isTabbedHeatMap ? "Heat map strategy" : "Scenario curve strategy"}
                     >
                       {graphComparisonOptions.map((option) => (
@@ -6560,7 +7060,7 @@ export default function DebitCallSpreadLab({
                           setScenarioGraphView(option.value as ScenarioGraphView)
                         }
                         className={cn(
-                          "min-w-0 truncate rounded-md px-1.5 py-1.5 text-center text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946] min-[360px]:text-sm sm:px-3",
+                          "min-w-0 truncate rounded-md px-1.5 py-1.5 text-center text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] min-[360px]:text-sm sm:px-3",
 	                          activeDisplayGraphView === option.value &&
 	                            "bg-white text-slate-950 shadow-sm",
 	                        )}
@@ -6622,7 +7122,8 @@ export default function DebitCallSpreadLab({
 	                            Best case at expiry
 	                          </p>
 	                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-	                            ≥ {formatCurrency(visualizedSnapshot.breakEvenAtExpiry)}
+	                            {visualizedIsDebitPutSpread ? "≤" : "≥"}{" "}
+                              {formatCurrency(visualizedInputs.shortStrike)}
 	                          </p>
 	                        </div>
 		                        <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
@@ -6670,7 +7171,8 @@ export default function DebitCallSpreadLab({
 	                            Worst case at expiry
 	                          </p>
 	                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-	                            &lt; {formatCurrency(visualizedInputs.longStrike)}
+	                            {visualizedIsDebitPutSpread ? ">" : "<"}{" "}
+                              {formatCurrency(visualizedInputs.longStrike)}
 	                          </p>
 	                        </div>
 		                          <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-rose-700 tabular-nums">
@@ -6751,7 +7253,7 @@ export default function DebitCallSpreadLab({
                 type="button"
                 onClick={() => setShowDetailedTables((isOpen) => !isOpen)}
                 aria-expanded={showDetailedTables}
-                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
               >
                 <span>
                   <span className="block font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">

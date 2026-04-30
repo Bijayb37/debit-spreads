@@ -1,6 +1,7 @@
 import {
   CONTRACT_MULTIPLIER,
   blackScholesCall,
+  blackScholesPut,
   clamp,
   roundTo,
 } from "@/lib/debit-call-spread";
@@ -122,7 +123,12 @@ export function calculateDebitSpreadScenario(
   dte: number,
 ): DebitSpreadScenarioPoint {
   const isLongCall = inputs.strategy === "long-call";
-  const spreadWidth = isLongCall ? 0 : Math.max(inputs.shortStrike - inputs.longStrike, 0);
+  const isPutSpread = inputs.strategy === "debit-put-spread";
+  const spreadWidth = isLongCall
+    ? 0
+    : isPutSpread
+      ? Math.max(inputs.longStrike - inputs.shortStrike, 0)
+      : Math.max(inputs.shortStrike - inputs.longStrike, 0);
   const safeDte = Math.max(Math.round(dte), 0);
   const entryCost = inputs.entryDebit * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
   const maxProfit =
@@ -136,8 +142,18 @@ export function calculateDebitSpreadScenario(
   const rate = inputs.riskFreeRatePct / 100;
   const dividendYield = (inputs.dividendYieldPct ?? 0) / 100;
 
-  const longCallValue =
-    safeDte === 0
+  const longCallValue = isPutSpread
+    ? safeDte === 0
+      ? Math.max(inputs.longStrike - underlyingPrice, 0)
+      : blackScholesPut({
+          spot: underlyingPrice,
+          strike: inputs.longStrike,
+          timeYears,
+          volatility,
+          rate,
+          dividendYield,
+        })
+    : safeDte === 0
       ? Math.max(underlyingPrice - inputs.longStrike, 0)
       : blackScholesCall({
           spot: underlyingPrice,
@@ -149,22 +165,37 @@ export function calculateDebitSpreadScenario(
         });
   const shortCallValue = isLongCall
     ? 0
-    : safeDte === 0
-      ? Math.max(underlyingPrice - inputs.shortStrike, 0)
-      : blackScholesCall({
-          spot: underlyingPrice,
-          strike: inputs.shortStrike,
-          timeYears,
-          volatility,
-          rate,
-          dividendYield,
-        });
+    : isPutSpread
+      ? safeDte === 0
+        ? Math.max(inputs.shortStrike - underlyingPrice, 0)
+        : blackScholesPut({
+            spot: underlyingPrice,
+            strike: inputs.shortStrike,
+            timeYears,
+            volatility,
+            rate,
+            dividendYield,
+          })
+      : safeDte === 0
+        ? Math.max(underlyingPrice - inputs.shortStrike, 0)
+        : blackScholesCall({
+            spot: underlyingPrice,
+            strike: inputs.shortStrike,
+            timeYears,
+            volatility,
+            rate,
+            dividendYield,
+          });
   const spreadValue =
     isLongCall
       ? longCallValue
-      : safeDte === 0
-        ? clamp(Math.max(underlyingPrice - inputs.longStrike, 0), 0, spreadWidth)
-        : clamp(longCallValue - shortCallValue, 0, spreadWidth);
+      : isPutSpread
+        ? safeDte === 0
+          ? clamp(Math.max(inputs.longStrike - underlyingPrice, 0), 0, spreadWidth)
+          : clamp(longCallValue - shortCallValue, 0, spreadWidth)
+        : safeDte === 0
+          ? clamp(Math.max(underlyingPrice - inputs.longStrike, 0), 0, spreadWidth)
+          : clamp(longCallValue - shortCallValue, 0, spreadWidth);
   const positionValue = spreadValue * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
   const profitLoss = positionValue - entryCost;
 
@@ -205,7 +236,12 @@ export function buildDebitSpreadScenarioGrid(
     inputs.currentDte,
   );
   const isLongCall = inputs.strategy === "long-call";
-  const spreadWidth = isLongCall ? 0 : Math.max(inputs.shortStrike - inputs.longStrike, 0);
+  const isPutSpread = inputs.strategy === "debit-put-spread";
+  const spreadWidth = isLongCall
+    ? 0
+    : isPutSpread
+      ? Math.max(inputs.longStrike - inputs.shortStrike, 0)
+      : Math.max(inputs.shortStrike - inputs.longStrike, 0);
   const entryCost = inputs.entryDebit * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
 
   return {
@@ -221,7 +257,9 @@ export function buildDebitSpreadScenarioGrid(
           CONTRACT_MULTIPLIER *
           inputs.numberOfSpreads,
       maxLoss: entryCost,
-      expiryBreakeven: inputs.longStrike + inputs.entryDebit,
+      expiryBreakeven: isPutSpread
+        ? inputs.longStrike - inputs.entryDebit
+        : inputs.longStrike + inputs.entryDebit,
       currentSpreadValue: currentPoint.spreadValue,
       currentPositionValue: currentPoint.positionValue,
       currentProfitLoss: currentPoint.profitLoss,

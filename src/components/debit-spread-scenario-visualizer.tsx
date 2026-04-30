@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 import { cn } from "@/lib/cn";
 import {
   calculateDebitSpreadScenario,
@@ -35,7 +36,7 @@ const METRIC_OPTIONS: Array<{ value: DebitSpreadScenarioMetric; label: string }>
 const CHART_COLORS = {
   primary: "#0f766e",
   expiry: "#059669",
-  selected: "#e63946",
+  selected: "var(--accent)",
   breakeven: "#0f172a",
   muted: "#64748b",
   grid: "#e2e8f0",
@@ -43,6 +44,16 @@ const CHART_COLORS = {
 };
 
 const CURVE_COLORS = ["#0f766e", "#334155", "#64748b", "#94a3b8", "#059669"];
+
+function getRangeTrackStyle(value: number, min: number, max: number): CSSProperties {
+  const span = max - min;
+  const progress =
+    span > 0 ? Math.min(Math.max(((value - min) / span) * 100, 0), 100) : 0;
+
+  return {
+    background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${progress}%, #e2e8f0 ${progress}%, #e2e8f0 100%)`,
+  };
+}
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -78,7 +89,11 @@ function formatMetricValue(
   return formatCurrency(point[metric]);
 }
 
-function scenarioTooltip(point: DebitSpreadScenarioPoint, isLongCall = false): string {
+function scenarioTooltip(
+  point: DebitSpreadScenarioPoint,
+  isLongCall = false,
+  isPutSpread = false,
+): string {
   const rows = [
     `Underlying: ${formatCurrency(point.underlyingPrice)}`,
     `DTE: ${point.dte}`,
@@ -88,8 +103,8 @@ function scenarioTooltip(point: DebitSpreadScenarioPoint, isLongCall = false): s
     rows.push(`Call: ${formatDecimalCurrency(point.spreadValue)}`);
   } else {
     rows.push(
-      `Long call: ${formatDecimalCurrency(point.longCallValue)}`,
-      `Short call: ${formatDecimalCurrency(point.shortCallValue)}`,
+      `Long ${isPutSpread ? "put" : "call"}: ${formatDecimalCurrency(point.longCallValue)}`,
+      `Short ${isPutSpread ? "put" : "call"}: ${formatDecimalCurrency(point.shortCallValue)}`,
       `Spread: ${formatDecimalCurrency(point.spreadValue)}`,
     );
   }
@@ -247,7 +262,8 @@ function MobileRangeValueControl({
         onMouseDown={blurFocusedField}
         onPointerDown={blurFocusedField}
         onTouchStart={blurFocusedField}
-        className="mt-2 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
+        style={getRangeTrackStyle(safeValue, safeMin, safeMax)}
+        className="mt-2 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
       />
     </div>
   );
@@ -307,7 +323,7 @@ function SelectedScenarioPanel({
     <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-[#e63946] text-balance">
+          <h3 className="text-sm font-semibold text-[var(--accent)] text-balance">
             Selected Scenario
           </h3>
           <p className="mt-1 text-xs text-slate-600 text-pretty">
@@ -384,6 +400,7 @@ function HeatmapTab({
   metric,
   selectedScenario,
   isLongCall,
+  isPutSpread,
   onPreview,
   onClearPreview,
   onLock,
@@ -392,6 +409,7 @@ function HeatmapTab({
   metric: DebitSpreadScenarioMetric;
   selectedScenario: DebitSpreadScenarioPoint;
   isLongCall: boolean;
+  isPutSpread: boolean;
   onPreview: (scenario: DebitSpreadScenarioPoint) => void;
   onClearPreview: () => void;
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
@@ -455,8 +473,8 @@ function HeatmapTab({
               aria-pressed={selectedDte === dte}
               onClick={() => selectDte(dte)}
               className={cn(
-                "shrink-0 rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-600 tabular-nums shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
-                selectedDte === dte && "border-[#e63946] bg-[#e63946]/10 text-slate-950",
+                "shrink-0 rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-600 tabular-nums shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                selectedDte === dte && "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950",
               )}
             >
               {dte} DTE
@@ -473,16 +491,16 @@ function HeatmapTab({
               <button
                 key={`mobile-${point.underlyingPrice}-${point.dte}`}
                 type="button"
-                title={scenarioTooltip(point, isLongCall)}
+                title={scenarioTooltip(point, isLongCall, isPutSpread)}
                 aria-label={`${formatCurrency(point.underlyingPrice)} at ${point.dte} DTE: ${formatMetricValue(point, metric)}`}
                 onFocus={() => onPreview(point)}
                 onBlur={onClearPreview}
                 onClick={() => onLock(point)}
                 className={cn(
                   "grid min-h-12 w-full grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-3 py-2 text-left shadow-sm outline-none",
-                  "focus-visible:ring-2 focus-visible:ring-[#e63946]",
+                  "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
                   cellColor(point, grid.summary.maxProfit, grid.summary.maxLoss),
-                  isSelected && "ring-2 ring-[#e63946]",
+                  isSelected && "ring-2 ring-[var(--accent)]",
                 )}
               >
                 <span className="font-mono text-xs font-semibold tabular-nums">
@@ -532,7 +550,7 @@ function HeatmapTab({
                   <button
                     key={`${price}-${dte}`}
                     type="button"
-                    title={scenarioTooltip(point, isLongCall)}
+                    title={scenarioTooltip(point, isLongCall, isPutSpread)}
                     aria-label={`${formatCurrency(price)} at ${dte} DTE: ${formatMetricValue(point, metric)}`}
                     onMouseEnter={() => onPreview(point)}
                     onMouseLeave={onClearPreview}
@@ -541,9 +559,9 @@ function HeatmapTab({
                     onClick={() => onLock(point)}
                     className={cn(
                       "min-h-8 rounded-md px-1.5 py-1 text-center font-mono text-[11px] font-semibold shadow-sm outline-none tabular-nums",
-                      "focus-visible:ring-2 focus-visible:ring-[#e63946]",
+                      "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
                       cellColor(point, grid.summary.maxProfit, grid.summary.maxLoss),
-                      isSelected && "ring-2 ring-[#e63946]",
+                      isSelected && "ring-2 ring-[var(--accent)]",
                     )}
                   >
                     {formatMetricValue(point, metric)}
@@ -574,6 +592,7 @@ function PnlCurveTab({
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
 }) {
   const isLongCall = inputs.strategy === "long-call";
+  const isPutSpread = inputs.strategy === "debit-put-spread";
   const width = 820;
   const height = 340;
   const padding = { top: 34, right: 30, bottom: 52, left: 78 };
@@ -694,7 +713,7 @@ function PnlCurveTab({
             onMouseLeave={onClearPreview}
             onClick={() => onLock(point)}
           >
-            <title>{scenarioTooltip(point, isLongCall)}</title>
+            <title>{scenarioTooltip(point, isLongCall, isPutSpread)}</title>
           </circle>
         ))}
         {[minPrice, inputs.currentPrice, maxPrice].map((tick) => (
@@ -721,6 +740,7 @@ function MultiDateTab({
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
 }) {
   const isLongCall = inputs.strategy === "long-call";
+  const isPutSpread = inputs.strategy === "debit-put-spread";
   const width = 820;
   const height = 340;
   const padding = { top: 28, right: 90, bottom: 52, left: 78 };
@@ -977,7 +997,7 @@ function MultiDateTab({
                 stroke={CHART_COLORS.paper}
                 strokeWidth={2}
               >
-                <title>{scenarioTooltip(selectedPoint, isLongCall)}</title>
+                <title>{scenarioTooltip(selectedPoint, isLongCall, isPutSpread)}</title>
               </circle>
             </g>
           ) : null}
@@ -1033,8 +1053,11 @@ function TimeValueTab({
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
 }) {
   const isLongCall = inputs.strategy === "long-call";
+  const isPutSpread = inputs.strategy === "debit-put-spread";
   const unitLabel = isLongCall ? "Call" : "Spread";
   const [fixedPrice, setFixedPrice] = useState(inputs.currentPrice);
+  const fixedPriceMin = Math.max(1, Math.round(inputs.currentPrice * 0.7));
+  const fixedPriceMax = Math.round(inputs.currentPrice * 1.3);
   const width = 820;
   const height = 320;
   const padding = { top: 26, right: 28, bottom: 50, left: 78 };
@@ -1076,15 +1099,16 @@ function TimeValueTab({
           <span className="text-xs font-semibold text-slate-600">Fixed price</span>
           <input
             type="range"
-            min={Math.max(1, Math.round(inputs.currentPrice * 0.7))}
-            max={Math.round(inputs.currentPrice * 1.3)}
+            min={fixedPriceMin}
+            max={fixedPriceMax}
             step={1}
             value={fixedPrice}
             onChange={(event) => setFixedPrice(Number(event.target.value))}
             onMouseDown={blurFocusedField}
             onPointerDown={blurFocusedField}
             onTouchStart={blurFocusedField}
-            className="w-full accent-[#e63946]"
+            style={getRangeTrackStyle(fixedPrice, fixedPriceMin, fixedPriceMax)}
+            className="h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
           />
           <span className="w-16 text-right font-mono text-xs font-semibold tabular-nums">{formatCurrency(fixedPrice)}</span>
         </label>
@@ -1136,7 +1160,7 @@ function TimeValueTab({
             onMouseLeave={onClearPreview}
             onClick={() => onLock(point)}
           >
-            <title>{scenarioTooltip(point, isLongCall)}</title>
+            <title>{scenarioTooltip(point, isLongCall, isPutSpread)}</title>
           </circle>
         ))}
         {[inputs.currentDte, Math.round(inputs.currentDte / 2), 0].map((dte) => (
@@ -1173,7 +1197,7 @@ function ScenarioTable({
         {dedupedRows.map((row, index) => (
           <div
             key={`mobile-row-${row.underlyingPrice}-${row.dte}-${index}`}
-            className={cn("px-3 py-3", index === 0 && "bg-[#e63946]/10")}
+            className={cn("px-3 py-3", index === 0 && "bg-[var(--accent-soft)]")}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1246,7 +1270,7 @@ function ScenarioTable({
             {dedupedRows.map((row, index) => (
               <tr
                 key={`${row.underlyingPrice}-${row.dte}-${index}`}
-                className={cn(index === 0 ? "bg-[#e63946]/10" : "border-t border-slate-100")}
+                className={cn(index === 0 ? "bg-[var(--accent-soft)]" : "border-t border-slate-100")}
               >
                 <td className="px-4 py-2 font-mono tabular-nums text-slate-950">{formatCurrency(row.underlyingPrice)}</td>
                 <td className="px-4 py-2 font-mono tabular-nums text-slate-950">{row.dte}</td>
@@ -1280,15 +1304,22 @@ export default function DebitSpreadScenarioVisualizer({
 }: DebitSpreadScenarioVisualizerProps) {
   const isHeatmapView = view === "heatmap";
   const isLongCall = inputs.strategy === "long-call";
-  const unitName = isLongCall ? "call" : "spread";
+  const isPutSpread = inputs.strategy === "debit-put-spread";
+  const unitName = isLongCall ? "call" : isPutSpread ? "put spread" : "call spread";
   const [metric, setMetric] = useState<DebitSpreadScenarioMetric>("profitLoss");
   const [heatmapIvPct, setHeatmapIvPct] = useState(inputs.impliedVolatilityPct);
   const [heatmapDteSteps, setHeatmapDteSteps] = useState(7);
   const [heatmapMinPrice, setHeatmapMinPrice] = useState(() =>
-    Math.max(1, Math.round(inputs.currentPrice * 0.7)),
+    Math.max(
+      1,
+      Math.round(
+        Math.min(inputs.currentPrice, isPutSpread ? inputs.shortStrike : inputs.currentPrice) *
+          0.7,
+      ),
+    ),
   );
   const [heatmapMaxPrice, setHeatmapMaxPrice] = useState(() =>
-    Math.max(2, Math.round(inputs.currentPrice * 1.3)),
+    Math.max(2, Math.round(Math.max(inputs.currentPrice, inputs.longStrike) * 1.3)),
   );
   const [heatmapPriceTickSize, setHeatmapPriceTickSize] = useState(() =>
     Math.max(1, Math.round((Math.max(2, inputs.currentPrice * 1.3) - Math.max(1, inputs.currentPrice * 0.7)) / 6)),
@@ -1395,7 +1426,7 @@ export default function DebitSpreadScenarioVisualizer({
                 isRangeSettingsOpen ? "Close range settings" : "Open range settings"
               }
               onClick={() => setIsRangeSettingsOpen((currentValue) => !currentValue)}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
             >
               <span
                 aria-hidden
@@ -1426,7 +1457,7 @@ export default function DebitSpreadScenarioVisualizer({
               type="button"
               aria-expanded={isRangeSettingsOpen}
               onClick={() => setIsRangeSettingsOpen((currentValue) => !currentValue)}
-              className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-[#e63946] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]"
+              className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
             >
               {isRangeSettingsOpen ? "Done" : "Edit"}
             </button>
@@ -1445,8 +1476,8 @@ export default function DebitSpreadScenarioVisualizer({
                       type="button"
                       onClick={() => setMetric(option.value)}
                       className={cn(
-                        "min-w-0 truncate rounded px-1.5 py-1 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#e63946]",
-                        activeMetric === option.value && "bg-[#e63946] text-white shadow-sm",
+                        "min-w-0 truncate rounded px-1.5 py-1 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                        activeMetric === option.value && "bg-[var(--accent)] text-white shadow-sm",
                       )}
                     >
                       {option.label}
@@ -1541,7 +1572,8 @@ export default function DebitSpreadScenarioVisualizer({
                     onMouseDown={blurFocusedField}
                     onPointerDown={blurFocusedField}
                     onTouchStart={blurFocusedField}
-                    className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
+                    style={getRangeTrackStyle(heatmapDteSteps, 2, 15)}
+                    className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
                   />
                   <span className="text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">
                     {heatmapDteSteps}
@@ -1562,7 +1594,8 @@ export default function DebitSpreadScenarioVisualizer({
                     onMouseDown={blurFocusedField}
                     onPointerDown={blurFocusedField}
                     onTouchStart={blurFocusedField}
-                    className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[#e63946]"
+                    style={getRangeTrackStyle(heatmapIvPct, 0, 150)}
+                    className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
                   />
                   <span className="text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">
                     {heatmapIvPct}%
@@ -1580,6 +1613,7 @@ export default function DebitSpreadScenarioVisualizer({
           metric={activeMetric}
           selectedScenario={selectedScenario}
           isLongCall={isLongCall}
+          isPutSpread={isPutSpread}
           onPreview={setHoverScenario}
           onClearPreview={() => setHoverScenario(null)}
           onLock={lockScenario}
