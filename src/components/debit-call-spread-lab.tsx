@@ -55,6 +55,7 @@ type TooltipPosition = {
 
 type ScenarioGraphView = "decay" | "overlay" | "map";
 type ColorScheme = "blue" | "teal" | "graphite" | "red" | "green";
+type MoneyDisplayUnit = "dollars" | "thousands" | "millions";
 
 type TimeDecayPoint = {
   offsetDays: number;
@@ -132,6 +133,8 @@ type NumberSliderFieldProps = {
   onChange: (value: number) => void;
   suffix?: string;
   prefix?: string;
+  displayScale?: number;
+  displaySuffix?: string;
   quickActions?: Array<{
     label: string;
     value: number;
@@ -371,6 +374,7 @@ const DEFAULT_WORKFLOW_TAB: WorkflowTab = "setup";
 const DEFAULT_DECISION_COMPARISON_VIEW: DecisionComparisonView = "cards";
 const DEFAULT_SCENARIO_GRAPH_VIEW: ScenarioGraphView = "decay";
 const COLOR_SCHEME_STORAGE_KEY = "callculator-color-scheme";
+const MONEY_DISPLAY_UNIT_STORAGE_KEY = "callculator-money-display-unit";
 
 const COLOR_SCHEME_OPTIONS: Array<{
   value: ColorScheme;
@@ -404,6 +408,28 @@ const COLOR_SCHEME_OPTIONS: Array<{
   },
 ];
 
+const MONEY_DISPLAY_UNIT_OPTIONS: Array<{
+  value: MoneyDisplayUnit;
+  label: string;
+  helper: string;
+}> = [
+  {
+    value: "dollars",
+    label: "Dollars",
+    helper: "$300,000",
+  },
+  {
+    value: "thousands",
+    label: "Thousands",
+    helper: "$300K",
+  },
+  {
+    value: "millions",
+    label: "Millions",
+    helper: "$0.3M",
+  },
+];
+
 function decodeColorScheme(value: string | null | undefined): ColorScheme {
   return value === "teal" ||
     value === "graphite" ||
@@ -411,6 +437,34 @@ function decodeColorScheme(value: string | null | undefined): ColorScheme {
     value === "green"
     ? value
     : "blue";
+}
+
+function decodeMoneyDisplayUnit(value: string | null | undefined): MoneyDisplayUnit {
+  return value === "thousands" || value === "millions" ? value : "dollars";
+}
+
+function getMoneyDisplayUnitScale(unit: MoneyDisplayUnit): number {
+  if (unit === "millions") {
+    return 1_000_000;
+  }
+
+  if (unit === "thousands") {
+    return 1_000;
+  }
+
+  return 1;
+}
+
+function getMoneyDisplayUnitSuffix(unit: MoneyDisplayUnit): string | undefined {
+  if (unit === "millions") {
+    return "M";
+  }
+
+  if (unit === "thousands") {
+    return "K";
+  }
+
+  return undefined;
 }
 
 function encodeWorkflowTab(tab: WorkflowTab): string {
@@ -792,18 +846,64 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
   };
 }
 
-function formatCurrency(value: number): string {
-  const roundedValue = Math.round(value);
+let activeMoneyDisplayUnit: MoneyDisplayUnit = "dollars";
 
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
+function setActiveMoneyDisplayUnit(unit: MoneyDisplayUnit) {
+  activeMoneyDisplayUnit = unit;
+}
+
+function formatInputDisplayValue(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+
+  const normalizedValue = Object.is(value, -0) ? 0 : value;
+
+  if (Number.isInteger(normalizedValue)) {
+    return String(normalizedValue);
+  }
+
+  return String(roundTo(normalizedValue, 4)).replace(/\.?0+$/, "");
+}
+
+function formatScaledCurrency(value: number, unit: MoneyDisplayUnit): string {
+  const roundedValue = Math.round(value);
+  const safeValue = Object.is(roundedValue, -0) ? 0 : roundedValue;
+  const absValue = Math.abs(safeValue);
+
+  if (unit === "dollars" || absValue < 1000) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(safeValue);
+  }
+
+  const divisor = unit === "millions" ? 1_000_000 : 1_000;
+  const suffix = unit === "millions" ? "M" : "K";
+  const scaledValue = safeValue / divisor;
+  const scaledAbsValue = Math.abs(scaledValue);
+  const sign = safeValue < 0 ? "-" : "";
+  const maximumFractionDigits =
+    scaledAbsValue >= 100 ? 0 : scaledAbsValue >= 10 ? 1 : 2;
+  const formattedValue = new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Object.is(roundedValue, -0) ? 0 : roundedValue);
+    maximumFractionDigits,
+  }).format(scaledAbsValue);
+
+  return `${sign}$${formattedValue}${suffix}`;
+}
+
+function formatCurrency(value: number): string {
+  return formatScaledCurrency(value, activeMoneyDisplayUnit);
 }
 
 function formatCompactCurrency(value: number): string {
+  if (activeMoneyDisplayUnit !== "dollars") {
+    return formatScaledCurrency(value, activeMoneyDisplayUnit);
+  }
+
   const roundedValue = Math.round(value);
   const safeValue = Object.is(roundedValue, -0) ? 0 : roundedValue;
   const sign = safeValue < 0 ? "-" : "";
@@ -1143,17 +1243,39 @@ function WorkflowTabs({
 
 function SettingsWidget({
   colorScheme,
+  moneyDisplayUnit,
   onColorSchemeChange,
+  onMoneyDisplayUnitChange,
 }: {
   colorScheme: ColorScheme;
+  moneyDisplayUnit: MoneyDisplayUnit;
   onColorSchemeChange: (scheme: ColorScheme) => void;
+  onMoneyDisplayUnitChange: (unit: MoneyDisplayUnit) => void;
 }) {
   return (
-    <details className="relative h-full">
-      <summary className="flex h-full min-h-[2.875rem] list-none items-center justify-center rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
-        Settings
+    <details className="relative z-50 h-full">
+      <summary
+        aria-label="Settings"
+        className="flex h-full min-h-10 w-10 list-none items-center justify-center rounded-lg border border-slate-300 bg-white px-0 text-sm font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:min-h-[2.875rem] sm:w-auto sm:px-4"
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 20 20"
+          className="size-4 sm:hidden"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.9"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M4 6h12" />
+          <path d="M4 14h12" />
+          <path d="M7 6a2 2 0 1 0 4 0 2 2 0 0 0-4 0" />
+          <path d="M10 14a2 2 0 1 0 4 0 2 2 0 0 0-4 0" />
+        </svg>
+        <span className="hidden sm:inline">Settings</span>
       </summary>
-      <div className="absolute right-0 z-20 mt-2 w-64 rounded-lg border border-slate-200 bg-white p-3 shadow-lg">
+      <div className="absolute right-0 z-50 mt-2 max-h-[calc(100dvh-7rem)] w-56 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 shadow-xl sm:w-64">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase text-slate-500">Color scheme</p>
           <div className="mt-2 grid gap-1.5" role="radiogroup" aria-label="Color scheme">
@@ -1185,6 +1307,33 @@ function SettingsWidget({
                   {isSelected ? (
                     <span className="font-mono text-xs text-[var(--accent-strong)]">On</span>
                   ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <div className="mt-3 border-t border-slate-200 pt-3">
+          <p className="text-xs font-semibold uppercase text-slate-500">Money units</p>
+          <div className="mt-2 grid gap-1.5" role="radiogroup" aria-label="Money units">
+            {MONEY_DISPLAY_UNIT_OPTIONS.map((option) => {
+              const isSelected = moneyDisplayUnit === option.value;
+
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  onClick={() => onMoneyDisplayUnitChange(option.value)}
+                  className={cn(
+                    "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm font-semibold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                    isSelected
+                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-[var(--accent)] hover:bg-slate-50",
+                  )}
+                >
+                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  <span className="font-mono text-xs text-slate-500">{option.helper}</span>
                 </button>
               );
             })}
@@ -1711,7 +1860,7 @@ function CompactStrategyList({
           const tone = getComparisonCardTone(card);
           const rowContent = (
             <>
-              <div className="min-w-0">
+              <div className="min-w-0 pr-8 md:pr-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span className="truncate font-semibold text-slate-950">
                     {card.label}
@@ -1735,7 +1884,7 @@ function CompactStrategyList({
                 </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 md:contents">
+              <div className="grid grid-cols-2 gap-x-3 gap-y-1 md:contents">
                 <div className="min-w-0 md:text-right">
                   <p className="text-[10px] font-semibold uppercase text-slate-500 md:hidden">
                     P/L
@@ -1779,7 +1928,7 @@ function CompactStrategyList({
                     {card.snapshot.expirationDays}
                   </p>
                 </div>
-                <div className="min-w-0 md:text-right">
+                <div className="min-w-0 col-span-2 md:col-span-1 md:text-right">
                   <p className="text-[10px] font-semibold uppercase text-slate-500 md:hidden">
                     Cost basis
                   </p>
@@ -1791,7 +1940,7 @@ function CompactStrategyList({
             </>
           );
           const rowContentClassName = cn(
-            "relative z-20 grid min-w-0 gap-2 px-3 py-2 text-left text-sm pointer-events-none",
+            "relative z-20 grid min-w-0 gap-1.5 px-2.5 py-2 text-left text-sm pointer-events-none md:gap-2 md:px-3",
             "md:col-span-6 md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem] md:items-center",
           );
 
@@ -1823,15 +1972,15 @@ function CompactStrategyList({
 
               <div className={rowContentClassName}>{rowContent}</div>
 
-              <div className="pointer-events-none relative z-20 flex min-w-0 justify-end gap-1 px-3 pb-2 md:items-center md:px-3 md:py-2">
+              <div className="pointer-events-none absolute right-2 top-2 z-20 flex min-w-0 justify-end gap-1 md:relative md:right-auto md:top-auto md:items-center md:px-3 md:py-2">
                 {onRemoveCard ? (
                   <button
                     type="button"
                     aria-label={`Remove ${card.label}`}
                     onClick={() => onRemoveCard(card.id)}
-                    className="pointer-events-auto inline-flex size-7 items-center justify-center rounded-md border border-transparent bg-transparent text-sm font-semibold text-slate-400 group-hover:text-slate-500 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                    className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-slate-200 bg-white text-base font-semibold leading-none text-slate-500 shadow-sm hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] md:size-7 md:rounded-md md:border-transparent md:bg-transparent md:text-sm md:text-slate-400 md:shadow-none md:group-hover:text-slate-500"
                   >
-                    x
+                    ×
                   </button>
                 ) : null}
               </div>
@@ -2312,6 +2461,8 @@ function CompactNumberInput({
   onChange,
   prefix,
   suffix,
+  displayScale,
+  displaySuffix,
   min = 0,
   step = 1,
   className,
@@ -2321,18 +2472,34 @@ function CompactNumberInput({
   onChange: (value: number) => void;
   prefix?: string;
   suffix?: string;
+  displayScale?: number;
+  displaySuffix?: string;
   min?: number;
   step?: number;
   className?: string;
 }) {
-  const [draftValue, setDraftValue] = useState<string | null>(null);
-  const displayedValue = draftValue ?? String(value);
+  const [draftValue, setDraftValue] = useState<{
+    value: string;
+    displayScale: number;
+  } | null>(null);
+  const safeDisplayScale =
+    displayScale && Number.isFinite(displayScale) && displayScale > 0
+      ? displayScale
+      : 1;
+  const displayedValue =
+    draftValue?.displayScale === safeDisplayScale
+      ? draftValue.value
+      : formatInputDisplayValue(value / safeDisplayScale);
+  const displayMin = min / safeDisplayScale;
+  const displayStep =
+    safeDisplayScale >= 1_000_000 ? 0.01 : safeDisplayScale > 1 ? 1 : step;
 
   const commitDraftValue = () => {
     const parsedValue = Number(displayedValue);
+    const parsedActualValue = parsedValue * safeDisplayScale;
     const nextValue =
       displayedValue.trim() && Number.isFinite(parsedValue)
-        ? Math.max(min, Math.round(parsedValue))
+        ? Math.max(min, Math.round(parsedActualValue))
         : Math.max(1, min);
 
     setDraftValue(null);
@@ -2346,11 +2513,14 @@ function CompactNumberInput({
         {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
         <input
           type="number"
-          min={min}
-          step={step}
+          min={displayMin}
+          step={displayStep}
           value={displayedValue}
           onFocus={() => {
-            setDraftValue(String(value));
+            setDraftValue({
+              value: formatInputDisplayValue(value / safeDisplayScale),
+              displayScale: safeDisplayScale,
+            });
           }}
           onBlur={commitDraftValue}
           onKeyDown={(event) => {
@@ -2362,15 +2532,20 @@ function CompactNumberInput({
             const nextValue = event.target.value;
             const parsedValue = Number(nextValue);
 
-            setDraftValue(nextValue);
+            setDraftValue({ value: nextValue, displayScale: safeDisplayScale });
 
             if (nextValue.trim() && Number.isFinite(parsedValue)) {
-              onChange(Math.max(min, Math.round(parsedValue)));
+              onChange(
+                Math.max(min, Math.round(parsedValue * safeDisplayScale)),
+              );
             }
           }}
           className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-sm font-medium text-slate-950 outline-none tabular-nums"
         />
         {suffix ? <span className="text-sm text-slate-500">{suffix}</span> : null}
+        {displaySuffix ? (
+          <span className="text-sm text-slate-500">{displaySuffix}</span>
+        ) : null}
       </div>
     </label>
   );
@@ -2387,6 +2562,8 @@ function CustomComparisonBoard({
   selectedCardId,
   showSummary,
   showSetupForm = false,
+  moneyDisplayUnitScale = 1,
+  moneyDisplayUnitSuffix,
   scenarioDateLabel,
   scenarioPrice,
   symbol,
@@ -2409,6 +2586,8 @@ function CustomComparisonBoard({
   selectedCardId?: string | null;
   showSummary: boolean;
   showSetupForm?: boolean;
+  moneyDisplayUnitScale?: number;
+  moneyDisplayUnitSuffix?: string;
   scenarioDateLabel: string;
   scenarioPrice: number;
   symbol: string;
@@ -2604,6 +2783,8 @@ function CustomComparisonBoard({
                 value={draft.capital}
                 min={0}
                 prefix="$"
+                displayScale={moneyDisplayUnitScale}
+                displaySuffix={moneyDisplayUnitSuffix}
                 step={100}
                 className="lg:col-span-2 xl:col-span-2"
                 onChange={(nextValue) =>
@@ -2818,6 +2999,8 @@ function NumberSliderField({
   onChange,
   suffix = "",
   prefix = "",
+  displayScale,
+  displaySuffix = "",
   quickActions = [],
   className,
   headerClassName,
@@ -2828,18 +3011,33 @@ function NumberSliderField({
   const helpId = `${fieldId}-help`;
   const dragMaxRef = useRef<number | null>(null);
   const [dragMax, setDragMax] = useState<number | null>(null);
-  const sliderMax = dragMax ?? max;
+  const safeDisplayScale =
+    displayScale && Number.isFinite(displayScale) && displayScale > 0
+      ? displayScale
+      : 1;
+  const sliderMax = dragMax ?? Math.max(max, value);
   const safeValue = clamp(value, min, max);
   const safeSliderValue = clamp(value, min, sliderMax);
   const inputValue =
-    Number.isFinite(value) && (value < min || value > max) ? value : safeValue;
+    Number.isFinite(value) && (value < min || value > max)
+      ? value
+      : safeValue;
+  const displayInputValue = formatInputDisplayValue(
+    inputValue / safeDisplayScale,
+  );
+  const displayMin = min / safeDisplayScale;
+  const displayMax = sliderMax / safeDisplayScale;
+  const displaySliderMax = sliderMax / safeDisplayScale;
+  const displayStep =
+    safeDisplayScale >= 1_000_000 ? 0.01 : safeDisplayScale > 1 ? 1 : step;
+  const displaySuffixLabel = `${suffix}${displaySuffix}`;
   const handleInputChange = (nextValue: number) => {
     if (!Number.isFinite(nextValue)) {
       onChange(0);
       return;
     }
 
-    onChange(Math.max(nextValue, 0));
+    onChange(Math.max(Math.round(nextValue * safeDisplayScale), 0));
   };
   const handleSliderChange = (nextValue: number) => {
     if (dragMaxRef.current === null) {
@@ -2895,18 +3093,20 @@ function NumberSliderField({
             {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
             <input
               type="number"
-              value={inputValue}
-              min={min}
-              max={max}
-              step={step}
+              value={displayInputValue}
+              min={displayMin}
+              max={displayMax}
+              step={displayStep}
               aria-labelledby={labelId}
               aria-describedby={helpId}
-              onKeyDown={(event) => handleNumberKeyDown(event, onChange)}
+              onKeyDown={(event) => handleNumberKeyDown(event, handleInputChange)}
               onInput={(event) => handleInputChange(parseNumberInput(event.currentTarget.value))}
               onChange={(event) => handleInputChange(parseNumberInput(event.target.value))}
               className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none tabular-nums"
             />
-            {suffix ? <span className="text-sm text-slate-500">{suffix}</span> : null}
+            {displaySuffixLabel ? (
+              <span className="text-sm text-slate-500">{displaySuffixLabel}</span>
+            ) : null}
           </div>
         </div>
       </div>
@@ -2936,13 +3136,13 @@ function NumberSliderField({
       <div className="mt-1 grid min-h-4 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums">
         <span className="truncate whitespace-nowrap">
           {prefix}
-          {min}
-          {suffix}
+          {formatInputDisplayValue(displayMin)}
+          {displaySuffixLabel}
         </span>
         <span className="truncate whitespace-nowrap text-right">
           {prefix}
-          {sliderMax}
-          {suffix}
+          {formatInputDisplayValue(displaySliderMax)}
+          {displaySuffixLabel}
         </span>
       </div>
       {quickActions.length > 0 ? (
@@ -4969,6 +5169,8 @@ export default function DebitCallSpreadLab({
   const [decisionComparisonView, setDecisionComparisonView] =
     useState<DecisionComparisonView>(DEFAULT_DECISION_COMPARISON_VIEW);
   const [colorScheme, setColorScheme] = useState<ColorScheme>("blue");
+  const [moneyDisplayUnit, setMoneyDisplayUnit] =
+    useState<MoneyDisplayUnit>("dollars");
   const [isCoreSetupOpen, setIsCoreSetupOpen] = useState(false);
   const [isSetupFormVisible, setIsSetupFormVisible] = useState(false);
   const [isMarketScenarioOpen, setIsMarketScenarioOpen] = useState(false);
@@ -4990,6 +5192,10 @@ export default function DebitCallSpreadLab({
   const strategyCopy = STRATEGY_COPY[strategy];
   const upperStrike = isDebitCallSpread ? shortStrike : longStrike;
   const lowerStrike = isDebitPutSpread ? shortStrike : longStrike;
+
+  setActiveMoneyDisplayUnit(moneyDisplayUnit);
+  const moneyDisplayUnitScale = getMoneyDisplayUnitScale(moneyDisplayUnit);
+  const moneyDisplayUnitSuffix = getMoneyDisplayUnitSuffix(moneyDisplayUnit);
 
   const scenarioPriceSliderMin = Math.max(1, Math.floor(Math.min(spot, lowerStrike) * 0.7));
   const scenarioPriceSliderMax = Math.max(
@@ -5038,6 +5244,11 @@ export default function DebitCallSpreadLab({
 
       hasLoadedColorScheme.current = true;
       setColorScheme(decodeColorScheme(window.localStorage.getItem(COLOR_SCHEME_STORAGE_KEY)));
+      setMoneyDisplayUnit(
+        decodeMoneyDisplayUnit(
+          window.localStorage.getItem(MONEY_DISPLAY_UNIT_STORAGE_KEY),
+        ),
+      );
     });
 
     return () => {
@@ -5055,7 +5266,8 @@ export default function DebitCallSpreadLab({
     }
 
     window.localStorage.setItem(COLOR_SCHEME_STORAGE_KEY, colorScheme);
-  }, [colorScheme]);
+    window.localStorage.setItem(MONEY_DISPLAY_UNIT_STORAGE_KEY, moneyDisplayUnit);
+  }, [colorScheme, moneyDisplayUnit]);
 
   useEffect(() => {
     let isActive = true;
@@ -6276,6 +6488,8 @@ export default function DebitCallSpreadLab({
           value={capital}
           onChange={setCapital}
           prefix="$"
+          displayScale={moneyDisplayUnitScale}
+          displaySuffix={moneyDisplayUnitSuffix}
         />
 
         <div
@@ -6705,6 +6919,8 @@ export default function DebitCallSpreadLab({
         value={capital}
         min={0}
         prefix="$"
+        displayScale={moneyDisplayUnitScale}
+        displaySuffix={moneyDisplayUnitSuffix}
         step={100}
         onChange={(value) => setCapital(Math.max(0, Math.round(value)))}
       />
@@ -6759,14 +6975,14 @@ export default function DebitCallSpreadLab({
             ) : null}
             <div
               className={cn(
-                "grid min-w-0 gap-2",
-                workflowLayout === "tabbed" && "sm:grid-cols-[minmax(0,1fr)_auto]",
+                "relative z-50 grid min-w-0 gap-2",
+                workflowLayout === "tabbed" && "grid-cols-[minmax(0,1fr)_auto]",
               )}
             >
               {workflowLayout === "tabbed" ? (
                 <WorkflowTabs activeTab={activeWorkflowTab} onChange={changeWorkflowTab} />
               ) : null}
-              <div className="flex min-w-0 flex-wrap items-stretch justify-end gap-2">
+              <div className="flex min-w-0 items-stretch justify-end gap-2">
                 {workflowLayout === "guided" ? (
                   <StrategyShelfToggle
                     count={customComparisonCards.length}
@@ -6776,7 +6992,9 @@ export default function DebitCallSpreadLab({
                 ) : null}
                 <SettingsWidget
                   colorScheme={colorScheme}
+                  moneyDisplayUnit={moneyDisplayUnit}
                   onColorSchemeChange={setColorScheme}
+                  onMoneyDisplayUnitChange={setMoneyDisplayUnit}
                 />
               </div>
             </div>
@@ -6823,6 +7041,8 @@ export default function DebitCallSpreadLab({
                     selectedCardId={selectedCustomCardId}
                     showSummary
                     showSetupForm={isSetupFormVisible}
+                    moneyDisplayUnitScale={moneyDisplayUnitScale}
+                    moneyDisplayUnitSuffix={moneyDisplayUnitSuffix}
                     scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
                     scenarioPrice={safeScenarioPrice}
                     symbol={symbol}
@@ -6854,6 +7074,8 @@ export default function DebitCallSpreadLab({
                   quickStartCards={isCustomComparisonEditorOpen ? comparisonCards : []}
                   selectedCardId={selectedCustomCardId}
                   showSummary
+                  moneyDisplayUnitScale={moneyDisplayUnitScale}
+                  moneyDisplayUnitSuffix={moneyDisplayUnitSuffix}
                   scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
                   scenarioPrice={safeScenarioPrice}
                   symbol={symbol}
