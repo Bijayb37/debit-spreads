@@ -381,6 +381,8 @@ const DEFAULT_DECISION_COMPARISON_VIEW: DecisionComparisonView = "cards";
 const DEFAULT_SCENARIO_GRAPH_VIEW: ScenarioGraphView = "decay";
 const COLOR_SCHEME_STORAGE_KEY = "callculator-color-scheme";
 const MONEY_DISPLAY_UNIT_STORAGE_KEY = "callculator-money-display-unit";
+const WORKSPACE_STATE_STORAGE_KEY = "callculator-workspace-state";
+const SAVED_STRATEGIES_STORAGE_KEY = "callculator-saved-strategies";
 const WORKFLOW_TABS: Array<{ value: WorkflowTab; label: string; step: string }> = [
   { value: "setup", label: "Setup", step: "1" },
   { value: "decision", label: "Compare", step: "2" },
@@ -667,6 +669,118 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
     });
 }
 
+function getStoredShareState(defaultExpirationDays: number): ShareState | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    return decodeShareState(
+      window.localStorage.getItem(WORKSPACE_STATE_STORAGE_KEY),
+      defaultExpirationDays,
+    );
+  } catch {
+    return null;
+  }
+}
+
+function storeShareState(state: ShareState) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(WORKSPACE_STATE_STORAGE_KEY, encodeShareState(state));
+  } catch {
+    // Storage can fail in private browsing or when quota is full.
+  }
+}
+
+function getStoredCustomComparisons(): CustomComparisonConfig[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  try {
+    return decodeCustomComparisons(
+      window.localStorage.getItem(SAVED_STRATEGIES_STORAGE_KEY) ?? undefined,
+    );
+  } catch {
+    return [];
+  }
+}
+
+function storeCustomComparisons(comparisons: CustomComparisonConfig[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (comparisons.length === 0) {
+      window.localStorage.removeItem(SAVED_STRATEGIES_STORAGE_KEY);
+      return;
+    }
+
+    window.localStorage.setItem(
+      SAVED_STRATEGIES_STORAGE_KEY,
+      encodeCustomComparisons(comparisons),
+    );
+  } catch {
+    // Storage can fail in private browsing or when quota is full. The URL state still works.
+  }
+}
+
+function getCustomComparisonCounterSeed(
+  comparisons: CustomComparisonConfig[],
+): number {
+  const idCounters = comparisons.map((comparison) => {
+    const match = /^custom-(\d+)-/.exec(comparison.id);
+    return match ? Number(match[1]) : 0;
+  });
+
+  return Math.max(comparisons.length, ...idCounters, 0);
+}
+
+function clearAppUrlState() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const appUrlParams = [SHARE_PARAM, WORKFLOW_TAB_PARAM, "decision", "view"];
+  const searchParams = new URLSearchParams(window.location.search);
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  let didChangeSearch = false;
+  let didChangeHash = false;
+
+  appUrlParams.forEach((param) => {
+    if (searchParams.has(param)) {
+      searchParams.delete(param);
+      didChangeSearch = true;
+    }
+
+    if (hashParams.has(param)) {
+      hashParams.delete(param);
+      didChangeHash = true;
+    }
+  });
+
+  if (!didChangeSearch && !didChangeHash) {
+    return;
+  }
+
+  const nextSearch = searchParams.toString();
+  const nextHash = didChangeHash
+    ? hashParams.toString()
+    : window.location.hash.replace(/^#/, "");
+  const nextUrl = [
+    window.location.pathname,
+    nextSearch ? `?${nextSearch}` : "",
+    nextHash ? `#${nextHash}` : "",
+  ].join("");
+
+  window.history.replaceState(null, "", nextUrl);
+}
+
 function encodeShareState(state: ShareState): string {
   const parts = [
     SHARE_VERSION,
@@ -742,32 +856,6 @@ function getWorkflowTabFromUrl(): WorkflowTab | null {
   const token = hashParams.get(WORKFLOW_TAB_PARAM) ?? searchParams.get(WORKFLOW_TAB_PARAM);
 
   return token ? decodeWorkflowTab(token) : null;
-}
-
-function replaceShareHash(
-  nextState: string,
-  workflowTab: WorkflowTab,
-) {
-  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-
-  const nextWorkflowTab = encodeWorkflowTab(workflowTab);
-
-  if (
-    hashParams.get(SHARE_PARAM) === nextState &&
-    (hashParams.get(WORKFLOW_TAB_PARAM) ?? encodeWorkflowTab(DEFAULT_WORKFLOW_TAB)) === nextWorkflowTab &&
-    !hashParams.has("view")
-  ) {
-    return;
-  }
-
-  hashParams.set(SHARE_PARAM, nextState);
-  hashParams.set(WORKFLOW_TAB_PARAM, nextWorkflowTab);
-  hashParams.delete("view");
-  window.history.replaceState(
-    null,
-    "",
-    `${window.location.pathname}${window.location.search}#${hashParams.toString()}`,
-  );
 }
 
 function decodeShareState(value: string | null, defaultExpirationDays: number): ShareState | null {
@@ -5394,7 +5482,10 @@ export default function DebitCallSpreadLab({
 
   useEffect(() => {
     let isActive = true;
-    const sharedState = getShareStateFromUrl(defaultExpirationDays);
+    const urlState = getShareStateFromUrl(defaultExpirationDays);
+    const storedState = urlState ? null : getStoredShareState(defaultExpirationDays);
+    const initialState = urlState ?? storedState;
+    const storedCustomComparisons = initialState ? [] : getStoredCustomComparisons();
     const explicitWorkflowTab = getWorkflowTabFromUrl();
     const explicitDecisionComparisonView = getDecisionComparisonViewFromUrl();
 
@@ -5403,27 +5494,36 @@ export default function DebitCallSpreadLab({
         return;
       }
 
-      if (sharedState) {
-        setStrategy(sharedState.strategy);
-        setSymbol(sharedState.symbol);
-        setSpot(sharedState.spot);
-        setVolatilityPct(sharedState.volatilityPct);
-        setFutureVolatilityPct(sharedState.futureVolatilityPct);
-        setLongStrike(sharedState.longStrike);
-        setShortStrike(sharedState.shortStrike);
-        setCapital(sharedState.capital);
-        setAllowFractionalContracts(sharedState.allowFractionalContracts);
-        setExpirationDays(sharedState.expirationDays);
-        setScenarioPrice(sharedState.scenarioPrice);
+      if (initialState) {
+        setStrategy(initialState.strategy);
+        setSymbol(initialState.symbol);
+        setSpot(initialState.spot);
+        setVolatilityPct(initialState.volatilityPct);
+        setFutureVolatilityPct(initialState.futureVolatilityPct);
+        setLongStrike(initialState.longStrike);
+        setShortStrike(initialState.shortStrike);
+        setCapital(initialState.capital);
+        setAllowFractionalContracts(initialState.allowFractionalContracts);
+        setExpirationDays(initialState.expirationDays);
+        setScenarioPrice(initialState.scenarioPrice);
         setScenarioPriceDraft(null);
-        setScenarioGraphView(sharedState.scenarioGraphView);
-        setScenarioOffsetDays(sharedState.scenarioOffsetDays);
-        setRatePct(sharedState.ratePct);
-        setRatePctDraft(compactNumber(sharedState.ratePct));
-        setComparisonPanelMode(sharedState.comparisonPanelMode);
-        setCustomComparisons(sharedState.customComparisons);
-        setGraphComparisonId(sharedState.graphComparisonId);
-        setActiveWorkflowTab(sharedState.workflowTab);
+        setScenarioGraphView(initialState.scenarioGraphView);
+        setScenarioOffsetDays(initialState.scenarioOffsetDays);
+        setRatePct(initialState.ratePct);
+        setRatePctDraft(compactNumber(initialState.ratePct));
+        setComparisonPanelMode(initialState.comparisonPanelMode);
+        setCustomComparisons(initialState.customComparisons);
+        customComparisonIdCounter.current = getCustomComparisonCounterSeed(
+          initialState.customComparisons,
+        );
+        setGraphComparisonId(initialState.graphComparisonId);
+        setActiveWorkflowTab(initialState.workflowTab);
+      } else if (storedCustomComparisons.length > 0) {
+        setCustomComparisons(storedCustomComparisons);
+        customComparisonIdCounter.current = getCustomComparisonCounterSeed(
+          storedCustomComparisons,
+        );
+        setComparisonPanelMode("custom");
       }
 
       if (explicitWorkflowTab) {
@@ -5432,6 +5532,10 @@ export default function DebitCallSpreadLab({
 
       if (explicitDecisionComparisonView) {
         setDecisionComparisonView(explicitDecisionComparisonView);
+      }
+
+      if (urlState || explicitWorkflowTab || explicitDecisionComparisonView) {
+        clearAppUrlState();
       }
 
       setIsUrlStateReady(true);
@@ -5447,7 +5551,15 @@ export default function DebitCallSpreadLab({
       return;
     }
 
-    const nextState = encodeShareState({
+    storeCustomComparisons(customComparisons);
+  }, [customComparisons, isUrlStateReady]);
+
+  useEffect(() => {
+    if (!isUrlStateReady) {
+      return;
+    }
+
+    storeShareState({
       strategy,
       symbol,
       spot,
@@ -5467,7 +5579,6 @@ export default function DebitCallSpreadLab({
       graphComparisonId,
       workflowTab: activeWorkflowTab,
     });
-    replaceShareHash(nextState, activeWorkflowTab);
   }, [
     allowFractionalContracts,
     capital,
@@ -5488,7 +5599,7 @@ export default function DebitCallSpreadLab({
     symbol,
     volatilityPct,
     isUrlStateReady,
-	  ]);
+  ]);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
