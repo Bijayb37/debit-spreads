@@ -133,6 +133,7 @@ type NumberSliderFieldProps = {
   onChange: (value: number) => void;
   suffix?: string;
   prefix?: string;
+  allowDecimals?: boolean;
   displayScale?: number;
   displaySuffix?: string;
   quickActions?: Array<{
@@ -175,6 +176,11 @@ type TableColumn<Row> = {
   muted?: boolean;
   render: (row: Row) => ReactNode;
 };
+
+const TOP_BAR_REVEAL_SCROLL_TOP = 24;
+const TOP_BAR_SCROLL_DELTA = 8;
+const TOP_BAR_HOVER_REVEAL_HEIGHT = 16;
+const TOP_BAR_HOVER_HIDE_Y = 96;
 
 type ResultsTableProps<Row extends { id: string; isHighlighted?: boolean }> = {
   title: string;
@@ -375,6 +381,12 @@ const DEFAULT_DECISION_COMPARISON_VIEW: DecisionComparisonView = "cards";
 const DEFAULT_SCENARIO_GRAPH_VIEW: ScenarioGraphView = "decay";
 const COLOR_SCHEME_STORAGE_KEY = "callculator-color-scheme";
 const MONEY_DISPLAY_UNIT_STORAGE_KEY = "callculator-money-display-unit";
+const WORKFLOW_TABS: Array<{ value: WorkflowTab; label: string; step: string }> = [
+  { value: "setup", label: "Setup", step: "1" },
+  { value: "decision", label: "Compare", step: "2" },
+  { value: "heatmap", label: "Heat map", step: "3" },
+  { value: "analysis", label: "Analyze", step: "4" },
+];
 
 const COLOR_SCHEME_OPTIONS: Array<{
   value: ColorScheme;
@@ -801,9 +813,9 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     strategy,
     symbol: decodeShareText(symbolToken, "NVDA").toUpperCase(),
     spot: Math.max(1, Math.round(parseShareNumber(spotToken, 100))),
-    volatilityPct: clamp(Math.round(parseShareNumber(volatilityToken, 50)), 0, 300),
+    volatilityPct: clamp(parseShareNumber(volatilityToken, 50), 0, 300),
     futureVolatilityPct: clamp(
-      Math.round(parseShareNumber(futureVolatilityToken, 50)),
+      parseShareNumber(futureVolatilityToken, 50),
       0,
       300,
     ),
@@ -1195,19 +1207,12 @@ function WorkflowTabs({
   activeTab: WorkflowTab;
   onChange: (tab: WorkflowTab) => void;
 }) {
-  const tabs: Array<{ value: WorkflowTab; label: string; step: string }> = [
-    { value: "setup", label: "Setup", step: "1" },
-    { value: "decision", label: "Compare", step: "2" },
-    { value: "heatmap", label: "Heat map", step: "3" },
-    { value: "analysis", label: "Analyze", step: "4" },
-  ];
-
   return (
     <div
       className="grid min-w-0 grid-cols-4 rounded-lg border border-slate-200 bg-slate-100 p-1 shadow-sm"
       aria-label="Workflow"
     >
-      {tabs.map((tab) => {
+      {WORKFLOW_TABS.map((tab) => {
         const isActive = activeTab === tab.value;
         return (
           <button
@@ -1411,7 +1416,12 @@ function ActiveSetupStrip({
   const savedStrategyLabel = `${strategyCount} saved`;
 
   return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm">
+    <div
+      className={cn(
+        "min-w-0 overflow-hidden rounded-lg border bg-white shadow-sm transition-colors hover:border-[var(--accent)] hover:bg-slate-50",
+        isOpen ? "border-[var(--accent)]" : "border-slate-200",
+      )}
+    >
       <button
         type="button"
         aria-expanded={isOpen}
@@ -1419,20 +1429,18 @@ function ActiveSetupStrip({
         aria-label={isOpen ? "Close setup and strategies" : "Open setup and strategies"}
         title={isOpen ? "Close setup and strategies" : "Open setup and strategies"}
         onClick={isOpen ? onToggle : onOpen}
-        className={cn(
-          "flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left text-sm text-slate-600 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:px-3",
-          isOpen
-            ? "border-[var(--accent)] bg-[var(--accent-soft)]"
-            : "border-transparent bg-slate-50 hover:border-[var(--accent)] hover:bg-white",
-        )}
+        className="grid w-full min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-2 bg-transparent px-2 py-1 text-left text-sm text-slate-600 transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-[var(--accent)] sm:px-2.5"
       >
         <span
           aria-hidden
-          className="flex size-7 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm"
+          className={cn(
+            "flex size-6 shrink-0 items-center justify-center rounded-full border bg-white text-slate-700 shadow-sm transition-colors",
+            isOpen ? "border-[var(--accent-border)] text-slate-950" : "border-slate-300",
+          )}
         >
           <svg
             viewBox="0 0 20 20"
-            className="size-4"
+            className="size-3"
             fill="none"
             stroke="currentColor"
             strokeWidth="2.25"
@@ -1442,40 +1450,45 @@ function ActiveSetupStrip({
             <path d={isOpen ? "M5 12l5-5 5 5" : "M5 8l5 5 5-5"} />
           </svg>
         </span>
-        <span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1">
-          <span className="shrink-0 text-[11px] font-semibold uppercase text-slate-500">
-            Setup + strategy
-          </span>
-          <span className="inline-flex min-w-0 items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 shadow-sm">
-              <span className="font-[family:var(--font-space-grotesk)] text-[15px] font-semibold leading-none text-slate-950">
+        <span className="grid min-w-0 gap-1.5 md:grid-cols-2">
+          <span className="grid min-w-0 gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+              Setup
+            </span>
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-slate-950">
                 {symbol.trim() || "Underlying"}
               </span>
-              <span className="hidden h-4 w-px bg-slate-200 sm:block" aria-hidden />
-              <span className="font-mono text-[13px] font-medium tabular-nums text-slate-700">
+              <span className="font-mono text-[11px] font-medium tabular-nums text-slate-600">
                 {formatCurrency(spot)} spot
               </span>
-              <span className="font-mono text-[13px] font-medium tabular-nums text-slate-700">
-                {Math.round(volatilityPct)}% IV
+              <span className="font-mono text-[11px] font-medium tabular-nums text-slate-600">
+                {compactNumber(volatilityPct)}% IV
               </span>
-              <span className="font-mono text-[13px] font-medium tabular-nums text-slate-700">
+              <span className="font-mono text-[11px] font-medium tabular-nums text-slate-600">
                 {formatCurrency(capital)}
               </span>
             </span>
-          <span className="inline-flex min-w-0 items-center gap-2 rounded-md border border-[var(--accent-border)] bg-[var(--accent-faint)] px-2 py-1">
-              <span className="font-[family:var(--font-space-grotesk)] text-[15px] font-semibold leading-none text-slate-950">
+          </span>
+          <span className="grid min-w-0 gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
+            <span className="text-[9px] font-semibold uppercase tracking-wide text-slate-500">
+              Strategy
+            </span>
+            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-slate-950">
                 {strategyLabel}
               </span>
-              <span className="hidden h-4 w-px bg-[var(--accent-border)] sm:block" aria-hidden />
-              <span className="min-w-0 truncate font-mono text-[13px] font-medium tabular-nums text-slate-700">
+              <span className="min-w-0 truncate font-mono text-[11px] font-medium tabular-nums text-slate-600">
                 {structure}
               </span>
-              <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 font-mono text-[11px] font-semibold tabular-nums text-slate-700">
+              <span className="shrink-0 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none tabular-nums text-slate-700">
                 {expirationDays} DTE
               </span>
+              <span className="shrink-0 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none tabular-nums text-slate-700 shadow-sm">
+                {savedStrategyLabel}
+              </span>
             </span>
-        </span>
-        <span className="hidden shrink-0 rounded-full border border-[var(--accent-border)] bg-white px-2.5 py-1 font-mono text-xs font-semibold text-slate-700 tabular-nums md:inline-flex">
-          {savedStrategyLabel}
+          </span>
         </span>
       </button>
 
@@ -1504,7 +1517,7 @@ function SetupSummaryStrip({
   const items = [
     ["Ticker", symbol.trim() || "Underlying"],
     ["Current price", formatCurrency(spot)],
-    ["Current IV", `${Math.round(volatilityPct)}%`],
+    ["Current IV", `${compactNumber(volatilityPct)}%`],
   ];
 
   return (
@@ -1530,6 +1543,22 @@ function getComparisonStrikeLabel(candidate: ComparisonCandidate): string {
   }
 
   return `${formatCurrency(candidate.longStrike)} / ${formatCurrency(candidate.shortStrike)}`;
+}
+
+function getComparisonSetupLabel(candidate: ComparisonCandidate): string {
+  const details = [
+    candidate.symbol?.trim() || null,
+    Number.isFinite(candidate.spot)
+      ? `${formatCurrency(candidate.spot ?? 0)} spot`
+      : null,
+    Number.isFinite(candidate.volatilityPct)
+      ? `${compactNumber(candidate.volatilityPct ?? 0)}% IV`
+      : null,
+    formatCompactCurrency(candidate.capital),
+    `${candidate.expirationDays} DTE`,
+  ];
+
+  return details.filter(Boolean).join(" · ");
 }
 
 function getStrategyDisplayLabel(strategy: OptionStrategy): string {
@@ -1571,7 +1600,7 @@ function applyComparisonToInputs(
       candidate.shortStrike,
     ),
     volatilityPct: candidate.volatilityPct ?? inputs.volatilityPct,
-    futureVolatilityPct: candidate.futureVolatilityPct ?? inputs.futureVolatilityPct,
+    futureVolatilityPct: inputs.futureVolatilityPct,
     capital: candidate.capital,
     expiryIso: addDaysToIso(lockedTodayIso, lockedExpirationDays),
     allowFractionalContracts: candidate.allowFractionalContracts,
@@ -1833,18 +1862,22 @@ function ComparisonCardGrid({
 
 function CompactStrategyList({
   cards,
+  editingCardId,
   selectedCardId,
   onAnalyzeCard,
+  onEditCard,
   onRemoveCard,
 }: {
   cards: ComparisonCardData[];
+  editingCardId?: string | null;
   selectedCardId?: string | null;
   onAnalyzeCard?: ComparisonCardAction;
+  onEditCard?: ComparisonCardAction;
   onRemoveCard?: (id: string) => void;
 }) {
   return (
     <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="hidden grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_6rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase text-slate-500 md:grid">
+      <div className="hidden grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9.5rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase text-slate-500 md:grid">
         <span>Strategy</span>
         <span className="text-right">P/L</span>
         <span className="text-right">Return</span>
@@ -1856,6 +1889,7 @@ function CompactStrategyList({
       <div className="divide-y divide-slate-200">
         {cards.map((card) => {
           const isSelected = card.id === selectedCardId;
+          const isEditing = card.id === editingCardId;
           const pnlIsPositive = card.snapshot.pnl >= 0;
           const tone = getComparisonCardTone(card);
           const rowContent = (
@@ -1878,9 +1912,14 @@ function CompactStrategyList({
                       Selected
                     </span>
                   ) : null}
+                  {isEditing ? (
+                    <span className="rounded-full border border-[var(--accent-border)] bg-white px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--accent-strong)]">
+                      Editing
+                    </span>
+                  ) : null}
                 </div>
                 <p className="mt-0.5 truncate font-mono text-xs text-slate-500 tabular-nums">
-                  {getComparisonStrikeLabel(card)}
+                  {getComparisonSetupLabel(card)}
                 </p>
               </div>
 
@@ -1948,9 +1987,10 @@ function CompactStrategyList({
             <article
               key={card.id}
               className={cn(
-                "group relative grid min-w-0 bg-white text-sm transition-colors md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_6rem] md:items-stretch",
+                "group relative grid min-w-0 bg-white text-sm transition-colors md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9.5rem] md:items-stretch",
                 onAnalyzeCard && !isSelected && "hover:bg-[var(--accent-faint)] focus-within:bg-[var(--accent-faint)]",
                 isSelected && "bg-[var(--accent-soft)]",
+                isEditing && "bg-[var(--accent-faint)] ring-1 ring-inset ring-[var(--accent)]",
               )}
             >
               {isSelected ? (
@@ -1972,15 +2012,30 @@ function CompactStrategyList({
 
               <div className={rowContentClassName}>{rowContent}</div>
 
-              <div className="pointer-events-none absolute right-2 top-2 z-20 flex min-w-0 justify-end gap-1 md:relative md:right-auto md:top-auto md:items-center md:px-3 md:py-2">
+              <div className="relative z-20 flex min-w-0 flex-nowrap justify-end gap-1.5 px-2.5 pb-2 md:items-center md:px-3 md:py-2">
+                {onEditCard ? (
+                  <button
+                    type="button"
+                    aria-label={`Edit ${card.label}`}
+                    onClick={() => onEditCard(card)}
+                    className={cn(
+                      "inline-flex h-8 cursor-pointer items-center justify-center rounded-md border px-2.5 text-xs font-semibold shadow-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                      isEditing
+                        ? "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-[var(--accent)] hover:bg-[var(--accent-faint)] hover:text-slate-950",
+                    )}
+                  >
+                    {isEditing ? "Editing" : "Edit"}
+                  </button>
+                ) : null}
                 {onRemoveCard ? (
                   <button
                     type="button"
                     aria-label={`Remove ${card.label}`}
                     onClick={() => onRemoveCard(card.id)}
-                    className="pointer-events-auto inline-flex size-8 items-center justify-center rounded-full border border-slate-200 bg-white text-base font-semibold leading-none text-slate-500 shadow-sm hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] md:size-7 md:rounded-md md:border-transparent md:bg-transparent md:text-sm md:text-slate-400 md:shadow-none md:group-hover:text-slate-500"
+                    className="inline-flex h-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-500 shadow-sm transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
                   >
-                    ×
+                    Delete
                   </button>
                 ) : null}
               </div>
@@ -2095,9 +2150,14 @@ function DecisionOutcomeCards({
             className="min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm"
           >
             <div className="flex min-w-0 items-center justify-between gap-2 bg-slate-950 px-3 py-2 text-white">
-              <h3 className="min-w-0 truncate font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-tight text-balance">
-                {getOutcomeStrategyTitle(card)}
-              </h3>
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+                <h3 className="min-w-0 truncate font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-tight text-balance">
+                  {card.label}
+                </h3>
+                <p className="min-w-0 truncate font-mono text-xs font-medium text-slate-300 tabular-nums">
+                  {getComparisonStrikeLabel(card)}
+                </p>
+              </div>
               {isSelected ? (
                 <span className="shrink-0 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
                   Selected
@@ -2461,6 +2521,7 @@ function CompactNumberInput({
   onChange,
   prefix,
   suffix,
+  allowDecimals = false,
   displayScale,
   displaySuffix,
   min = 0,
@@ -2472,6 +2533,7 @@ function CompactNumberInput({
   onChange: (value: number) => void;
   prefix?: string;
   suffix?: string;
+  allowDecimals?: boolean;
   displayScale?: number;
   displaySuffix?: string;
   min?: number;
@@ -2493,13 +2555,15 @@ function CompactNumberInput({
   const displayMin = min / safeDisplayScale;
   const displayStep =
     safeDisplayScale >= 1_000_000 ? 0.01 : safeDisplayScale > 1 ? 1 : step;
+  const normalizeValue = (nextValue: number) =>
+    allowDecimals ? roundTo(nextValue, 4) : Math.round(nextValue);
 
   const commitDraftValue = () => {
     const parsedValue = Number(displayedValue);
     const parsedActualValue = parsedValue * safeDisplayScale;
     const nextValue =
       displayedValue.trim() && Number.isFinite(parsedValue)
-        ? Math.max(min, Math.round(parsedActualValue))
+        ? Math.max(min, normalizeValue(parsedActualValue))
         : Math.max(1, min);
 
     setDraftValue(null);
@@ -2536,7 +2600,7 @@ function CompactNumberInput({
 
             if (nextValue.trim() && Number.isFinite(parsedValue)) {
               onChange(
-                Math.max(min, Math.round(parsedValue * safeDisplayScale)),
+                Math.max(min, normalizeValue(parsedValue * safeDisplayScale)),
               );
             }
           }}
@@ -2559,9 +2623,11 @@ function CustomComparisonBoard({
   isEditorOpen,
   setupForm,
   quickStartCards,
+  editingComparisonId,
   selectedCardId,
   showSummary,
   showSetupForm = false,
+  saveActionLabel = "Save strategy",
   moneyDisplayUnitScale = 1,
   moneyDisplayUnitSuffix,
   scenarioDateLabel,
@@ -2572,6 +2638,7 @@ function CustomComparisonBoard({
   onOpenEditor,
   onToggleSetupForm,
   onAnalyzeCard,
+  onEditComparison,
   onClose,
   onRemoveComparison,
   onUseQuickStart,
@@ -2583,9 +2650,11 @@ function CustomComparisonBoard({
   isEditorOpen: boolean;
   setupForm?: ReactNode;
   quickStartCards: ComparisonCardData[];
+  editingComparisonId?: string | null;
   selectedCardId?: string | null;
   showSummary: boolean;
   showSetupForm?: boolean;
+  saveActionLabel?: string;
   moneyDisplayUnitScale?: number;
   moneyDisplayUnitSuffix?: string;
   scenarioDateLabel: string;
@@ -2596,37 +2665,52 @@ function CustomComparisonBoard({
   onOpenEditor?: () => void;
   onToggleSetupForm?: () => void;
   onAnalyzeCard?: ComparisonCardAction;
+  onEditComparison?: ComparisonCardAction;
   onClose?: () => void;
   onRemoveComparison: (id: string) => void;
   onUseQuickStart: (card: ComparisonCardData) => void;
 }) {
   const isSpreadDraft = isDebitSpreadStrategy(draft.strategy);
   const isPutSpreadDraft = draft.strategy === "debit-put-spread";
+  const isEditingMode = Boolean(editingComparisonId);
   const actionContent =
     isEditorOpen || onOpenEditor ? (
       <div className="flex min-w-0 flex-wrap justify-end gap-2">
         {isEditorOpen && quickStartCards.length > 0 ? (
-          <details className="relative">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]">
-              Start with
-              <span className="text-slate-500">▾</span>
-            </summary>
-            <div className="absolute right-0 z-20 mt-2 grid w-56 gap-1 rounded-lg border border-slate-200 bg-white p-1.5 shadow-lg">
+          <label className="relative min-w-0">
+            <span className="sr-only">Start with preset strategy</span>
+            <select
+              value=""
+              onChange={(event) => {
+                const selectedCard = quickStartCards.find(
+                  (card) => card.id === event.target.value,
+                );
+
+                if (selectedCard) {
+                  onUseQuickStart(selectedCard);
+                }
+              }}
+              className="h-9 max-w-full cursor-pointer appearance-none rounded-md border border-slate-300 bg-white py-0 pl-3 pr-8 text-xs font-semibold text-slate-700 shadow-sm outline-none hover:border-[var(--accent)] hover:text-slate-950 focus:border-[var(--accent)] focus:outline-2 focus:outline-offset-2 focus:outline-[var(--accent)]"
+            >
+              <option value="" disabled>
+                Start with
+              </option>
               {quickStartCards.map((card) => (
-                <button
+                <option
                   key={card.id}
-                  type="button"
-                  onClick={(event) => {
-                    onUseQuickStart(card);
-                    event.currentTarget.closest("details")?.removeAttribute("open");
-                  }}
-                  className="rounded-md px-2.5 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-[var(--accent-soft)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                  value={card.id}
                 >
                   {card.label}
-                </button>
+                </option>
               ))}
-            </div>
-          </details>
+            </select>
+            <span
+              aria-hidden
+              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-500"
+            >
+              ▾
+            </span>
+          </label>
         ) : null}
         {isEditorOpen ? (
           <button
@@ -2635,7 +2719,7 @@ function CustomComparisonBoard({
             onClick={onAddComparison}
             className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
           >
-            Save strategy
+            {saveActionLabel}
           </button>
         ) : null}
         {!isEditorOpen && onToggleSetupForm ? (
@@ -2670,7 +2754,27 @@ function CustomComparisonBoard({
   const boardContent = (
     <>
       {showSetupForm && setupForm ? (
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-2 shadow-sm">
+        <div
+          className={cn(
+            "rounded-md border bg-slate-50 p-2 shadow-sm",
+            isEditingMode ? "border-[var(--accent)]" : "border-slate-200",
+          )}
+        >
+          {isEditingMode ? (
+            <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--accent-border)] bg-white px-2.5 py-2">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent-strong)]">
+                  Editing saved strategy
+                </p>
+                <p className="mt-0.5 truncate text-xs text-slate-600">
+                  Setup changes will be saved with this strategy.
+                </p>
+              </div>
+              <span className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-semibold text-white">
+                Edit mode
+              </span>
+            </div>
+          ) : null}
           {setupForm}
         </div>
       ) : null}
@@ -2678,6 +2782,11 @@ function CustomComparisonBoard({
       {isEditorOpen ? (
         <>
           <div className={cn("rounded-md border border-slate-200 bg-slate-50 p-2 shadow-sm", showSetupForm && setupForm && "mt-2")}>
+            {isEditingMode ? (
+              <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-[var(--accent-border)] bg-[var(--accent-faint)] px-2.5 py-2 text-xs font-semibold text-[var(--accent-strong)]">
+                Editing existing strategy
+              </div>
+            ) : null}
             <div className="grid min-w-0 gap-x-2 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-12">
               <label className="block min-w-0 sm:col-span-2 lg:col-span-2 xl:col-span-3">
                 <span className="text-xs font-medium text-slate-500">Strategy name</span>
@@ -2836,8 +2945,10 @@ function CustomComparisonBoard({
             embedded ? (
               <CompactStrategyList
                 cards={cards}
+                editingCardId={editingComparisonId}
                 selectedCardId={selectedCardId}
                 onAnalyzeCard={onAnalyzeCard}
+                onEditCard={onEditComparison}
                 onRemoveCard={onRemoveComparison}
               />
             ) : (
@@ -2999,6 +3110,7 @@ function NumberSliderField({
   onChange,
   suffix = "",
   prefix = "",
+  allowDecimals = false,
   displayScale,
   displaySuffix = "",
   quickActions = [],
@@ -3031,13 +3143,16 @@ function NumberSliderField({
   const displayStep =
     safeDisplayScale >= 1_000_000 ? 0.01 : safeDisplayScale > 1 ? 1 : step;
   const displaySuffixLabel = `${suffix}${displaySuffix}`;
+  const parseInputValue = allowDecimals ? parseDecimalInput : parseNumberInput;
+  const normalizeActualValue = (nextValue: number) =>
+    allowDecimals ? roundTo(nextValue, 4) : Math.round(nextValue);
   const handleInputChange = (nextValue: number) => {
     if (!Number.isFinite(nextValue)) {
       onChange(0);
       return;
     }
 
-    onChange(Math.max(Math.round(nextValue * safeDisplayScale), 0));
+    onChange(Math.max(normalizeActualValue(nextValue * safeDisplayScale), 0));
   };
   const handleSliderChange = (nextValue: number) => {
     if (dragMaxRef.current === null) {
@@ -3100,8 +3215,8 @@ function NumberSliderField({
               aria-labelledby={labelId}
               aria-describedby={helpId}
               onKeyDown={(event) => handleNumberKeyDown(event, handleInputChange)}
-              onInput={(event) => handleInputChange(parseNumberInput(event.currentTarget.value))}
-              onChange={(event) => handleInputChange(parseNumberInput(event.target.value))}
+              onInput={(event) => handleInputChange(parseInputValue(event.currentTarget.value))}
+              onChange={(event) => handleInputChange(parseInputValue(event.target.value))}
               className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none tabular-nums"
             />
             {displaySuffixLabel ? (
@@ -5162,6 +5277,9 @@ export default function DebitCallSpreadLab({
   const [isStrategyShelfOpen, setIsStrategyShelfOpen] = useState(false);
   const [isCustomComparisonEditorOpen, setIsCustomComparisonEditorOpen] =
     useState(false);
+  const [editingComparisonId, setEditingComparisonId] = useState<string | null>(
+    null,
+  );
   const [showDetailedTables, setShowDetailedTables] = useState(false);
   const [activeWorkflowTab, setActiveWorkflowTab] =
     useState<WorkflowTab>(DEFAULT_WORKFLOW_TAB);
@@ -5185,7 +5303,12 @@ export default function DebitCallSpreadLab({
   });
   const customComparisonIdCounter = useRef(0);
   const hasLoadedColorScheme = useRef(false);
+  const scrollContainerRef = useRef<HTMLElement | null>(null);
+  const lastScrollTopRef = useRef(0);
+  const topBarHoverHideTimerRef = useRef<number | null>(null);
   const [graphComparisonId, setGraphComparisonId] = useState("editor");
+  const [isTopBarPinnedVisible, setIsTopBarPinnedVisible] = useState(true);
+  const [isTopBarHoverRevealed, setIsTopBarHoverRevealed] = useState(false);
   const isDebitCallSpread = strategy === "debit-call-spread";
   const isDebitPutSpread = strategy === "debit-put-spread";
   const isDebitSpread = isDebitSpreadStrategy(strategy);
@@ -5366,6 +5489,126 @@ export default function DebitCallSpreadLab({
     volatilityPct,
     isUrlStateReady,
 	  ]);
+
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+
+    if (!scrollContainer || typeof window === "undefined") {
+      return;
+    }
+
+    let animationFrame = 0;
+    lastScrollTopRef.current = scrollContainer.scrollTop;
+
+    const updateTopBarVisibility = () => {
+      const nextScrollTop = Math.max(scrollContainer.scrollTop, 0);
+      const scrollDelta = nextScrollTop - lastScrollTopRef.current;
+
+      if (nextScrollTop <= TOP_BAR_REVEAL_SCROLL_TOP) {
+        setIsTopBarPinnedVisible(true);
+        setIsTopBarHoverRevealed(false);
+      } else if (scrollDelta > TOP_BAR_SCROLL_DELTA) {
+        setIsTopBarPinnedVisible(false);
+        setIsTopBarHoverRevealed(false);
+      } else if (scrollDelta < -TOP_BAR_SCROLL_DELTA) {
+        setIsTopBarPinnedVisible(true);
+      }
+
+      lastScrollTopRef.current = nextScrollTop;
+      animationFrame = 0;
+    };
+
+    const handleScroll = () => {
+      if (animationFrame !== 0) {
+        return;
+      }
+
+      animationFrame = window.requestAnimationFrame(updateTopBarVisibility);
+    };
+
+    scrollContainer.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      scrollContainer.removeEventListener("scroll", handleScroll);
+
+      if (animationFrame !== 0) {
+        window.cancelAnimationFrame(animationFrame);
+      }
+    };
+  }, [isUrlStateReady]);
+
+  useEffect(() => {
+    return () => {
+      if (topBarHoverHideTimerRef.current !== null) {
+        window.clearTimeout(topBarHoverHideTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      if (event.pointerType !== "mouse") {
+        return;
+      }
+
+      if (isTopBarPinnedVisible) {
+        return;
+      }
+
+      if (event.clientY <= TOP_BAR_HOVER_REVEAL_HEIGHT) {
+        if (topBarHoverHideTimerRef.current !== null) {
+          window.clearTimeout(topBarHoverHideTimerRef.current);
+          topBarHoverHideTimerRef.current = null;
+        }
+
+        setIsTopBarHoverRevealed(true);
+        return;
+      }
+
+      if (isTopBarHoverRevealed && event.clientY > TOP_BAR_HOVER_HIDE_Y) {
+        setIsTopBarHoverRevealed(false);
+      }
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true });
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+    };
+  }, [isTopBarHoverRevealed, isTopBarPinnedVisible]);
+
+  const revealTopBarFromEdge = () => {
+    if (topBarHoverHideTimerRef.current !== null) {
+      window.clearTimeout(topBarHoverHideTimerRef.current);
+      topBarHoverHideTimerRef.current = null;
+    }
+
+    setIsTopBarHoverRevealed(true);
+  };
+
+  const hideTopBarHoverReveal = () => {
+    if ((scrollContainerRef.current?.scrollTop ?? 0) <= TOP_BAR_REVEAL_SCROLL_TOP) {
+      return;
+    }
+
+    setIsTopBarHoverRevealed(false);
+  };
+
+  const queueTopBarHoverRevealHide = () => {
+    if (topBarHoverHideTimerRef.current !== null) {
+      window.clearTimeout(topBarHoverHideTimerRef.current);
+    }
+
+    topBarHoverHideTimerRef.current = window.setTimeout(() => {
+      topBarHoverHideTimerRef.current = null;
+      hideTopBarHoverReveal();
+    }, 180);
+  };
+
   const updateSpot = (nextValue: number) => {
     const nextSpot = Math.round(nextValue);
 
@@ -5511,6 +5754,7 @@ export default function DebitCallSpreadLab({
     });
   };
   const useCustomQuickStart = (card: ComparisonCardData) => {
+    setEditingComparisonId(null);
     setCustomDraft({
       label: card.label,
       strategy: card.strategy,
@@ -5524,6 +5768,57 @@ export default function DebitCallSpreadLab({
       expirationDays: card.expirationDays,
       allowFractionalContracts: card.allowFractionalContracts,
     });
+  };
+  const editCustomComparison = (card: ComparisonCardData) => {
+    const nextSymbol = normalizeSymbol(card.symbol ?? symbol);
+    const nextLongStrike = Math.max(1, Math.round(card.longStrike));
+    const nextExpirationDays = clamp(Math.round(card.expirationDays), 1, 1095);
+    const nextRatePct = clamp(card.ratePct ?? ratePct, 0, 15);
+
+    if (nextSymbol) {
+      setSymbol(nextSymbol);
+    }
+    setStrategy(card.strategy);
+    setLongStrike(nextLongStrike);
+    setShortStrike(
+      normalizeShortStrikeForStrategy(card.strategy, nextLongStrike, card.shortStrike),
+    );
+    setSpot(Math.max(1, Math.round(card.spot ?? spot)));
+    setVolatilityPct(clamp(card.volatilityPct ?? volatilityPct, 0, 300));
+    setFutureVolatilityPct(
+      clamp(card.futureVolatilityPct ?? futureVolatilityPct, 0, 300),
+    );
+    setCapital(Math.max(1, Math.round(card.capital)));
+    setAllowFractionalContracts(card.allowFractionalContracts);
+    setExpirationDays(nextExpirationDays);
+    setRatePct(nextRatePct);
+    setRatePctDraft(compactNumber(nextRatePct));
+    setCustomDraft({
+      label: card.label,
+      strategy: card.strategy,
+      longStrike: nextLongStrike,
+      shortStrike: normalizeShortStrikeForStrategy(
+        card.strategy,
+        nextLongStrike,
+        card.shortStrike,
+      ),
+      capital: card.capital,
+      expirationDays: nextExpirationDays,
+      allowFractionalContracts: card.allowFractionalContracts,
+      symbol: card.symbol,
+      todayIso: card.todayIso,
+      spot: card.spot,
+      volatilityPct: card.volatilityPct,
+      futureVolatilityPct: card.futureVolatilityPct,
+      ratePct: card.ratePct,
+      dividendYieldPct: card.dividendYieldPct,
+    });
+    setEditingComparisonId(card.id);
+    setComparisonPanelMode("custom");
+    setGraphComparisonId(`custom:${card.id}`);
+    setIsStrategyShelfOpen(true);
+    setIsSetupFormVisible(true);
+    setIsCustomComparisonEditorOpen(true);
   };
   const showCustomComparisons = () => {
     if (comparisonPanelMode !== "custom") {
@@ -5539,6 +5834,8 @@ export default function DebitCallSpreadLab({
     setIsStrategyShelfOpen((currentValue) => !currentValue);
   };
   const openCustomComparisonEditor = () => {
+    setEditingComparisonId(null);
+
     if (comparisonPanelMode !== "custom") {
       seedCustomDraftFromCurrent();
     }
@@ -5566,9 +5863,6 @@ export default function DebitCallSpreadLab({
     setActiveWorkflowTab(nextTab);
 
     if (nextTab === "decision") {
-      if (graphComparisonId.startsWith("custom:")) {
-        setGraphComparisonId("editor");
-      }
       setComparisonPanelMode(customComparisons.length > 0 ? "custom" : "presets");
       setIsCustomComparisonEditorOpen(false);
       return;
@@ -5617,34 +5911,53 @@ export default function DebitCallSpreadLab({
     );
     const nextSymbol = normalizeSymbol(symbol);
     const nextExpirationDays = clamp(Math.round(customDraft.expirationDays), 1, 1095);
-    customComparisonIdCounter.current += 1;
-    const nextId = `custom-${customComparisonIdCounter.current}-${customComparisons.length}`;
-
-    setCustomComparisons((currentComparisons) => [
-      ...currentComparisons,
-      {
-        id: nextId,
-        label: getCustomComparisonLabel({
-          ...customDraft,
-          longStrike: nextLongStrike,
-          shortStrike: nextShortStrike,
-        }),
-        strategy: nextStrategy,
+    const nextComparisonBase = {
+      label: getCustomComparisonLabel({
+        ...customDraft,
         longStrike: nextLongStrike,
         shortStrike: nextShortStrike,
-        capital: Math.max(1, Math.round(customDraft.capital)),
-        expirationDays: nextExpirationDays,
-        allowFractionalContracts: customDraft.allowFractionalContracts,
-        symbol: nextSymbol,
-        todayIso,
-        spot,
-        volatilityPct,
-        futureVolatilityPct,
-        ratePct,
-        dividendYieldPct: 0,
-      },
-    ]);
+      }),
+      strategy: nextStrategy,
+      longStrike: nextLongStrike,
+      shortStrike: nextShortStrike,
+      capital: Math.max(1, Math.round(customDraft.capital)),
+      expirationDays: nextExpirationDays,
+      allowFractionalContracts: customDraft.allowFractionalContracts,
+      symbol: nextSymbol,
+      todayIso,
+      spot,
+      volatilityPct,
+      futureVolatilityPct,
+      ratePct,
+      dividendYieldPct: 0,
+    };
+    const nextId =
+      editingComparisonId ??
+      `custom-${customComparisonIdCounter.current + 1}-${customComparisons.length}`;
+
+    setCustomComparisons((currentComparisons) => {
+      if (
+        editingComparisonId &&
+        currentComparisons.some((comparison) => comparison.id === editingComparisonId)
+      ) {
+        return currentComparisons.map((comparison) =>
+          comparison.id === editingComparisonId
+            ? { ...comparison, ...nextComparisonBase }
+            : comparison,
+        );
+      }
+
+      customComparisonIdCounter.current += 1;
+      return [
+        ...currentComparisons,
+        {
+          id: nextId,
+          ...nextComparisonBase,
+        },
+      ];
+    });
     setGraphComparisonId(`custom:${nextId}`);
+    setEditingComparisonId(null);
 
     setCustomDraft((currentDraft) => ({ ...currentDraft, label: "" }));
     setIsCustomComparisonEditorOpen(false);
@@ -5728,6 +6041,7 @@ export default function DebitCallSpreadLab({
     setCustomComparisons((currentComparisons) =>
       currentComparisons.filter((comparison) => comparison.id !== id),
     );
+    setEditingComparisonId((currentId) => (currentId === id ? null : currentId));
     setGraphComparisonId((currentId) =>
       currentId === `custom:${id}` ? "editor" : currentId,
     );
@@ -5752,9 +6066,9 @@ export default function DebitCallSpreadLab({
       normalizeShortStrikeForStrategy(card.strategy, nextLongStrike, card.shortStrike),
     );
     setSpot(Math.max(1, Math.round(card.spot ?? spot)));
-    setVolatilityPct(clamp(Math.round(card.volatilityPct ?? volatilityPct), 0, 300));
+    setVolatilityPct(clamp(card.volatilityPct ?? volatilityPct, 0, 300));
     setFutureVolatilityPct(
-      clamp(Math.round(card.futureVolatilityPct ?? futureVolatilityPct), 0, 300),
+      clamp(card.futureVolatilityPct ?? futureVolatilityPct, 0, 300),
     );
     setCapital(Math.max(1, Math.round(card.capital)));
     setAllowFractionalContracts(card.allowFractionalContracts);
@@ -6122,6 +6436,7 @@ export default function DebitCallSpreadLab({
     visualizedInputs.strategy,
     visualizedInputs.longStrike,
     visualizedInputs.shortStrike,
+    visualizedInputs.futureVolatilityPct,
     visualizedSnapshot.contracts,
     visualizedSnapshot.unitCost,
   ].join("|");
@@ -6402,7 +6717,20 @@ export default function DebitCallSpreadLab({
       value: getOtmPutStrike(spot, percent),
     })),
   ];
+  const updateStrategySelection = (nextStrategy: OptionStrategy) => {
+    setStrategy(nextStrategy);
+    setLongStrike(Math.max(1, Math.round(spot)));
+    setShortStrike(
+      nextStrategy === "debit-put-spread"
+        ? getOtmPutStrike(spot, 10)
+        : nextStrategy === "debit-call-spread"
+          ? getOtmStrike(spot, 10)
+          : Math.max(1, Math.round(spot)),
+    );
+    setScenarioGraphView("map");
+  };
   const showGuidedSidebar = workflowLayout === "guided" && isSidebarVisible;
+  const isTopBarVisible = isTopBarPinnedVisible || isTopBarHoverRevealed;
   const isAnalysisVisible =
     workflowLayout === "guided" || isTabbedAnalysis || isTabbedHeatMap;
   const showTabbedSetupContext = workflowLayout === "tabbed";
@@ -6458,10 +6786,11 @@ export default function DebitCallSpreadLab({
           help={`Used to estimate today's ${strategyCopy.unitName} cost.`}
           min={5}
           max={150}
-          step={1}
+          step={0.1}
           value={volatilityPct}
           onChange={updateVolatilityPct}
           suffix="%"
+          allowDecimals
         />
 
         <NumberSliderField
@@ -6574,8 +6903,22 @@ export default function DebitCallSpreadLab({
               ? "Buy one put and sell a lower-strike put. Defined risk, capped downside profit."
               : "Buy a single call. Higher risk, uncapped upside.",
         )}
+        <label className="block min-w-0 xl:hidden">
+          <span className="sr-only">Option strategy</span>
+          <select
+            value={strategy}
+            onChange={(event) => updateStrategySelection(event.target.value as OptionStrategy)}
+            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-950 shadow-sm outline-none focus:border-[var(--accent)]"
+          >
+            {STRATEGY_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <div
-          className="grid min-w-0 grid-cols-3 gap-2"
+          className="hidden min-w-0 grid-cols-3 gap-2 xl:grid"
           role="group"
           aria-label="Option strategy"
         >
@@ -6585,20 +6928,9 @@ export default function DebitCallSpreadLab({
               type="button"
               aria-pressed={strategy === option.value}
               title={option.description}
-              onClick={() => {
-                setStrategy(option.value);
-                setLongStrike(Math.max(1, Math.round(spot)));
-                setShortStrike(
-                  option.value === "debit-put-spread"
-                    ? getOtmPutStrike(spot, 10)
-                    : option.value === "debit-call-spread"
-                      ? getOtmStrike(spot, 10)
-                      : Math.max(1, Math.round(spot)),
-                );
-                setScenarioGraphView("map");
-              }}
+              onClick={() => updateStrategySelection(option.value)}
               className={cn(
-                "min-w-0 truncate rounded-md border border-slate-300 bg-white px-2 py-2 text-center text-xs font-semibold text-slate-700 shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:px-3 sm:text-sm",
+                "min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-center text-sm font-semibold leading-tight text-slate-700 shadow-sm text-balance focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
                 strategy === option.value &&
                   "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950",
               )}
@@ -6695,10 +7027,11 @@ export default function DebitCallSpreadLab({
   if (!isUrlStateReady) {
     return (
       <main
+        ref={scrollContainerRef}
         data-color-scheme={colorScheme}
         className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900"
       >
-        <div className="mx-auto w-full max-w-7xl px-2 py-2 sm:px-4 sm:py-3 md:px-6">
+        <div className="mx-auto w-full max-w-7xl px-2 pb-2 pt-1 sm:px-4 sm:pb-3 md:px-6">
           <h1 className="sr-only">Callculator debit spread strategy simulator</h1>
           <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
             Loading workspace...
@@ -6818,10 +7151,11 @@ export default function DebitCallSpreadLab({
         help="Used to estimate each position value on the selected future date."
         min={0}
         max={150}
-        step={1}
+        step={0.1}
         value={futureVolatilityPct}
         onChange={updateFutureScenarioVolatilityPct}
         suffix="%"
+        allowDecimals
         className="p-2.5 sm:p-3"
         headerClassName="min-h-9 grid grid-cols-[minmax(0,1fr)_6.25rem] items-start gap-2 sm:grid-cols-[minmax(0,1fr)_6.25rem] sm:items-start"
         sliderClassName="mt-2.5"
@@ -6831,11 +7165,11 @@ export default function DebitCallSpreadLab({
   const marketScenarioSummary = [
     `${formatCurrency(safeScenarioPrice)} stock`,
     formatLongDate(marketScenarioDateIso),
-    `${Math.round(futureVolatilityPct)}% IV`,
+    `${compactNumber(futureVolatilityPct)}% IV`,
   ].join(" · ");
   const marketScenarioCard = (
-    <section className="min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2">
+    <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition-colors hover:border-[var(--accent)] hover:bg-slate-50">
+      <div className="min-w-0">
         <button
           type="button"
           aria-expanded={isMarketScenarioOpen}
@@ -6843,7 +7177,7 @@ export default function DebitCallSpreadLab({
             isMarketScenarioOpen ? "Close market scenario" : "Open market scenario"
           }
           onClick={() => setIsMarketScenarioOpen((currentValue) => !currentValue)}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+          className="flex w-full min-w-0 items-center gap-2 bg-transparent px-3 py-2 text-left transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-[var(--accent)]"
         >
           <span
             aria-hidden
@@ -6869,14 +7203,6 @@ export default function DebitCallSpreadLab({
               {marketScenarioSummary}
             </span>
           </span>
-        </button>
-        <button
-          type="button"
-          aria-expanded={isMarketScenarioOpen}
-          onClick={() => setIsMarketScenarioOpen((currentValue) => !currentValue)}
-          className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
-        >
-          {isMarketScenarioOpen ? "Done" : "Edit"}
         </button>
       </div>
       {isMarketScenarioOpen ? (
@@ -6911,6 +7237,8 @@ export default function DebitCallSpreadLab({
         value={volatilityPct}
         min={0}
         suffix="%"
+        step={0.1}
+        allowDecimals
         onChange={(value) => updateVolatilityPct(clamp(value, 0, 150))}
       />
 
@@ -6926,13 +7254,13 @@ export default function DebitCallSpreadLab({
       />
     </div>
   );
-
   return (
     <main
+      ref={scrollContainerRef}
       data-color-scheme={colorScheme}
       className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900"
     >
-      <div className="mx-auto w-full max-w-7xl px-2 py-2 sm:px-4 sm:py-3 md:px-6">
+      <div className="mx-auto w-full max-w-7xl px-2 pb-2 pt-1 sm:px-4 sm:pb-3 md:px-6">
         <h1 className="sr-only">Callculator debit spread strategy simulator</h1>
         <div
           className={cn(
@@ -6974,9 +7302,18 @@ export default function DebitCallSpreadLab({
               </div>
             ) : null}
             <div
+              onFocusCapture={() => setIsTopBarPinnedVisible(true)}
+              onMouseEnter={revealTopBarFromEdge}
+              onMouseLeave={hideTopBarHoverReveal}
+              onPointerEnter={revealTopBarFromEdge}
+              onPointerLeave={queueTopBarHoverRevealHide}
               className={cn(
-                "relative z-50 grid min-w-0 gap-2",
-                workflowLayout === "tabbed" && "grid-cols-[minmax(0,1fr)_auto]",
+                "sticky top-1 z-50 grid min-w-0 gap-2 transform-gpu transition duration-200 ease-out will-change-transform motion-reduce:transition-none",
+                isTopBarVisible
+                  ? "translate-y-0 opacity-100"
+                  : "pointer-events-none -translate-y-[calc(100%+0.75rem)] opacity-0",
+                workflowLayout === "tabbed" &&
+                  "grid-cols-[minmax(0,1fr)_auto] rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-lg shadow-slate-900/10 backdrop-blur",
               )}
             >
               {workflowLayout === "tabbed" ? (
@@ -7035,9 +7372,11 @@ export default function DebitCallSpreadLab({
                     draft={customDraft}
                     draftError={customDraftError}
                     embedded
+                    editingComparisonId={editingComparisonId}
                     isEditorOpen={isCustomComparisonEditorOpen}
                     setupForm={setupFormFields}
                     quickStartCards={isCustomComparisonEditorOpen ? comparisonCards : []}
+                    saveActionLabel={editingComparisonId ? "Save changes" : "Save strategy"}
                     selectedCardId={selectedCustomCardId}
                     showSummary
                     showSetupForm={isSetupFormVisible}
@@ -7050,9 +7389,11 @@ export default function DebitCallSpreadLab({
                     onAddComparison={addCustomComparison}
                     onAnalyzeCard={analyzeCustomComparison}
                     onClose={() => {
+                      setEditingComparisonId(null);
                       setIsCustomComparisonEditorOpen(false);
                       setIsSetupFormVisible(false);
                     }}
+                    onEditComparison={editCustomComparison}
                     onOpenEditor={openCustomComparisonEditor}
                     onRemoveComparison={removeCustomComparison}
                     onToggleSetupForm={() =>
@@ -7070,8 +7411,10 @@ export default function DebitCallSpreadLab({
                   cards={customComparisonCards}
                   draft={customDraft}
                   draftError={customDraftError}
+                  editingComparisonId={editingComparisonId}
                   isEditorOpen={isCustomComparisonEditorOpen}
                   quickStartCards={isCustomComparisonEditorOpen ? comparisonCards : []}
+                  saveActionLabel={editingComparisonId ? "Save changes" : "Save strategy"}
                   selectedCardId={selectedCustomCardId}
                   showSummary
                   moneyDisplayUnitScale={moneyDisplayUnitScale}
@@ -7082,7 +7425,11 @@ export default function DebitCallSpreadLab({
                   onDraftChange={setCustomDraft}
                   onAddComparison={addCustomComparison}
                   onAnalyzeCard={analyzeCustomComparison}
-                  onClose={() => setIsCustomComparisonEditorOpen(false)}
+                  onClose={() => {
+                    setEditingComparisonId(null);
+                    setIsCustomComparisonEditorOpen(false);
+                  }}
+                  onEditComparison={editCustomComparison}
                   onOpenEditor={openCustomComparisonEditor}
                   onRemoveComparison={removeCustomComparison}
                   onUseQuickStart={useCustomQuickStart}
@@ -7500,7 +7847,6 @@ export default function DebitCallSpreadLab({
                     columns={timelineColumns}
                     rows={timelineRows}
                   />
-
                   <ResultsTable
                     title={`${strategyCopy.unitTitle} value by stock price on the selected date`}
                     subtitle={`These rows keep the date fixed at ${formatLongDate(

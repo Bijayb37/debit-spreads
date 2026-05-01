@@ -78,6 +78,17 @@ function formatPercent(value: number): string {
   return `${safeValue >= 0 ? "+" : ""}${safeValue.toFixed(1)}%`;
 }
 
+function formatCompactNumber(value: number): string {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+
+  const normalizedValue = Object.is(value, -0) ? 0 : value;
+  return String(Math.round(normalizedValue * 100) / 100)
+    .replace(/\.0+$/, "")
+    .replace(/(\.\d*?)0+$/, "$1");
+}
+
 function formatMetricValue(
   point: DebitSpreadScenarioPoint,
   metric: DebitSpreadScenarioMetric,
@@ -1092,7 +1103,7 @@ function TimeValueTab({
             {unitLabel} value over time at fixed stock price
           </h3>
           <p className="mt-1 text-xs text-slate-500 text-pretty">
-            Fixed stock price: {formatCurrency(fixedPrice)}. Estimated at {inputs.impliedVolatilityPct}% IV.
+            Fixed stock price: {formatCurrency(fixedPrice)}. Estimated at {formatCompactNumber(inputs.impliedVolatilityPct)}% IV.
           </p>
         </div>
         <label className="flex w-full min-w-0 items-center gap-3 sm:w-auto sm:min-w-64">
@@ -1449,7 +1460,7 @@ export default function DebitSpreadScenarioVisualizer({
                   Range settings
                 </span>
                 <span className="min-w-0 truncate font-mono text-xs text-slate-600 tabular-nums">
-                  {formatCurrency(safeHeatmapMinPrice)}-{formatCurrency(safeHeatmapMaxPrice)} · {heatmapDteSteps} DTE ticks · {heatmapIvPct}% IV
+                  {formatCurrency(safeHeatmapMinPrice)}-{formatCurrency(safeHeatmapMaxPrice)} · {heatmapDteSteps} DTE ticks · {formatCompactNumber(heatmapIvPct)}% IV
                 </span>
               </span>
             </button>
@@ -1588,9 +1599,11 @@ export default function DebitSpreadScenarioVisualizer({
                     type="range"
                     min={0}
                     max={150}
-                    step={1}
+                    step={0.1}
                     value={heatmapIvPct}
-                    onChange={(event) => setHeatmapIvPct(Number(event.target.value))}
+                    onChange={(event) =>
+                      setHeatmapIvPct(Math.round(Number(event.target.value) * 10) / 10)
+                    }
                     onMouseDown={blurFocusedField}
                     onPointerDown={blurFocusedField}
                     onTouchStart={blurFocusedField}
@@ -1598,7 +1611,7 @@ export default function DebitSpreadScenarioVisualizer({
                     className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
                   />
                   <span className="text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">
-                    {heatmapIvPct}%
+                    {formatCompactNumber(heatmapIvPct)}%
                   </span>
                 </div>
               </label>
