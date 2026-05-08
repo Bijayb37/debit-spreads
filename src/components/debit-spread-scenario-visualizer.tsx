@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/cn";
+import { normalizePutRatioShortCount } from "@/lib/debit-call-spread";
 import {
   calculateDebitSpreadScenario,
   buildDebitSpreadScenarioGrid,
@@ -103,20 +104,26 @@ function formatMetricValue(
 function scenarioTooltip(
   point: DebitSpreadScenarioPoint,
   isLongCall = false,
+  isBearPut = false,
   isPutSpread = false,
+  isRatioSpread = false,
+  ratioShortCount = 2,
 ): string {
+  const shortCount = normalizePutRatioShortCount(ratioShortCount);
   const rows = [
     `Underlying: ${formatCurrency(point.underlyingPrice)}`,
     `DTE: ${point.dte}`,
   ];
 
-  if (isLongCall) {
-    rows.push(`Call: ${formatDecimalCurrency(point.spreadValue)}`);
+  if (isLongCall || isBearPut) {
+    rows.push(`${isBearPut ? "Put" : "Call"}: ${formatDecimalCurrency(point.spreadValue)}`);
   } else {
     rows.push(
       `Long ${isPutSpread ? "put" : "call"}: ${formatDecimalCurrency(point.longCallValue)}`,
-      `Short ${isPutSpread ? "put" : "call"}: ${formatDecimalCurrency(point.shortCallValue)}`,
-      `Spread: ${formatDecimalCurrency(point.spreadValue)}`,
+      `Short ${isPutSpread ? "put" : "call"}${isRatioSpread ? ` x${shortCount}` : ""}: ${formatDecimalCurrency(
+        isRatioSpread ? point.shortCallValue * shortCount : point.shortCallValue,
+      )}`,
+      `${isRatioSpread ? "Ratio" : "Spread"}: ${formatDecimalCurrency(point.spreadValue)}`,
     );
   }
 
@@ -133,9 +140,9 @@ function scenarioTooltip(
   return rows.join("\n");
 }
 
-function cellColor(point: DebitSpreadScenarioPoint, maxProfit: number | null, maxLoss: number): string {
+function cellColor(point: DebitSpreadScenarioPoint, maxProfit: number | null, maxLoss: number | null): string {
   if (point.profitLoss > 0) {
-    const ratio = Math.min(point.profitLoss / Math.max(maxProfit ?? maxLoss, 1), 1);
+    const ratio = Math.min(point.profitLoss / Math.max(maxProfit ?? Math.abs(point.profitLoss), 1), 1);
 
     if (ratio > 0.75) return "bg-emerald-800 text-white";
     if (ratio > 0.45) return "bg-emerald-600 text-white";
@@ -144,7 +151,7 @@ function cellColor(point: DebitSpreadScenarioPoint, maxProfit: number | null, ma
   }
 
   if (point.profitLoss < 0) {
-    const ratio = Math.min(Math.abs(point.profitLoss) / Math.max(maxLoss, 1), 1);
+    const ratio = Math.min(Math.abs(point.profitLoss) / Math.max(maxLoss ?? Math.abs(point.profitLoss), 1), 1);
 
     if (ratio > 0.65) return "bg-rose-700 text-white";
     if (ratio > 0.35) return "bg-rose-200 text-rose-950";
@@ -313,20 +320,44 @@ function ScenarioStat({
   );
 }
 
+function getExpiryBreakevenLabel(
+  summary: ReturnType<typeof buildDebitSpreadScenarioGrid>["summary"],
+): string {
+  return summary.lowerExpiryBreakeven !== null ? "Expiry B/Es" : "Expiry B/E";
+}
+
+function formatExpiryBreakeven(
+  summary: ReturnType<typeof buildDebitSpreadScenarioGrid>["summary"],
+): string {
+  if (summary.lowerExpiryBreakeven !== null) {
+    return `${formatCurrency(summary.lowerExpiryBreakeven)} / ${formatCurrency(
+      summary.expiryBreakeven,
+    )}`;
+  }
+
+  return formatCurrency(summary.expiryBreakeven);
+}
+
 function SelectedScenarioPanel({
   selected,
   summary,
   locked,
   onUnlock,
   isLongCall,
+  isRatioSpread,
 }: {
   selected: DebitSpreadScenarioPoint;
   summary: ReturnType<typeof buildDebitSpreadScenarioGrid>["summary"];
   locked: boolean;
   onUnlock: () => void;
   isLongCall: boolean;
+  isRatioSpread: boolean;
 }) {
-  const valueLabel = isLongCall ? "Call value" : "Spread value";
+  const valueLabel = isLongCall
+    ? "Call value"
+    : isRatioSpread
+      ? "Ratio value"
+      : "Spread value";
   const maxProfitValue =
     summary.maxProfit === null ? "Uncapped" : formatCurrency(summary.maxProfit);
 
@@ -376,7 +407,10 @@ function SelectedScenarioPanel({
               tone={selected.profitLoss >= 0 ? "positive" : "negative"}
             />
             <ScenarioStat label="Max profit" value={maxProfitValue} tone="positive" />
-            <ScenarioStat label="Expiry B/E" value={formatCurrency(summary.expiryBreakeven)} />
+            <ScenarioStat
+              label={getExpiryBreakevenLabel(summary)}
+              value={formatExpiryBreakeven(summary)}
+            />
           </dl>
         </details>
       </div>
@@ -400,7 +434,10 @@ function SelectedScenarioPanel({
           value={maxProfitValue}
           tone="positive"
         />
-        <ScenarioStat label="Expiry B/E" value={formatCurrency(summary.expiryBreakeven)} />
+        <ScenarioStat
+          label={getExpiryBreakevenLabel(summary)}
+          value={formatExpiryBreakeven(summary)}
+        />
       </dl>
     </div>
   );
@@ -411,7 +448,10 @@ function HeatmapTab({
   metric,
   selectedScenario,
   isLongCall,
+  isBearPut,
   isPutSpread,
+  isRatioSpread,
+  ratioShortCount,
   onPreview,
   onClearPreview,
   onLock,
@@ -420,7 +460,10 @@ function HeatmapTab({
   metric: DebitSpreadScenarioMetric;
   selectedScenario: DebitSpreadScenarioPoint;
   isLongCall: boolean;
+  isBearPut: boolean;
   isPutSpread: boolean;
+  isRatioSpread: boolean;
+  ratioShortCount: number;
   onPreview: (scenario: DebitSpreadScenarioPoint) => void;
   onClearPreview: () => void;
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
@@ -502,7 +545,7 @@ function HeatmapTab({
               <button
                 key={`mobile-${point.underlyingPrice}-${point.dte}`}
                 type="button"
-                title={scenarioTooltip(point, isLongCall, isPutSpread)}
+                title={scenarioTooltip(point, isLongCall, isBearPut, isPutSpread, isRatioSpread, ratioShortCount)}
                 aria-label={`${formatCurrency(point.underlyingPrice)} at ${point.dte} DTE: ${formatMetricValue(point, metric)}`}
                 onFocus={() => onPreview(point)}
                 onBlur={onClearPreview}
@@ -561,7 +604,7 @@ function HeatmapTab({
                   <button
                     key={`${price}-${dte}`}
                     type="button"
-                    title={scenarioTooltip(point, isLongCall, isPutSpread)}
+                    title={scenarioTooltip(point, isLongCall, isBearPut, isPutSpread, isRatioSpread, ratioShortCount)}
                     aria-label={`${formatCurrency(price)} at ${dte} DTE: ${formatMetricValue(point, metric)}`}
                     onMouseEnter={() => onPreview(point)}
                     onMouseLeave={onClearPreview}
@@ -603,7 +646,13 @@ function PnlCurveTab({
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
 }) {
   const isLongCall = inputs.strategy === "long-call";
-  const isPutSpread = inputs.strategy === "debit-put-spread";
+  const isBearPut = inputs.strategy === "bear-put";
+  const isPutRatioSpread = inputs.strategy === "put-ratio-spread";
+  const isCallRatioSpread = inputs.strategy === "call-ratio-spread";
+  const isRatioSpread = isPutRatioSpread || isCallRatioSpread;
+  const isPutSpread =
+    inputs.strategy === "debit-put-spread" ||
+    isPutRatioSpread;
   const width = 820;
   const height = 340;
   const padding = { top: 34, right: 30, bottom: 52, left: 78 };
@@ -643,6 +692,9 @@ function PnlCurveTab({
     ...(isLongCall ? [] : [{ label: "Short", value: inputs.shortStrike }]),
     { label: "Current", value: inputs.currentPrice },
     { label: "Selected", value: selectedScenario.underlyingPrice },
+    ...(summary.lowerExpiryBreakeven !== null
+      ? [{ label: "Lower B/E", value: summary.lowerExpiryBreakeven }]
+      : []),
     { label: "B/E", value: summary.expiryBreakeven },
   ];
 
@@ -690,8 +742,8 @@ function PnlCurveTab({
               x2={x(marker.value)}
               y1={padding.top}
               y2={height - padding.bottom}
-              stroke={marker.label === "Selected" ? CHART_COLORS.selected : marker.label === "B/E" ? CHART_COLORS.breakeven : CHART_COLORS.muted}
-              strokeDasharray={marker.label === "B/E" ? "2 4" : "4 4"}
+              stroke={marker.label === "Selected" ? CHART_COLORS.selected : marker.label.includes("B/E") ? CHART_COLORS.breakeven : CHART_COLORS.muted}
+              strokeDasharray={marker.label.includes("B/E") ? "2 4" : "4 4"}
               strokeOpacity={marker.label === "Selected" ? 0.9 : 0.45}
             />
             <text
@@ -724,7 +776,16 @@ function PnlCurveTab({
             onMouseLeave={onClearPreview}
             onClick={() => onLock(point)}
           >
-            <title>{scenarioTooltip(point, isLongCall, isPutSpread)}</title>
+            <title>
+              {scenarioTooltip(
+                point,
+                isLongCall,
+                isBearPut,
+                isPutSpread,
+                isRatioSpread,
+                inputs.ratioShortCount,
+              )}
+            </title>
           </circle>
         ))}
         {[minPrice, inputs.currentPrice, maxPrice].map((tick) => (
@@ -751,7 +812,13 @@ function MultiDateTab({
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
 }) {
   const isLongCall = inputs.strategy === "long-call";
-  const isPutSpread = inputs.strategy === "debit-put-spread";
+  const isBearPut = inputs.strategy === "bear-put";
+  const isPutRatioSpread = inputs.strategy === "put-ratio-spread";
+  const isCallRatioSpread = inputs.strategy === "call-ratio-spread";
+  const isRatioSpread = isPutRatioSpread || isCallRatioSpread;
+  const isPutSpread =
+    inputs.strategy === "debit-put-spread" ||
+    isPutRatioSpread;
   const width = 820;
   const height = 340;
   const padding = { top: 28, right: 90, bottom: 52, left: 78 };
@@ -1008,7 +1075,16 @@ function MultiDateTab({
                 stroke={CHART_COLORS.paper}
                 strokeWidth={2}
               >
-                <title>{scenarioTooltip(selectedPoint, isLongCall, isPutSpread)}</title>
+                <title>
+                  {scenarioTooltip(
+                    selectedPoint,
+                    isLongCall,
+                    isBearPut,
+                    isPutSpread,
+                    isRatioSpread,
+                    inputs.ratioShortCount,
+                  )}
+                </title>
               </circle>
             </g>
           ) : null}
@@ -1064,8 +1140,14 @@ function TimeValueTab({
   onLock: (scenario: DebitSpreadScenarioPoint) => void;
 }) {
   const isLongCall = inputs.strategy === "long-call";
-  const isPutSpread = inputs.strategy === "debit-put-spread";
-  const unitLabel = isLongCall ? "Call" : "Spread";
+  const isBearPut = inputs.strategy === "bear-put";
+  const isPutRatioSpread = inputs.strategy === "put-ratio-spread";
+  const isCallRatioSpread = inputs.strategy === "call-ratio-spread";
+  const isRatioSpread = isPutRatioSpread || isCallRatioSpread;
+  const isPutSpread =
+    inputs.strategy === "debit-put-spread" ||
+    isPutRatioSpread;
+  const unitLabel = isLongCall ? "Call" : isBearPut ? "Put" : isRatioSpread ? "Ratio" : "Spread";
   const [fixedPrice, setFixedPrice] = useState(inputs.currentPrice);
   const fixedPriceMin = Math.max(1, Math.round(inputs.currentPrice * 0.7));
   const fixedPriceMax = Math.round(inputs.currentPrice * 1.3);
@@ -1171,7 +1253,16 @@ function TimeValueTab({
             onMouseLeave={onClearPreview}
             onClick={() => onLock(point)}
           >
-            <title>{scenarioTooltip(point, isLongCall, isPutSpread)}</title>
+            <title>
+              {scenarioTooltip(
+                point,
+                isLongCall,
+                isBearPut,
+                isPutSpread,
+                isRatioSpread,
+                inputs.ratioShortCount,
+              )}
+            </title>
           </circle>
         ))}
         {[inputs.currentDte, Math.round(inputs.currentDte / 2), 0].map((dte) => (
@@ -1188,10 +1279,14 @@ function ScenarioTable({
   selectedPoint,
   rows,
   isLongCall,
+  isBearPut,
+  isRatioSpread,
 }: {
   selectedPoint: DebitSpreadScenarioPoint;
   rows: DebitSpreadScenarioPoint[];
   isLongCall: boolean;
+  isBearPut: boolean;
+  isRatioSpread: boolean;
 }) {
   const dedupedRows = [
     selectedPoint,
@@ -1234,7 +1329,7 @@ function ScenarioTable({
             <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
               <div>
                 <p className="font-semibold uppercase text-slate-500">
-                  {isLongCall ? "Call" : "Spread"}
+                  {isLongCall ? "Call" : isBearPut ? "Put" : isRatioSpread ? "Ratio" : "Spread"}
                 </p>
                 <p className="font-mono font-semibold text-slate-950 tabular-nums">
                   {formatDecimalCurrency(row.spreadValue)}
@@ -1267,7 +1362,13 @@ function ScenarioTable({
               <th className="px-4 py-2 font-semibold">Price</th>
               <th className="px-4 py-2 font-semibold">DTE</th>
               <th className="px-4 py-2 text-right font-semibold">
-                {isLongCall ? "Call value" : "Spread value"}
+                {isLongCall
+                  ? "Call value"
+                  : isBearPut
+                    ? "Put value"
+                  : isRatioSpread
+                    ? "Ratio value"
+                    : "Spread value"}
               </th>
               <th className="px-4 py-2 text-right font-semibold">Position value</th>
               <th className="px-4 py-2 text-right font-semibold">P/L $</th>
@@ -1315,8 +1416,23 @@ export default function DebitSpreadScenarioVisualizer({
 }: DebitSpreadScenarioVisualizerProps) {
   const isHeatmapView = view === "heatmap";
   const isLongCall = inputs.strategy === "long-call";
-  const isPutSpread = inputs.strategy === "debit-put-spread";
-  const unitName = isLongCall ? "call" : isPutSpread ? "put spread" : "call spread";
+  const isPutRatioSpread = inputs.strategy === "put-ratio-spread";
+  const isCallRatioSpread = inputs.strategy === "call-ratio-spread";
+  const isRatioSpread = isPutRatioSpread || isCallRatioSpread;
+  const isBearPut = inputs.strategy === "bear-put";
+  const isPutSpread =
+    inputs.strategy === "debit-put-spread" || isPutRatioSpread;
+  const unitName = isLongCall
+    ? "call"
+    : isPutRatioSpread
+      ? "put ratio spread"
+      : isCallRatioSpread
+        ? "call ratio spread"
+      : isBearPut
+        ? "bear put"
+      : isPutSpread
+        ? "put spread"
+        : "call spread";
   const [metric, setMetric] = useState<DebitSpreadScenarioMetric>("profitLoss");
   const [heatmapIvPct, setHeatmapIvPct] = useState(inputs.impliedVolatilityPct);
   const [heatmapDteSteps, setHeatmapDteSteps] = useState(7);
@@ -1324,13 +1440,25 @@ export default function DebitSpreadScenarioVisualizer({
     Math.max(
       1,
       Math.round(
-        Math.min(inputs.currentPrice, isPutSpread ? inputs.shortStrike : inputs.currentPrice) *
+        Math.min(
+          inputs.currentPrice,
+          isPutSpread ? inputs.shortStrike : isBearPut ? inputs.longStrike : inputs.currentPrice,
+        ) *
           0.7,
       ),
     ),
   );
   const [heatmapMaxPrice, setHeatmapMaxPrice] = useState(() =>
-    Math.max(2, Math.round(Math.max(inputs.currentPrice, inputs.longStrike) * 1.3)),
+    Math.max(
+      2,
+      Math.round(
+        Math.max(
+          inputs.currentPrice,
+          inputs.longStrike,
+          isCallRatioSpread ? inputs.shortStrike + Math.max(inputs.shortStrike - inputs.longStrike, 1) * 4 : inputs.shortStrike,
+        ) * 1.3,
+      ),
+    ),
   );
   const [heatmapPriceTickSize, setHeatmapPriceTickSize] = useState(() =>
     Math.max(1, Math.round((Math.max(2, inputs.currentPrice * 1.3) - Math.max(1, inputs.currentPrice * 0.7)) / 6)),
@@ -1626,7 +1754,10 @@ export default function DebitSpreadScenarioVisualizer({
           metric={activeMetric}
           selectedScenario={selectedScenario}
           isLongCall={isLongCall}
+          isBearPut={isBearPut}
           isPutSpread={isPutSpread}
+          isRatioSpread={isRatioSpread}
+          ratioShortCount={normalizePutRatioShortCount(inputs.ratioShortCount)}
           onPreview={setHoverScenario}
           onClearPreview={() => setHoverScenario(null)}
           onLock={lockScenario}
@@ -1651,6 +1782,8 @@ export default function DebitSpreadScenarioVisualizer({
             selectedPoint={selectedScenario}
             rows={tableRows}
             isLongCall={isLongCall}
+            isBearPut={isBearPut}
+            isRatioSpread={isRatioSpread}
           />
         </div>
       </details>

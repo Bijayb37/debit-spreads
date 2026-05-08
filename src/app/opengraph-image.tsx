@@ -1,7 +1,7 @@
 import { ImageResponse } from "next/og";
 import { siteConfig } from "./seo";
 
-export const alt = `${siteConfig.name} options strategy simulator`;
+export const alt = `${siteConfig.name} debit spread calculator preview`;
 export const size = {
   width: 1200,
   height: 630,
@@ -69,7 +69,7 @@ export default function Image() {
               fontWeight: 700,
             }}
           >
-            Options strategy workspace
+            Debit spread calculator
           </div>
         </div>
 
@@ -79,11 +79,11 @@ export default function Image() {
               maxWidth: "920px",
               fontSize: "76px",
               lineHeight: 1,
-              letterSpacing: "-1px",
+              letterSpacing: "0",
               fontWeight: 800,
             }}
           >
-            Model option spreads before you trade
+            Calculate option spread outcomes before you trade
           </div>
           <div
             style={{

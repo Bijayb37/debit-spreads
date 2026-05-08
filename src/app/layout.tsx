@@ -29,9 +29,6 @@ export const metadata: Metadata = {
   creator: "Callculator",
   publisher: "Callculator",
   category: "Finance",
-  alternates: {
-    canonical: "/",
-  },
   robots: {
     index: true,
     follow: true,

@@ -13,11 +13,11 @@ function normalizeSiteUrl(value: string | undefined): string {
 export const siteConfig = {
   name: "Callculator",
   url: normalizeSiteUrl(process.env.NEXT_PUBLIC_SITE_URL),
-  title: "Callculator | Debit Spread Strategy Simulator",
+  title: "Debit Spread Calculator | Callculator Options Profit Simulator",
   description:
-    "Model debit call spreads, debit put spreads, and long calls across stock price, time, volatility, and capital scenarios.",
+    "Calculate debit call spreads, debit put spreads, long calls, break-even prices, max profit, max loss, and scenario profit or loss.",
   shortDescription:
-    "Model option spread outcomes across price, time, volatility, and capital scenarios.",
+    "Calculate option spread outcomes across price, time, volatility, and capital scenarios.",
   keywords: [
     "debit spread calculator",
     "call spread calculator",

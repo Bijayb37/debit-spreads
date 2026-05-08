@@ -1,12 +1,19 @@
 "use client";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent,
+  PointerEvent,
+  ReactNode,
+} from "react";
 import DebitSpreadScenarioVisualizer from "@/components/debit-spread-scenario-visualizer";
 import { cn } from "@/lib/cn";
 import {
   CONTRACT_MULTIPLIER,
   addDaysToIso,
+  blackScholesCall,
+  blackScholesPut,
   buildPriceCurve,
   buildPriceLadderRows,
   buildTimelineRows,
@@ -14,6 +21,9 @@ import {
   createScenarioSnapshot,
   daysBetween,
   formatLongDate,
+  normalizePutRatioShortCount,
+  PUT_RATIO_SHORT_COUNT_MAX,
+  PUT_RATIO_SHORT_COUNT_MIN,
   roundTo,
 } from "@/lib/debit-call-spread";
 import type {
@@ -192,6 +202,7 @@ type ResultsTableProps<Row extends { id: string; isHighlighted?: boolean }> = {
 type DebitCallSpreadLabProps = {
   todayIso: string;
   defaultExpiryIso: string;
+  children?: ReactNode;
 };
 
 type TimelineTableRow = TimelineRow & { id: string };
@@ -199,7 +210,7 @@ type PriceTableRow = PriceLadderRow & { id: string };
 
 type ComparisonPanelMode = "hidden" | "presets" | "custom";
 type WorkflowTab = "setup" | "decision" | "heatmap" | "analysis";
-type DecisionComparisonView = "cards" | "table" | "matrix";
+type DecisionComparisonView = "cards" | "detailed-cards" | "table" | "matrix";
 
 type ComparisonCandidate = {
   id: string;
@@ -211,6 +222,7 @@ type ComparisonCandidate = {
   spot?: number;
   longStrike: number;
   shortStrike: number;
+  ratioShortCount?: number;
   volatilityPct?: number;
   futureVolatilityPct?: number;
   capital: number;
@@ -226,7 +238,7 @@ type ComparisonCardData = ComparisonCandidate & {
   snapshot: ScenarioSnapshot;
   maxProfitAtExpiry: number | null;
   maxReturnAtExpiry: number | null;
-  maxLossAtExpiry: number;
+  maxLossAtExpiry: number | null;
 };
 
 type CustomComparisonConfig = {
@@ -238,6 +250,7 @@ type CustomComparisonConfig = {
   spot?: number;
   longStrike: number;
   shortStrike: number;
+  ratioShortCount?: number;
   volatilityPct?: number;
   futureVolatilityPct?: number;
   capital: number;
@@ -280,6 +293,7 @@ type ShareState = {
   futureVolatilityPct: number;
   longStrike: number;
   shortStrike: number;
+  ratioShortCount: number;
   capital: number;
   allowFractionalContracts: boolean;
   expirationDays: number;
@@ -326,9 +340,24 @@ const STRATEGY_OPTIONS: Array<{
     description: "Buy one call and sell a higher-strike call.",
   },
   {
+    value: "call-ratio-spread",
+    label: "Call ratio spread",
+    description: "Buy one call and sell multiple higher-strike calls.",
+  },
+  {
     value: "debit-put-spread",
     label: "Debit put spread",
     description: "Buy one put and sell a lower-strike put.",
+  },
+  {
+    value: "bear-put",
+    label: "Bear put",
+    description: "Buy one put for a bearish target.",
+  },
+  {
+    value: "put-ratio-spread",
+    label: "Put ratio spread",
+    description: "Buy one put and sell multiple lower-strike puts.",
   },
   {
     value: "long-call",
@@ -360,6 +389,39 @@ const STRATEGY_COPY: Record<OptionStrategy, StrategyCopy> = {
       "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. Both put legs share the same IV in each estimate.",
     capitalHelp: "The app buys as many full 1x1 put spreads as this amount allows.",
   },
+  "bear-put": {
+    unitName: "put",
+    unitTitle: "Put",
+    contractName: "put contract",
+    contractPlural: "put contracts",
+    costMetricLabel: "Bear put cost today",
+    unitColumnLabel: "Put / 1 contract",
+    modelAssumptions:
+      "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. It treats the put like European-style pricing.",
+    capitalHelp: "The app buys as many full put contracts as this amount allows.",
+  },
+  "call-ratio-spread": {
+    unitName: "ratio spread",
+    unitTitle: "Ratio spread",
+    contractName: "call ratio spread",
+    contractPlural: "full call ratio spreads",
+    costMetricLabel: "Call ratio spread cost today",
+    unitColumnLabel: "Ratio / 1 spread",
+    modelAssumptions:
+      "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. It models one long call and the selected number of short calls at the higher strike.",
+    capitalHelp: "The app sizes the call ratio spread by its estimated entry debit. Upside risk can be uncapped above the upper break-even.",
+  },
+  "put-ratio-spread": {
+    unitName: "ratio spread",
+    unitTitle: "Ratio spread",
+    contractName: "put ratio spread",
+    contractPlural: "full put ratio spreads",
+    costMetricLabel: "Put ratio spread cost today",
+    unitColumnLabel: "Ratio / 1 spread",
+    modelAssumptions:
+      "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. It models one long put and the selected number of short puts at the lower strike.",
+    capitalHelp: "The app sizes the put ratio spread by its estimated entry debit. The downside risk can be larger than that debit.",
+  },
   "long-call": {
     unitName: "call",
     unitTitle: "Call",
@@ -383,6 +445,9 @@ const COLOR_SCHEME_STORAGE_KEY = "callculator-color-scheme";
 const MONEY_DISPLAY_UNIT_STORAGE_KEY = "callculator-money-display-unit";
 const WORKSPACE_STATE_STORAGE_KEY = "callculator-workspace-state";
 const SAVED_STRATEGIES_STORAGE_KEY = "callculator-saved-strategies";
+const ORDERED_CUSTOM_COMPARISONS_PREFIX = "o2:";
+const WORKSPACE_RESTORE_RETRY_DELAYS_MS = [0, 150, 500];
+const WORKSPACE_RESTORE_FALLBACK_MS = 1200;
 const WORKFLOW_TABS: Array<{ value: WorkflowTab; label: string; step: string }> = [
   { value: "setup", label: "Setup", step: "1" },
   { value: "decision", label: "Compare", step: "2" },
@@ -499,6 +564,7 @@ function decodeWorkflowTab(value: string | undefined): WorkflowTab {
 
 function decodeDecisionComparisonView(value: string | undefined | null): DecisionComparisonView | null {
   if (value === "cards") return "cards";
+  if (value === "detailed-cards" || value === "details") return "detailed-cards";
   if (value === "table") return "table";
   if (value === "matrix") return "matrix";
   if (value === "verdict") return "table";
@@ -507,12 +573,18 @@ function decodeDecisionComparisonView(value: string | undefined | null): Decisio
 
 function encodeStrategyToken(strategy: OptionStrategy): string {
   if (strategy === "long-call") return "l";
+  if (strategy === "call-ratio-spread") return "c";
+  if (strategy === "put-ratio-spread") return "r";
+  if (strategy === "bear-put") return "b";
   if (strategy === "debit-put-spread") return "p";
   return "d";
 }
 
 function decodeStrategyToken(value: string | undefined): OptionStrategy {
   if (value === "l") return "long-call";
+  if (value === "c") return "call-ratio-spread";
+  if (value === "r") return "put-ratio-spread";
+  if (value === "b") return "bear-put";
   if (value === "p") return "debit-put-spread";
   return "debit-call-spread";
 }
@@ -563,8 +635,17 @@ function decodeShareText(value: string | undefined, fallback: string): string {
   }
 }
 
+function getCustomComparisonCreationOrder(
+  comparison: Pick<CustomComparisonConfig, "id">,
+  fallbackIndex: number,
+): number {
+  const match = /^custom-(\d+)-/.exec(comparison.id);
+
+  return match ? Number(match[1]) : fallbackIndex;
+}
+
 function encodeCustomComparisons(comparisons: CustomComparisonConfig[]): string {
-  return comparisons
+  const encodedComparisons = comparisons
     .slice(0, 12)
     .map((comparison) =>
       [
@@ -593,9 +674,16 @@ function encodeCustomComparisons(comparisons: CustomComparisonConfig[]): string 
           ? ""
           : compactNumber(comparison.dividendYieldPct),
         encodeShareText(comparison.symbol ?? ""),
+        comparison.ratioShortCount === undefined
+          ? ""
+          : compactNumber(normalizePutRatioShortCount(comparison.ratioShortCount)),
       ].join(","),
     )
     .join(";");
+
+  return encodedComparisons
+    ? `${ORDERED_CUSTOM_COMPARISONS_PREFIX}${encodedComparisons}`
+    : "";
 }
 
 function decodeCustomComparisons(value: string | undefined): CustomComparisonConfig[] {
@@ -603,7 +691,16 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
     return [];
   }
 
-  return value
+  const hasExplicitOrder = value.startsWith(ORDERED_CUSTOM_COMPARISONS_PREFIX);
+  const rawValue = hasExplicitOrder
+    ? value.slice(ORDERED_CUSTOM_COMPARISONS_PREFIX.length)
+    : value;
+
+  if (!rawValue) {
+    return [];
+  }
+
+  const decodedComparisons = rawValue
     .split(";")
     .slice(0, 12)
     .flatMap((entry, index) => {
@@ -625,6 +722,7 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
         rateToken,
         dividendYieldToken,
         symbolToken,
+        ratioShortCountToken,
       ] = entry.split(",");
       const strategy = decodeStrategyToken(strategyToken);
       const longStrike = Math.max(1, Math.round(parseShareNumber(longStrikeToken, 100)));
@@ -633,7 +731,7 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
         longStrike,
         parseShareNumber(
           shortStrikeToken,
-          strategy === "debit-put-spread" ? longStrike - 10 : longStrike + 10,
+          isPutDownsideStrategy(strategy) ? longStrike - 10 : longStrike + 10,
         ),
       );
       const capital = Math.max(0, Math.round(parseShareNumber(capitalToken, 10000)));
@@ -665,8 +763,24 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
         ratePct: parseOptionalShareNumber(rateToken),
         dividendYieldPct: parseOptionalShareNumber(dividendYieldToken),
         symbol: decodeShareText(symbolToken, "") || undefined,
+        ratioShortCount: normalizePutRatioShortCount(
+          parseOptionalShareNumber(ratioShortCountToken),
+        ),
       }];
     });
+
+  if (hasExplicitOrder) {
+    return decodedComparisons;
+  }
+
+  return decodedComparisons
+    .map((comparison, index) => ({ comparison, index }))
+    .sort(
+      (a, b) =>
+        getCustomComparisonCreationOrder(b.comparison, b.index) -
+        getCustomComparisonCreationOrder(a.comparison, a.index),
+    )
+    .map(({ comparison }) => comparison);
 }
 
 function getStoredShareState(defaultExpirationDays: number): ShareState | null {
@@ -802,6 +916,7 @@ function encodeShareState(state: ShareState): string {
       : state.scenarioGraphView === "decay"
         ? "t"
         : "o",
+    compactNumber(normalizePutRatioShortCount(state.ratioShortCount)),
   ];
 
   if (
@@ -863,6 +978,7 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     return null;
   }
 
+  const parts = value.split("~");
   const [
     version,
     strategyToken,
@@ -879,11 +995,7 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     scenarioOffsetDaysToken,
     rateToken,
     graphToken,
-    comparisonPanelToken,
-    customComparisonsToken,
-    graphComparisonToken,
-    workflowTabToken,
-  ] = value.split("~");
+  ] = parts;
 
   if (version !== SHARE_VERSION) {
     return null;
@@ -895,12 +1007,40 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     1095,
   );
   const strategy = decodeStrategyToken(strategyToken);
+  const spot = Math.max(1, Math.round(parseShareNumber(spotToken, 100)));
   const longStrike = Math.max(1, Math.round(parseShareNumber(longStrikeToken, 120)));
+  const decodedShortStrike = normalizeShortStrikeForStrategy(
+    strategy,
+    longStrike,
+    parseShareNumber(
+      shortStrikeToken,
+      isPutDownsideStrategy(strategy) ? longStrike - 10 : longStrike + 10,
+    ),
+  );
+  const shortStrike =
+    strategy === "debit-call-spread" &&
+    longStrike === Math.round(spot) &&
+    decodedShortStrike === getOtmStrike(spot, 10)
+      ? getNearCallShortStrike(spot)
+      : decodedShortStrike;
+  const legacyComparisonPanelToken = parts[15];
+  const decodedRatioShortCount = parseOptionalShareNumber(legacyComparisonPanelToken);
+  const hasRatioShortCountToken =
+    decodedRatioShortCount !== undefined &&
+    decodedRatioShortCount >= PUT_RATIO_SHORT_COUNT_MIN &&
+    decodedRatioShortCount <= PUT_RATIO_SHORT_COUNT_MAX;
+  const ratioShortCount = normalizePutRatioShortCount(
+    hasRatioShortCountToken ? decodedRatioShortCount : undefined,
+  );
+  const comparisonPanelToken = hasRatioShortCountToken ? parts[16] : parts[15];
+  const customComparisonsToken = hasRatioShortCountToken ? parts[17] : parts[16];
+  const graphComparisonToken = hasRatioShortCountToken ? parts[18] : parts[17];
+  const workflowTabToken = hasRatioShortCountToken ? parts[19] : parts[18];
 
   return {
     strategy,
     symbol: decodeShareText(symbolToken, "NVDA").toUpperCase(),
-    spot: Math.max(1, Math.round(parseShareNumber(spotToken, 100))),
+    spot,
     volatilityPct: clamp(parseShareNumber(volatilityToken, 50), 0, 300),
     futureVolatilityPct: clamp(
       parseShareNumber(futureVolatilityToken, 50),
@@ -908,14 +1048,8 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
       300,
     ),
     longStrike,
-    shortStrike: normalizeShortStrikeForStrategy(
-      strategy,
-      longStrike,
-      parseShareNumber(
-        shortStrikeToken,
-        strategy === "debit-put-spread" ? longStrike - 10 : longStrike + 10,
-      ),
-    ),
+    ratioShortCount,
+    shortStrike,
     capital: Math.max(0, Math.round(parseShareNumber(capitalToken, 10000))),
     allowFractionalContracts: fractionalToken === "1",
     expirationDays,
@@ -1105,12 +1239,28 @@ function getOtmStrike(spotPrice: number, percent: number): number {
   return Math.round(spotPrice * (1 + percent / 100));
 }
 
+function getNearCallShortStrike(spotPrice: number): number {
+  const atmStrike = Math.max(1, Math.round(spotPrice));
+  return Math.max(atmStrike + 1, getOtmStrike(spotPrice, 3));
+}
+
 function getOtmPutStrike(spotPrice: number, percent: number): number {
   return Math.max(1, Math.round(spotPrice * (1 - percent / 100)));
 }
 
 function isDebitSpreadStrategy(strategy: OptionStrategy): boolean {
-  return strategy === "debit-call-spread" || strategy === "debit-put-spread";
+  return strategy !== "long-call" && strategy !== "bear-put";
+}
+
+function isPutDownsideStrategy(strategy: OptionStrategy): boolean {
+  return (
+    strategy === "debit-put-spread" ||
+    strategy === "put-ratio-spread"
+  );
+}
+
+function isRatioSpreadStrategy(strategy: OptionStrategy): boolean {
+  return strategy === "put-ratio-spread" || strategy === "call-ratio-spread";
 }
 
 function normalizeShortStrikeForStrategy(
@@ -1118,15 +1268,41 @@ function normalizeShortStrikeForStrategy(
   longStrike: number,
   shortStrike: number,
 ): number {
-  if (strategy === "long-call") {
+  if (strategy === "long-call" || strategy === "bear-put") {
     return longStrike;
   }
 
-  if (strategy === "debit-put-spread") {
+  if (isPutDownsideStrategy(strategy)) {
     return Math.max(1, Math.min(Math.round(shortStrike), Math.round(longStrike) - 1));
   }
 
   return Math.max(Math.round(shortStrike), Math.round(longStrike) + 1);
+}
+
+function getDefaultStrikesForStrategy(
+  strategy: OptionStrategy,
+  spotPrice: number,
+): { longStrike: number; shortStrike: number } {
+  const nextLongStrike = Math.max(1, Math.round(spotPrice));
+
+  if (strategy === "long-call" || strategy === "bear-put") {
+    return {
+      longStrike: nextLongStrike,
+      shortStrike: nextLongStrike,
+    };
+  }
+
+  if (isPutDownsideStrategy(strategy)) {
+    return {
+      longStrike: nextLongStrike,
+      shortStrike: getOtmPutStrike(spotPrice, 10),
+    };
+  }
+
+  return {
+    longStrike: nextLongStrike,
+    shortStrike: getNearCallShortStrike(spotPrice),
+  };
 }
 
 function handleNumberKeyDown(
@@ -1471,11 +1647,12 @@ function ActiveSetupStrip({
   symbol,
   spot,
   volatilityPct,
-  capital,
   expirationDays,
   strategy,
   longStrike,
   shortStrike,
+  ratioShortCount,
+  selectedStrategy,
   isOpen,
   strategyCount,
   onToggle,
@@ -1485,23 +1662,37 @@ function ActiveSetupStrip({
   symbol: string;
   spot: number;
   volatilityPct: number;
-  capital: number;
   expirationDays: number;
   strategy: OptionStrategy;
   longStrike: number;
   shortStrike: number;
+  ratioShortCount: number;
+  selectedStrategy?: ComparisonCardData | null;
   isOpen: boolean;
   strategyCount: number;
   onToggle: () => void;
   onOpen: () => void;
   strategiesPanel?: ReactNode;
 }) {
-  const isSpread = isDebitSpreadStrategy(strategy);
+  const displayStrategy = selectedStrategy?.strategy ?? strategy;
+  const displayLongStrike = selectedStrategy?.longStrike ?? longStrike;
+  const displayShortStrike = selectedStrategy?.shortStrike ?? shortStrike;
+  const displayRatioShortCount =
+    selectedStrategy?.ratioShortCount ?? ratioShortCount;
+  const displayExpirationDays =
+    selectedStrategy?.expirationDays ?? expirationDays;
+  const isSpread = isDebitSpreadStrategy(displayStrategy);
   const structure = isSpread
-    ? `${formatCurrency(longStrike)} / ${formatCurrency(shortStrike)}`
-    : `${formatCurrency(longStrike)} call`;
-  const strategyLabel = getStrategyDisplayLabel(strategy);
-  const savedStrategyLabel = `${strategyCount} saved`;
+    ? `${formatCurrency(displayLongStrike)} / ${formatCurrency(displayShortStrike)}${
+        isRatioSpreadStrategy(displayStrategy)
+          ? ` x${normalizePutRatioShortCount(displayRatioShortCount)}`
+          : ""
+      }`
+    : `${formatCurrency(displayLongStrike)} ${displayStrategy === "bear-put" ? "put" : "call"}`;
+  const strategyLabel = getStrategyDisplayLabel(displayStrategy);
+  const hasSavedStrategies = strategyCount > 0 && Boolean(selectedStrategy);
+  const savedStrategyLabel =
+    strategyCount === 1 ? "1 saved" : `${strategyCount} saved`;
 
   return (
     <div
@@ -1553,9 +1744,6 @@ function ActiveSetupStrip({
               <span className="font-mono text-[11px] font-medium tabular-nums text-slate-600">
                 {compactNumber(volatilityPct)}% IV
               </span>
-              <span className="font-mono text-[11px] font-medium tabular-nums text-slate-600">
-                {formatCurrency(capital)}
-              </span>
             </span>
           </span>
           <span className="grid min-w-0 gap-0.5 rounded-md border border-slate-200 bg-slate-50 px-2 py-1">
@@ -1563,18 +1751,31 @@ function ActiveSetupStrip({
               Strategy
             </span>
             <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-slate-950">
-                {strategyLabel}
-              </span>
-              <span className="min-w-0 truncate font-mono text-[11px] font-medium tabular-nums text-slate-600">
-                {structure}
-              </span>
-              <span className="shrink-0 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none tabular-nums text-slate-700">
-                {expirationDays} DTE
-              </span>
-              <span className="shrink-0 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none tabular-nums text-slate-700 shadow-sm">
-                {savedStrategyLabel}
-              </span>
+              {hasSavedStrategies ? (
+                <>
+                  <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-slate-950">
+                    {strategyLabel}
+                  </span>
+                  <span className="min-w-0 truncate font-mono text-[11px] font-medium tabular-nums text-slate-600">
+                    {structure}
+                  </span>
+                  <span className="shrink-0 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none tabular-nums text-slate-700">
+                    {displayExpirationDays} DTE
+                  </span>
+                  <span className="shrink-0 rounded-full border border-slate-200 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold leading-none tabular-nums text-slate-700 shadow-sm">
+                    {savedStrategyLabel}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-slate-950">
+                    No saved strategy
+                  </span>
+                  <span className="min-w-0 truncate text-[11px] font-medium text-slate-600">
+                    Create one in setup
+                  </span>
+                </>
+              )}
             </span>
           </span>
         </span>
@@ -1630,6 +1831,16 @@ function getComparisonStrikeLabel(candidate: ComparisonCandidate): string {
     return `${formatCurrency(candidate.longStrike)} call`;
   }
 
+  if (candidate.strategy === "bear-put") {
+    return `${formatCurrency(candidate.longStrike)} put`;
+  }
+
+  if (isRatioSpreadStrategy(candidate.strategy)) {
+    return `${formatCurrency(candidate.longStrike)} / ${formatCurrency(
+      candidate.shortStrike,
+    )} x${normalizePutRatioShortCount(candidate.ratioShortCount)}`;
+  }
+
   return `${formatCurrency(candidate.longStrike)} / ${formatCurrency(candidate.shortStrike)}`;
 }
 
@@ -1651,22 +1862,141 @@ function getComparisonSetupLabel(candidate: ComparisonCandidate): string {
 
 function getStrategyDisplayLabel(strategy: OptionStrategy): string {
   if (strategy === "long-call") return "Long call";
+  if (strategy === "call-ratio-spread") return "Call ratio spread";
+  if (strategy === "put-ratio-spread") return "Put ratio spread";
+  if (strategy === "bear-put") return "Bear put";
   if (strategy === "debit-put-spread") return "Debit put spread";
   return "Debit call spread";
 }
 
-function getCustomComparisonLabel(draft: CustomComparisonDraft): string {
+function getBreakEvenLabel(snapshot: ScenarioSnapshot): string {
+  return snapshot.lowerBreakEvenAtExpiry !== null ? "B/Es" : "B/E";
+}
+
+function formatBreakEvenAtExpiry(snapshot: ScenarioSnapshot): string {
+  if (snapshot.lowerBreakEvenAtExpiry !== null) {
+    return `${formatCurrency(snapshot.lowerBreakEvenAtExpiry)} / ${formatCurrency(
+      snapshot.breakEvenAtExpiry,
+    )}`;
+  }
+
+  return formatCurrency(snapshot.breakEvenAtExpiry);
+}
+
+function getValuationDte(snapshot: ScenarioSnapshot): number {
+  return Math.max(0, snapshot.expirationDays - snapshot.selectedOffsetDays);
+}
+
+function getEntryLegPricingDetails(card: ComparisonCardData): Array<{
+  label: string;
+  value: string;
+}> {
+  if (!isDebitSpreadStrategy(card.strategy) || card.spot === undefined) {
+    return [];
+  }
+
+  const timeYears = card.snapshot.timeNowYears;
+  const volatility = Math.max(card.volatilityPct ?? 0, 0) / 100;
+  const rate = (card.ratePct ?? 0) / 100;
+  const dividendYield = (card.dividendYieldPct ?? 0) / 100;
+  const isPutSpread = isPutDownsideStrategy(card.strategy);
+  const longLegCost = isPutSpread
+    ? blackScholesPut({
+        spot: card.spot,
+        strike: card.longStrike,
+        timeYears,
+        volatility,
+        rate,
+        dividendYield,
+      })
+    : blackScholesCall({
+        spot: card.spot,
+        strike: card.longStrike,
+        timeYears,
+        volatility,
+        rate,
+        dividendYield,
+      });
+  const shortLegCost = isPutSpread
+    ? blackScholesPut({
+        spot: card.spot,
+        strike: card.shortStrike,
+        timeYears,
+        volatility,
+        rate,
+        dividendYield,
+      })
+    : blackScholesCall({
+        spot: card.spot,
+        strike: card.shortStrike,
+        timeYears,
+        volatility,
+        rate,
+        dividendYield,
+      });
+  const legName = isPutSpread ? "put" : "call";
+  const shortCount =
+    isRatioSpreadStrategy(card.strategy)
+      ? normalizePutRatioShortCount(card.ratioShortCount)
+      : 1;
+
+  return [
+    {
+      label: `Long ${formatCurrency(card.longStrike)} ${legName} / contract`,
+      value: formatCurrency(longLegCost * CONTRACT_MULTIPLIER),
+    },
+    {
+      label: `Short ${formatCurrency(card.shortStrike)} ${legName} / contract`,
+      value: formatCurrency(shortLegCost * CONTRACT_MULTIPLIER),
+    },
+    ...(shortCount > 1
+      ? [
+          {
+            label: "Short credit / ratio",
+            value: formatCurrency(shortLegCost * shortCount * CONTRACT_MULTIPLIER),
+          },
+        ]
+      : []),
+  ];
+}
+
+function getCustomComparisonLabel(
+  draft: Pick<
+    CustomComparisonDraft,
+    "label" | "strategy" | "longStrike" | "shortStrike" | "ratioShortCount"
+  >,
+): string {
   if (draft.label.trim()) {
     return draft.label.trim();
   }
 
-  if (draft.strategy === "long-call") {
-    return `${formatCurrency(draft.longStrike)} long call`;
+  if (draft.strategy === "long-call" || draft.strategy === "bear-put") {
+    return `${formatCurrency(draft.longStrike)} ${
+      draft.strategy === "bear-put" ? "bear put" : "long call"
+    }`;
   }
 
   return `${formatCurrency(draft.longStrike)} / ${formatCurrency(draft.shortStrike)} ${
-    draft.strategy === "debit-put-spread" ? "put" : "call"
-  } spread`;
+    draft.strategy === "put-ratio-spread"
+      ? `1/${normalizePutRatioShortCount(draft.ratioShortCount)} put ratio spread`
+      : draft.strategy === "call-ratio-spread"
+        ? `1/${normalizePutRatioShortCount(draft.ratioShortCount)} call ratio spread`
+      : draft.strategy === "debit-put-spread"
+        ? "put"
+        : "call"
+  }${isRatioSpreadStrategy(draft.strategy) ? "" : " spread"}`;
+}
+
+function isGeneratedCustomComparisonLabel(
+  comparison: CustomComparisonConfig,
+): boolean {
+  return (
+    comparison.label ===
+    getCustomComparisonLabel({
+      ...comparison,
+      label: "",
+    })
+  );
 }
 
 function applyComparisonToInputs(
@@ -1686,6 +2016,9 @@ function applyComparisonToInputs(
       candidate.strategy,
       candidate.longStrike,
       candidate.shortStrike,
+    ),
+    ratioShortCount: normalizePutRatioShortCount(
+      candidate.ratioShortCount ?? inputs.ratioShortCount,
     ),
     volatilityPct: candidate.volatilityPct ?? inputs.volatilityPct,
     futureVolatilityPct: inputs.futureVolatilityPct,
@@ -1728,7 +2061,12 @@ function buildComparisonCard(
       candidateMaxProfit !== null && candidateSnapshot.totalCost > 0
         ? candidateMaxProfit / candidateSnapshot.totalCost
         : null,
-    maxLossAtExpiry: -candidateSnapshot.totalCost,
+    maxLossAtExpiry:
+      candidateSnapshot.maxLossPerUnit === null
+        ? null
+        : -candidateSnapshot.maxLossPerUnit *
+          candidateSnapshot.contracts *
+          CONTRACT_MULTIPLIER,
   };
 }
 
@@ -1816,6 +2154,29 @@ function orderSelectedCardsFirst<Row extends { id: string }>(
   ];
 }
 
+function moveCardById<Row extends { id: string }>(
+  cards: Row[],
+  sourceId: string,
+  targetId: string,
+): Row[] {
+  if (sourceId === targetId) {
+    return cards;
+  }
+
+  const sourceIndex = cards.findIndex((card) => card.id === sourceId);
+  const targetIndex = cards.findIndex((card) => card.id === targetId);
+
+  if (sourceIndex < 0 || targetIndex < 0) {
+    return cards;
+  }
+
+  const nextCards = [...cards];
+  const [movedCard] = nextCards.splice(sourceIndex, 1);
+  nextCards.splice(targetIndex, 0, movedCard);
+
+  return nextCards;
+}
+
 function ComparisonCardGrid({
   cards,
   prioritizeSelected = true,
@@ -1845,8 +2206,11 @@ function ComparisonCardGrid({
               }`.trim()
             : "Uncapped";
         const details = [
-          { label: "Break-even", value: formatCurrency(card.snapshot.breakEvenAtExpiry) },
-          { label: "DTE", value: card.snapshot.expirationDays },
+          {
+            label: getBreakEvenLabel(card.snapshot),
+            value: formatBreakEvenAtExpiry(card.snapshot),
+          },
+          { label: "DTE", value: card.expirationDays },
           { label: "Max at expiry", value: maxAtExpiryLabel },
           { label: "Contracts", value: formatQuantity(card.snapshot.contracts) },
         ];
@@ -1955,6 +2319,7 @@ function CompactStrategyList({
   onAnalyzeCard,
   onEditCard,
   onRemoveCard,
+  onReorderCards,
 }: {
   cards: ComparisonCardData[];
   editingCardId?: string | null;
@@ -1962,10 +2327,120 @@ function CompactStrategyList({
   onAnalyzeCard?: ComparisonCardAction;
   onEditCard?: ComparisonCardAction;
   onRemoveCard?: (id: string) => void;
+  onReorderCards?: (orderedIds: string[]) => void;
 }) {
+  const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
+  const [hasManualOrder, setHasManualOrder] = useState(false);
+  const activeRowDragRef = useRef<{
+    cardId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    isDragging: boolean;
+  } | null>(null);
+  const suppressedSelectClickRef = useRef<string | null>(null);
+  const orderedCards = hasManualOrder
+    ? cards
+    : orderSelectedCardsFirst(cards, selectedCardId);
+  const canReorder = Boolean(onReorderCards && orderedCards.length > 1);
+  const getRowIdFromTarget = (target: EventTarget | null): string | null => {
+    if (!(target instanceof Element)) {
+      return null;
+    }
+
+    const row = target.closest("[data-strategy-row-id]");
+
+    return row instanceof HTMLElement ? row.dataset.strategyRowId ?? null : null;
+  };
+  const isRowControlTarget = (target: EventTarget | null): boolean =>
+    target instanceof Element &&
+    Boolean(target.closest("[data-row-control='true']"));
+  const suppressNextSelectClick = (cardId: string) => {
+    suppressedSelectClickRef.current = cardId;
+    window.setTimeout(() => {
+      if (suppressedSelectClickRef.current === cardId) {
+        suppressedSelectClickRef.current = null;
+      }
+    }, 0);
+  };
+  const beginRowDrag = (
+    event: PointerEvent<HTMLElement>,
+    card: ComparisonCardData,
+  ) => {
+    if (
+      !canReorder ||
+      isRowControlTarget(event.target) ||
+      (event.pointerType === "mouse" && event.button !== 0)
+    ) {
+      return;
+    }
+
+    activeRowDragRef.current = {
+      cardId: card.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      isDragging: false,
+    };
+
+    if (!event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  };
+  const moveRowDrag = (event: PointerEvent<HTMLElement>) => {
+    const activeDrag = activeRowDragRef.current;
+
+    if (!activeDrag || activeDrag.pointerId !== event.pointerId || !onReorderCards) {
+      return;
+    }
+
+    const deltaX = event.clientX - activeDrag.startX;
+    const deltaY = event.clientY - activeDrag.startY;
+
+    if (!activeDrag.isDragging && Math.hypot(deltaX, deltaY) < 6) {
+      return;
+    }
+
+    event.preventDefault();
+
+    if (!activeDrag.isDragging) {
+      activeDrag.isDragging = true;
+      setDraggingCardId(activeDrag.cardId);
+      setHasManualOrder(true);
+    }
+
+    const targetCardId = getRowIdFromTarget(
+      document.elementFromPoint(event.clientX, event.clientY),
+    );
+
+    if (!targetCardId || targetCardId === activeDrag.cardId) {
+      return;
+    }
+
+    const nextCards = moveCardById(orderedCards, activeDrag.cardId, targetCardId);
+    onReorderCards(nextCards.map((orderedCard) => orderedCard.id));
+  };
+  const endRowDrag = (event: PointerEvent<HTMLElement>) => {
+    const activeDrag = activeRowDragRef.current;
+
+    if (!activeDrag || activeDrag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (activeDrag.isDragging) {
+      suppressNextSelectClick(activeDrag.cardId);
+    }
+
+    activeRowDragRef.current = null;
+    setDraggingCardId(null);
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
   return (
     <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="hidden grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9.5rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase text-slate-500 md:grid">
+      <div className="hidden grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase text-slate-500 md:grid">
         <span>Strategy</span>
         <span className="text-right">P/L</span>
         <span className="text-right">Return</span>
@@ -1975,9 +2450,10 @@ function CompactStrategyList({
         <span className="text-right">Actions</span>
       </div>
       <div className="divide-y divide-slate-200">
-        {cards.map((card) => {
+        {orderedCards.map((card) => {
           const isSelected = card.id === selectedCardId;
           const isEditing = card.id === editingCardId;
+          const isDragging = card.id === draggingCardId;
           const pnlIsPositive = card.snapshot.pnl >= 0;
           const tone = getComparisonCardTone(card);
           const rowContent = (
@@ -2041,10 +2517,10 @@ function CompactStrategyList({
                 </div>
                 <div className="min-w-0 md:text-right">
                   <p className="text-[10px] font-semibold uppercase text-slate-500 md:hidden">
-                    B/E
+                    {getBreakEvenLabel(card.snapshot)}
                   </p>
                   <p className="truncate font-mono font-semibold text-slate-950 tabular-nums">
-                    {formatCurrency(card.snapshot.breakEvenAtExpiry)}
+                    {formatBreakEvenAtExpiry(card.snapshot)}
                   </p>
                 </div>
                 <div className="min-w-0 text-right">
@@ -2052,7 +2528,7 @@ function CompactStrategyList({
                     DTE
                   </p>
                   <p className="truncate font-mono font-semibold text-slate-950 tabular-nums">
-                    {card.snapshot.expirationDays}
+                    {card.expirationDays}
                   </p>
                 </div>
                 <div className="min-w-0 col-span-2 md:col-span-1 md:text-right">
@@ -2074,11 +2550,18 @@ function CompactStrategyList({
           return (
             <article
               key={card.id}
+              data-strategy-row-id={card.id}
+              onPointerDown={(event) => beginRowDrag(event, card)}
+              onPointerMove={moveRowDrag}
+              onPointerUp={endRowDrag}
+              onPointerCancel={endRowDrag}
               className={cn(
-                "group relative grid min-w-0 bg-white text-sm transition-colors md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9.5rem] md:items-stretch",
+                "group relative grid min-w-0 bg-white text-sm transition-colors md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9rem] md:items-stretch",
                 onAnalyzeCard && !isSelected && "hover:bg-[var(--accent-faint)] focus-within:bg-[var(--accent-faint)]",
                 isSelected && "bg-[var(--accent-soft)]",
                 isEditing && "bg-[var(--accent-faint)] ring-1 ring-inset ring-[var(--accent)]",
+                canReorder && "cursor-grab touch-none select-none active:cursor-grabbing",
+                isDragging && "opacity-60 shadow-md",
               )}
             >
               {isSelected ? (
@@ -2093,8 +2576,19 @@ function CompactStrategyList({
                   type="button"
                   aria-pressed={isSelected}
                   aria-label={`Select ${card.label}`}
-                  onClick={() => onAnalyzeCard(card)}
-                  className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]"
+                  onClick={(event) => {
+                    if (suppressedSelectClickRef.current === card.id) {
+                      event.preventDefault();
+                      suppressedSelectClickRef.current = null;
+                      return;
+                    }
+
+                    onAnalyzeCard(card);
+                  }}
+                  className={cn(
+                    "absolute inset-0 z-10 bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]",
+                    canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+                  )}
                 />
               ) : null}
 
@@ -2104,6 +2598,7 @@ function CompactStrategyList({
                 {onEditCard ? (
                   <button
                     type="button"
+                    data-row-control="true"
                     aria-label={`Edit ${card.label}`}
                     onClick={() => onEditCard(card)}
                     className={cn(
@@ -2119,6 +2614,7 @@ function CompactStrategyList({
                 {onRemoveCard ? (
                   <button
                     type="button"
+                    data-row-control="true"
                     aria-label={`Remove ${card.label}`}
                     onClick={() => onRemoveCard(card.id)}
                     className="inline-flex h-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-500 shadow-sm transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
@@ -2191,21 +2687,37 @@ function getCompactMaxProfitAtExpiryLabel(card: ComparisonCardData): string {
 }
 
 function getOutcomeStrategyTitle(card: ComparisonCardData): string {
-  if (card.strategy === "long-call") {
+  if (card.strategy === "long-call" || card.strategy === "bear-put") {
     return getComparisonStrikeLabel(card);
   }
 
+  if (card.strategy === "put-ratio-spread") {
+    return `${formatCurrency(card.longStrike)} / ${formatCurrency(
+      card.shortStrike,
+    )} 1/${normalizePutRatioShortCount(card.ratioShortCount)} put ratio spread`;
+  }
+
+  if (card.strategy === "call-ratio-spread") {
+    return `${formatCurrency(card.longStrike)} / ${formatCurrency(
+      card.shortStrike,
+    )} 1/${normalizePutRatioShortCount(card.ratioShortCount)} call ratio spread`;
+  }
+
   return `${getComparisonStrikeLabel(card)} ${
-    card.strategy === "debit-put-spread" ? "put" : "call"
-  } spread`;
+    card.strategy === "debit-put-spread"
+        ? "put"
+        : "call"
+  }${isRatioSpreadStrategy(card.strategy) ? "" : " spread"}`;
 }
 
 function DecisionOutcomeCards({
   cards,
   selectedCardId,
+  onAnalyzeCard,
 }: {
   cards: ComparisonCardData[];
   selectedCardId?: string | null;
+  onAnalyzeCard?: ComparisonCardAction;
 }) {
   const orderedCards = orderSelectedCardsFirst(cards, selectedCardId);
 
@@ -2214,20 +2726,24 @@ function DecisionOutcomeCards({
       {orderedCards.map((card) => {
         const pnlIsPositive = card.snapshot.pnl >= 0;
         const isSelected = card.id === selectedCardId;
+        const maxProfitPercent =
+          card.maxReturnAtExpiry !== null
+            ? formatPercent(card.maxReturnAtExpiry)
+            : "Uncapped";
         const metrics = [
           {
             label: "DTE",
-            value: String(card.snapshot.expirationDays),
+            value: String(card.expirationDays),
             valueClassName: "text-slate-950",
           },
           {
-            label: "B/E",
-            value: formatCurrency(card.snapshot.breakEvenAtExpiry),
+            label: getBreakEvenLabel(card.snapshot),
+            value: formatBreakEvenAtExpiry(card.snapshot),
             valueClassName: "text-slate-950",
           },
           {
-            label: "Max at expiry",
-            value: getCompactMaxProfitAtExpiryLabel(card),
+            label: "Initial cost",
+            value: formatCurrency(card.snapshot.totalCost),
             valueClassName: "text-slate-950",
           },
         ];
@@ -2235,25 +2751,44 @@ function DecisionOutcomeCards({
         return (
           <article
             key={card.id}
-            className="min-w-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm"
+            className={cn(
+              "group relative min-w-0 overflow-hidden rounded-md border bg-white shadow-sm transition-colors",
+              isSelected ? "border-[var(--accent)]" : "border-slate-200",
+              onAnalyzeCard && !isSelected && "hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]",
+            )}
           >
-            <div className="flex min-w-0 items-center justify-between gap-2 bg-slate-950 px-3 py-2 text-white">
-              <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
+            {onAnalyzeCard ? (
+              <button
+                type="button"
+                aria-pressed={isSelected}
+                aria-label={`Select ${card.label}`}
+                onClick={() => onAnalyzeCard(card)}
+                className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]"
+              />
+            ) : null}
+
+            <div
+              className={cn(
+                "pointer-events-none relative flex min-h-14 min-w-0 items-center bg-slate-950 px-3 py-2 text-white",
+                isSelected && "pr-28",
+              )}
+            >
+              <div className="flex min-w-0 items-baseline gap-2">
                 <h3 className="min-w-0 truncate font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-tight text-balance">
                   {card.label}
                 </h3>
-                <p className="min-w-0 truncate font-mono text-xs font-medium text-slate-300 tabular-nums">
+                <p className="shrink-0 font-mono text-xs font-medium text-slate-300 tabular-nums">
                   {getComparisonStrikeLabel(card)}
                 </p>
               </div>
               {isSelected ? (
-                <span className="shrink-0 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
                   Selected
                 </span>
               ) : null}
             </div>
 
-            <div className="space-y-2 p-2.5">
+            <div className="pointer-events-none space-y-2 p-2.5">
               <div className="grid min-w-0 grid-cols-3 gap-2 rounded-md bg-slate-50 p-2">
                 <div className="min-w-0">
                   <p className="text-[11px] font-medium text-slate-500">Position value</p>
@@ -2281,7 +2816,7 @@ function DecisionOutcomeCards({
                 </div>
               </div>
 
-              <div className="grid min-w-0 grid-cols-3 gap-2">
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
                 {metrics.map((metric) => (
                   <div
                     key={metric.label}
@@ -2298,7 +2833,210 @@ function DecisionOutcomeCards({
                     </p>
                   </div>
                 ))}
+                <div className="min-w-0 rounded-md border border-slate-100 bg-white px-2 py-1.5 shadow-sm">
+                  <p className="text-[11px] font-medium text-slate-500">
+                    Max profit %
+                  </p>
+                  <p className="mt-0.5 truncate font-mono text-xs font-semibold text-emerald-700 tabular-nums">
+                    {maxProfitPercent}
+                  </p>
+                </div>
               </div>
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
+function DetailedDecisionOutcomeCards({
+  cards,
+  selectedCardId,
+  onAnalyzeCard,
+}: {
+  cards: ComparisonCardData[];
+  selectedCardId?: string | null;
+  onAnalyzeCard?: ComparisonCardAction;
+}) {
+  const orderedCards = orderSelectedCardsFirst(cards, selectedCardId);
+
+  return (
+    <div className="grid min-w-0 gap-3 lg:grid-cols-2">
+      {orderedCards.map((card) => {
+        const pnlIsPositive = card.snapshot.pnl >= 0;
+        const isSelected = card.id === selectedCardId;
+        const valuationDte = getValuationDte(card.snapshot);
+        const totalCost = card.snapshot.totalCost;
+        const maxProfitLabel =
+          card.maxProfitAtExpiry !== null
+            ? `${formatCurrency(card.maxProfitAtExpiry)}${
+                card.maxReturnAtExpiry !== null
+                  ? ` ${formatPercent(card.maxReturnAtExpiry)}`
+                  : ""
+              }`
+            : "Uncapped";
+        const maxLossReturnLabel =
+          card.maxLossAtExpiry !== null && totalCost > 0
+            ? ` ${formatPercent(card.maxLossAtExpiry / totalCost)}`
+            : "";
+        const maxLossLabel =
+          card.maxLossAtExpiry !== null
+            ? `${formatCurrency(card.maxLossAtExpiry)}${maxLossReturnLabel}`
+            : "Uncapped";
+        const setupDetails = [
+          { label: "Strategy", value: getStrategyDisplayLabel(card.strategy) },
+          { label: "Structure", value: getOutcomeStrategyTitle(card) },
+          { label: "Spot", value: card.spot !== undefined ? formatCurrency(card.spot) : "Current" },
+          { label: "Capital", value: formatCurrency(card.capital) },
+          { label: "Sizing", value: card.allowFractionalContracts ? "Fractional" : "Whole" },
+          { label: "Expiry DTE", value: `${card.snapshot.expirationDays}` },
+        ];
+        const scenarioDetails = [
+          { label: "Valuation date", value: formatLongDate(card.snapshot.selectedDateIso) },
+          { label: "Valuation DTE", value: `${valuationDte}` },
+          { label: "Position value", value: formatCurrency(card.snapshot.scenarioPositionValue) },
+          { label: "P/L", value: `${pnlIsPositive ? "+" : ""}${formatCurrency(card.snapshot.pnl)}` },
+          { label: "Return", value: formatPercent(card.snapshot.roi) },
+          {
+            label: "Future IV",
+            value:
+              card.futureVolatilityPct !== undefined
+                ? `${compactNumber(card.futureVolatilityPct)}%`
+                : "Current",
+          },
+        ];
+        const riskDetails = [
+          { label: "Entry cost", value: formatCurrency(totalCost) },
+          { label: "Unit debit", value: formatCurrency(card.snapshot.unitCost * CONTRACT_MULTIPLIER) },
+          { label: "Contracts", value: formatQuantity(card.snapshot.contracts) },
+          { label: "Cash left", value: formatCurrency(card.snapshot.cashLeft) },
+          { label: getBreakEvenLabel(card.snapshot), value: formatBreakEvenAtExpiry(card.snapshot) },
+          { label: "Max profit", value: maxProfitLabel },
+          {
+            label: "Max loss",
+            value: maxLossLabel,
+          },
+          {
+            label: "Profit cap",
+            value: card.snapshot.isProfitCapped ? "Capped" : "Uncapped",
+          },
+        ];
+        const entryLegPricingDetails = getEntryLegPricingDetails(card);
+        const pricingDetails = [
+          ...entryLegPricingDetails,
+          {
+            label: "Current IV",
+            value:
+              card.volatilityPct !== undefined
+                ? `${compactNumber(card.volatilityPct)}%`
+                : "Current",
+          },
+          {
+            label: "Rate",
+            value: card.ratePct !== undefined ? `${compactNumber(card.ratePct)}%` : "Current",
+          },
+          {
+            label: "Dividend yield",
+            value:
+              card.dividendYieldPct !== undefined
+                ? `${compactNumber(card.dividendYieldPct)}%`
+                : "Current",
+          },
+          { label: "Width", value: formatCurrency(card.snapshot.width) },
+        ];
+        const groups = [
+          { title: "Setup", details: setupDetails },
+          { title: "Scenario", details: scenarioDetails },
+          { title: "Risk", details: riskDetails },
+          { title: "Pricing", details: pricingDetails },
+        ];
+
+        return (
+          <article
+            key={card.id}
+            className={cn(
+              "group relative min-w-0 overflow-hidden rounded-md border bg-white shadow-sm transition-colors",
+              isSelected ? "border-[var(--accent)]" : "border-slate-200",
+              onAnalyzeCard && !isSelected && "hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]",
+            )}
+          >
+            {onAnalyzeCard ? (
+              <button
+                type="button"
+                aria-pressed={isSelected}
+                aria-label={`Select ${card.label}`}
+                onClick={() => onAnalyzeCard(card)}
+                className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]"
+              />
+            ) : null}
+
+            <div className="pointer-events-none border-b border-slate-200 bg-slate-950 px-3 py-2.5 text-white">
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <h3 className="truncate font-[family:var(--font-space-grotesk)] text-base font-semibold leading-tight text-balance">
+                    {card.label}
+                  </h3>
+                  <p className="mt-1 truncate font-mono text-xs text-slate-300 tabular-nums">
+                    {getComparisonStrikeLabel(card)}
+                  </p>
+                </div>
+                {isSelected ? (
+                  <span className="shrink-0 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                    Selected
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium text-slate-300">P/L</p>
+                  <p
+                    className={cn(
+                      "mt-1 truncate font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none tabular-nums",
+                      pnlIsPositive ? "text-emerald-300" : "text-rose-300",
+                    )}
+                  >
+                    {pnlIsPositive ? "+" : ""}
+                    {formatCurrency(card.snapshot.pnl)}
+                  </p>
+                </div>
+                <div className="min-w-[5rem] text-right">
+                  <p className="text-[11px] font-medium text-slate-300">Return</p>
+                  <p
+                    className={cn(
+                      "mt-1 font-[family:var(--font-space-grotesk)] text-xl font-semibold leading-none tabular-nums",
+                      pnlIsPositive ? "text-emerald-300" : "text-rose-300",
+                    )}
+                  >
+                    {formatPercent(card.snapshot.roi)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="pointer-events-none grid min-w-0 gap-3 p-3 sm:grid-cols-2">
+              {groups.map((group) => (
+                <section key={group.title} className="min-w-0">
+                  <h4 className="text-[10px] font-semibold uppercase text-slate-500">
+                    {group.title}
+                  </h4>
+                  <dl className="mt-2 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2">
+                    {group.details.map((detail) => (
+                      <div key={`${group.title}-${detail.label}`} className="min-w-0">
+                        <dt className="truncate text-[11px] font-medium text-slate-500">
+                          {detail.label}
+                        </dt>
+                        <dd
+                          className="mt-0.5 truncate font-mono text-xs font-semibold text-slate-950 tabular-nums"
+                          title={String(detail.value)}
+                        >
+                          {detail.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))}
             </div>
           </article>
         );
@@ -2310,9 +3048,11 @@ function DecisionOutcomeCards({
 function DecisionOutcomeMatrix({
   cards,
   selectedCardId,
+  onAnalyzeCard,
 }: {
   cards: ComparisonCardData[];
   selectedCardId?: string | null;
+  onAnalyzeCard?: ComparisonCardAction;
 }) {
   const orderedCards = orderSelectedCardsFirst(cards, selectedCardId);
   const matrixMetrics = [
@@ -2340,8 +3080,13 @@ function DecisionOutcomeMatrix({
       getValueClassName: () => "text-slate-950",
     },
     {
+      label: "DTE",
+      getValue: (card: ComparisonCardData) => String(card.expirationDays),
+      getValueClassName: () => "text-slate-950",
+    },
+    {
       label: "B/E",
-      getValue: (card: ComparisonCardData) => formatCurrency(card.snapshot.breakEvenAtExpiry),
+      getValue: (card: ComparisonCardData) => formatBreakEvenAtExpiry(card.snapshot),
       getValueClassName: () => "text-slate-950",
     },
     {
@@ -2373,23 +3118,39 @@ function DecisionOutcomeMatrix({
                 <div
                   key={card.id}
                   className={cn(
-                    "grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5",
+                    "relative grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-3 py-2.5 transition-colors",
+                    onAnalyzeCard && !isSelected && "hover:bg-[var(--accent-faint)]",
                     isSelected && "bg-[var(--accent-faint)]",
                   )}
                 >
-                  <div className="min-w-0">
+                  {onAnalyzeCard ? (
+                    <button
+                      type="button"
+                      aria-pressed={isSelected}
+                      aria-label={`Select ${card.label}`}
+                      onClick={() => onAnalyzeCard(card)}
+                      className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]"
+                    />
+                  ) : null}
+                  <div className="pointer-events-none min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-950">
                       {getOutcomeStrategyTitle(card)}
                     </p>
                     <p className="mt-0.5 truncate font-mono text-xs text-slate-500 tabular-nums">
-                      {card.strategy === "long-call"
-                        ? formatCurrency(card.longStrike)
-                        : `${formatCurrency(card.longStrike)} / ${formatCurrency(card.shortStrike)}`}
+                      {card.strategy === "long-call" || card.strategy === "bear-put"
+                        ? `${formatCurrency(card.longStrike)} ${
+                            card.strategy === "bear-put" ? "put" : "call"
+                          }`
+                        : `${formatCurrency(card.longStrike)} / ${formatCurrency(card.shortStrike)}${
+                            isRatioSpreadStrategy(card.strategy)
+                              ? ` x${normalizePutRatioShortCount(card.ratioShortCount)}`
+                              : ""
+                          }`}
                     </p>
                   </div>
                   <p
                     className={cn(
-                      "max-w-32 truncate text-right font-mono text-sm font-semibold tabular-nums",
+                      "pointer-events-none max-w-32 truncate text-right font-mono text-sm font-semibold tabular-nums",
                       metric.getValueClassName(card),
                     )}
                     title={value}
@@ -2480,24 +3241,32 @@ function DecisionComparisonBoard({
   selectedCardId,
   view,
   onViewChange,
+  onAnalyzeCard,
 }: {
   cards: ComparisonCardData[];
   selectedCardId?: string | null;
   view: DecisionComparisonView;
   onViewChange: (view: DecisionComparisonView) => void;
+  onAnalyzeCard?: ComparisonCardAction;
 }) {
   const decisionViews: Array<{ value: DecisionComparisonView; label: string }> = [
     { value: "cards", label: "Cards" },
+    { value: "detailed-cards", label: "Detailed cards" },
     { value: "table", label: "Table" },
     { value: "matrix", label: "Matrix" },
   ];
-  const activeView = view === "table" || view === "matrix" ? view : "cards";
+  const activeView =
+    view === "detailed-cards" || view === "table" || view === "matrix"
+      ? view
+      : "cards";
   const orderedCards = orderSelectedCardsFirst(cards, selectedCardId);
   const title =
     activeView === "table"
       ? "Strategy table"
       : activeView === "matrix"
         ? "Outcome matrix"
+        : activeView === "detailed-cards"
+          ? "Detailed cards"
         : "Outcome cards";
 
   return (
@@ -2506,7 +3275,7 @@ function DecisionComparisonBoard({
       className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden sm:w-auto sm:max-w-none [&_h2]:text-base [&_h2]:font-semibold"
       action={
         <div
-          className="grid w-full min-w-0 grid-cols-3 rounded-md border border-slate-200 bg-slate-100 p-0.5 shadow-sm"
+          className="grid w-full min-w-0 grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-0.5 shadow-sm sm:grid-cols-4"
           aria-label="Comparison view"
         >
           {decisionViews.map((option) => (
@@ -2534,11 +3303,19 @@ function DecisionComparisonBoard({
         <DecisionOutcomeCards
           cards={orderedCards}
           selectedCardId={selectedCardId}
+          onAnalyzeCard={onAnalyzeCard}
+        />
+      ) : activeView === "detailed-cards" ? (
+        <DetailedDecisionOutcomeCards
+          cards={orderedCards}
+          selectedCardId={selectedCardId}
+          onAnalyzeCard={onAnalyzeCard}
         />
       ) : activeView === "matrix" ? (
         <DecisionOutcomeMatrix
           cards={orderedCards}
           selectedCardId={selectedCardId}
+          onAnalyzeCard={onAnalyzeCard}
         />
       ) : (
         <div className="space-y-3">
@@ -2546,7 +3323,7 @@ function DecisionComparisonBoard({
             <table className="min-w-full border-collapse text-sm">
               <thead className="bg-slate-950 text-white">
                 <tr>
-                  {["Strategy", "Scenario", "P/L", "Return", "Cost", "B/E", "Max at expiry"].map((label) => (
+                  {["Strategy", "Scenario", "P/L", "Return", "Cost", "DTE", "B/E", "Max at expiry"].map((label) => (
                     <th key={label} className="px-3 py-2 text-left font-medium">
                       {label}
                     </th>
@@ -2558,10 +3335,24 @@ function DecisionComparisonBoard({
                   return (
                     <tr
                       key={card.id}
-                      className="border-t border-slate-100"
+                      className={cn(
+                        "border-t border-slate-100 transition-colors",
+                        card.id === selectedCardId && "bg-[var(--accent-faint)]",
+                      )}
                     >
                       <td className="px-3 py-3">
-                        <p className="font-semibold text-slate-950">{card.label}</p>
+                        {onAnalyzeCard ? (
+                          <button
+                            type="button"
+                            aria-pressed={card.id === selectedCardId}
+                            onClick={() => onAnalyzeCard(card)}
+                            className="text-left font-semibold text-slate-950 hover:text-[var(--accent-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                          >
+                            {card.label}
+                          </button>
+                        ) : (
+                          <p className="font-semibold text-slate-950">{card.label}</p>
+                        )}
                         <p className="font-mono text-xs text-slate-500 tabular-nums">
                           {getComparisonStrikeLabel(card)}
                         </p>
@@ -2586,7 +3377,10 @@ function DecisionComparisonBoard({
                         {formatCurrency(card.snapshot.totalCost)}
                       </td>
                       <td className="px-3 py-3 font-mono tabular-nums text-slate-950">
-                        {formatCurrency(card.snapshot.breakEvenAtExpiry)}
+                        {card.expirationDays}
+                      </td>
+                      <td className="px-3 py-3 font-mono tabular-nums text-slate-950">
+                        {formatBreakEvenAtExpiry(card.snapshot)}
                       </td>
                       <td className="px-3 py-3 font-mono tabular-nums text-slate-950">
                         {getMaxProfitAtExpiryLabel(card)}
@@ -2718,6 +3512,7 @@ function CustomComparisonBoard({
   saveActionLabel = "Save strategy",
   moneyDisplayUnitScale = 1,
   moneyDisplayUnitSuffix,
+  currentSpot,
   scenarioDateLabel,
   scenarioPrice,
   symbol,
@@ -2729,6 +3524,7 @@ function CustomComparisonBoard({
   onEditComparison,
   onClose,
   onRemoveComparison,
+  onReorderComparisons,
   onUseQuickStart,
 }: {
   cards: ComparisonCardData[];
@@ -2745,6 +3541,7 @@ function CustomComparisonBoard({
   saveActionLabel?: string;
   moneyDisplayUnitScale?: number;
   moneyDisplayUnitSuffix?: string;
+  currentSpot: number;
   scenarioDateLabel: string;
   scenarioPrice: number;
   symbol: string;
@@ -2756,10 +3553,14 @@ function CustomComparisonBoard({
   onEditComparison?: ComparisonCardAction;
   onClose?: () => void;
   onRemoveComparison: (id: string) => void;
+  onReorderComparisons?: (orderedIds: string[]) => void;
   onUseQuickStart: (card: ComparisonCardData) => void;
 }) {
   const isSpreadDraft = isDebitSpreadStrategy(draft.strategy);
-  const isPutSpreadDraft = draft.strategy === "debit-put-spread";
+  const isPutSpreadDraft = isPutDownsideStrategy(draft.strategy);
+  const isPutRatioSpreadDraft = draft.strategy === "put-ratio-spread";
+  const isCallRatioSpreadDraft = draft.strategy === "call-ratio-spread";
+  const isRatioSpreadDraft = isRatioSpreadStrategy(draft.strategy);
   const isEditingMode = Boolean(editingComparisonId);
   const actionContent =
     isEditorOpen || onOpenEditor ? (
@@ -2875,8 +3676,8 @@ function CustomComparisonBoard({
                 Editing existing strategy
               </div>
             ) : null}
-            <div className="grid min-w-0 gap-x-2 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-12">
-              <label className="block min-w-0 sm:col-span-2 lg:col-span-2 xl:col-span-3">
+            <div className="grid min-w-0 gap-x-2 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-[minmax(13rem,1.35fr)_minmax(12rem,1fr)_minmax(8rem,0.75fr)_minmax(8rem,0.75fr)_minmax(8rem,0.75fr)_minmax(6.5rem,0.55fr)_max-content]">
+              <label className="block min-w-0 sm:col-span-2 lg:col-span-2 xl:col-span-1">
                 <span className="text-xs font-medium text-slate-500">Strategy name</span>
                 <input
                   type="text"
@@ -2889,46 +3690,53 @@ function CustomComparisonBoard({
                 />
               </label>
 
-              <div className="min-w-0 lg:col-span-2 xl:col-span-2">
+              <label className="block min-w-0 lg:col-span-2 xl:col-span-1">
                 <span className="text-xs font-medium text-slate-500">Strategy type</span>
-                <div
-	                  className="mt-0.5 grid grid-cols-3 rounded-md border border-slate-300 bg-white p-0.5 shadow-sm"
-                  role="group"
-                  aria-label="Custom comparison type"
+                <select
+                  value={draft.strategy}
+                  onChange={(event) => {
+                    const nextStrategy = event.target.value as OptionStrategy;
+                    const nextDraftStrikes = getDefaultStrikesForStrategy(
+                      nextStrategy,
+                      currentSpot,
+                    );
+
+                    onDraftChange({
+                      ...draft,
+                      strategy: nextStrategy,
+                      spot: currentSpot,
+                      longStrike: nextDraftStrikes.longStrike,
+                      shortStrike: nextDraftStrikes.shortStrike,
+                    });
+                  }}
+                  className="mt-0.5 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm font-medium text-slate-950 shadow-sm outline-none focus:border-[var(--accent)] focus:outline-2 focus:outline-offset-2 focus:outline-[var(--accent)]"
                 >
                   {STRATEGY_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      aria-pressed={draft.strategy === option.value}
-                      onClick={() =>
-                        onDraftChange({
-                          ...draft,
-                          strategy: option.value,
-                          shortStrike: normalizeShortStrikeForStrategy(
-                            option.value,
-                            draft.longStrike,
-                            option.value === "debit-put-spread"
-                              ? Math.min(draft.shortStrike, draft.longStrike - 1)
-                              : draft.shortStrike,
-                          ),
-                        })
-                      }
-                      className={cn(
-	                        "min-w-0 truncate rounded px-2 py-1 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
-                        draft.strategy === option.value &&
-                          "bg-[var(--accent-soft)] text-slate-950 shadow-sm",
-                      )}
-                    >
-                      {option.value === "long-call"
-                        ? "Call"
-                        : option.value === "debit-put-spread"
-                          ? "Put spread"
-                          : "Call spread"}
-                    </button>
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
                   ))}
+                </select>
+              </label>
+
+              {isRatioSpreadDraft ? (
+                <div className="min-w-0 lg:col-span-2 xl:col-span-1">
+                  <CompactNumberInput
+                    label="Ratio"
+                    value={normalizePutRatioShortCount(draft.ratioShortCount)}
+                    min={PUT_RATIO_SHORT_COUNT_MIN}
+                    step={1}
+                    prefix="1 / "
+                    suffix={isPutRatioSpreadDraft ? " short puts" : " short calls"}
+                    onChange={(nextValue) =>
+                      onDraftChange({
+                        ...draft,
+                        ratioShortCount: normalizePutRatioShortCount(nextValue),
+                      })
+                    }
+                  />
                 </div>
-              </div>
+              ) : null}
 
               <CompactNumberInput
                 label={
@@ -2936,12 +3744,14 @@ function CustomComparisonBoard({
                     ? isPutSpreadDraft
                       ? "Long put"
                       : "Long call"
-                    : "Strike"
+                    : draft.strategy === "bear-put"
+                      ? "Put strike"
+                      : "Call strike"
                 }
                 value={draft.longStrike}
                 min={1}
                 prefix="$"
-                className="lg:col-span-1 xl:col-span-2"
+                className="lg:col-span-1 xl:col-span-1"
                 onChange={(nextValue) =>
                   onDraftChange({
                     ...draft,
@@ -2957,11 +3767,19 @@ function CustomComparisonBoard({
 
               {isSpreadDraft ? (
                 <CompactNumberInput
-                  label={isPutSpreadDraft ? "Short put" : "Short call"}
+                  label={
+                    isPutRatioSpreadDraft
+                      ? "Short puts"
+                      : isCallRatioSpreadDraft
+                        ? "Short calls"
+                      : isPutSpreadDraft
+                        ? "Short put"
+                        : "Short call"
+                  }
                   value={draft.shortStrike}
                   min={1}
                   prefix="$"
-                  className="lg:col-span-1 xl:col-span-2"
+                  className="lg:col-span-1 xl:col-span-1"
                   onChange={(nextValue) =>
                     onDraftChange({
                       ...draft,
@@ -2983,7 +3801,7 @@ function CustomComparisonBoard({
                 displayScale={moneyDisplayUnitScale}
                 displaySuffix={moneyDisplayUnitSuffix}
                 step={100}
-                className="lg:col-span-2 xl:col-span-2"
+                className="lg:col-span-2 xl:col-span-1"
                 onChange={(nextValue) =>
                   onDraftChange({ ...draft, capital: Math.max(0, nextValue) })
                 }
@@ -2995,7 +3813,7 @@ function CustomComparisonBoard({
                 min={1}
                 suffix="d"
                 step={1}
-                className="lg:col-span-1 xl:col-span-2"
+                className="lg:col-span-1 xl:col-span-1"
                 onChange={(nextValue) =>
                   onDraftChange({
                     ...draft,
@@ -3038,11 +3856,12 @@ function CustomComparisonBoard({
                 onAnalyzeCard={onAnalyzeCard}
                 onEditCard={onEditComparison}
                 onRemoveCard={onRemoveComparison}
+                onReorderCards={onReorderComparisons}
               />
             ) : (
               <ComparisonCardGrid
                 cards={cards}
-                prioritizeSelected={false}
+                prioritizeSelected
                 selectedCardId={selectedCardId}
                 onRemoveCard={onRemoveComparison}
               />
@@ -5331,6 +6150,7 @@ function ResultsTable<Row extends { id: string; isHighlighted?: boolean }>({
 export default function DebitCallSpreadLab({
   todayIso,
   defaultExpiryIso,
+  children,
 }: DebitCallSpreadLabProps) {
   const defaultExpirationDays = Math.max(1, daysBetween(todayIso, defaultExpiryIso));
   const [strategy, setStrategy] = useState<OptionStrategy>("debit-call-spread");
@@ -5338,8 +6158,9 @@ export default function DebitCallSpreadLab({
   const [spot, setSpot] = useState(100);
   const [volatilityPct, setVolatilityPct] = useState(50);
   const [futureVolatilityPct, setFutureVolatilityPct] = useState(50);
-  const [longStrike, setLongStrike] = useState(120);
-  const [shortStrike, setShortStrike] = useState(130);
+  const [longStrike, setLongStrike] = useState(100);
+  const [shortStrike, setShortStrike] = useState(() => getNearCallShortStrike(100));
+  const [putRatioShortCount, setPutRatioShortCount] = useState(2);
   const [capital, setCapital] = useState(10000);
   const [allowFractionalContracts, setAllowFractionalContracts] =
     useState(false);
@@ -5380,11 +6201,17 @@ export default function DebitCallSpreadLab({
   const [isCoreSetupOpen, setIsCoreSetupOpen] = useState(false);
   const [isSetupFormVisible, setIsSetupFormVisible] = useState(false);
   const [isMarketScenarioOpen, setIsMarketScenarioOpen] = useState(false);
+  const initialDraftStrikes = getDefaultStrikesForStrategy(
+    "debit-call-spread",
+    spot,
+  );
   const [customDraft, setCustomDraft] = useState<CustomComparisonDraft>({
     label: "",
     strategy: "debit-call-spread",
-    longStrike: spot,
-    shortStrike: getOtmStrike(spot, 10),
+    spot,
+    longStrike: initialDraftStrikes.longStrike,
+    shortStrike: initialDraftStrikes.shortStrike,
+    ratioShortCount: putRatioShortCount,
     capital,
     expirationDays,
     allowFractionalContracts,
@@ -5398,11 +6225,16 @@ export default function DebitCallSpreadLab({
   const [isTopBarPinnedVisible, setIsTopBarPinnedVisible] = useState(true);
   const [isTopBarHoverRevealed, setIsTopBarHoverRevealed] = useState(false);
   const isDebitCallSpread = strategy === "debit-call-spread";
+  const isCallRatioSpread = strategy === "call-ratio-spread";
   const isDebitPutSpread = strategy === "debit-put-spread";
+  const isBearPut = strategy === "bear-put";
+  const isPutRatioSpread = strategy === "put-ratio-spread";
+  const isRatioSpread = isRatioSpreadStrategy(strategy);
+  const isPutDownsideSpread = isPutDownsideStrategy(strategy);
   const isDebitSpread = isDebitSpreadStrategy(strategy);
   const strategyCopy = STRATEGY_COPY[strategy];
-  const upperStrike = isDebitCallSpread ? shortStrike : longStrike;
-  const lowerStrike = isDebitPutSpread ? shortStrike : longStrike;
+  const upperStrike = isDebitCallSpread || isCallRatioSpread ? shortStrike : longStrike;
+  const lowerStrike = isPutDownsideSpread ? shortStrike : longStrike;
 
   setActiveMoneyDisplayUnit(moneyDisplayUnit);
   const moneyDisplayUnitScale = getMoneyDisplayUnitScale(moneyDisplayUnit);
@@ -5427,9 +6259,9 @@ export default function DebitCallSpreadLab({
   const baseStrikeSliderMax = getSliderMax(spot, safeScenarioPrice, longStrike, upperStrike);
   const longStrikeSliderMax = Math.max(
     baseStrikeSliderMax,
-    isDebitCallSpread ? shortStrike + 20 : longStrike + 20,
+    isDebitCallSpread || isCallRatioSpread ? shortStrike + 20 : longStrike + 20,
   );
-  const shortStrikeSliderMax = isDebitPutSpread
+  const shortStrikeSliderMax = isPutDownsideSpread
     ? Math.max(5, longStrike - 1)
     : Math.max(baseStrikeSliderMax + 20, longStrike + 5);
   const expiryIso = addDaysToIso(todayIso, expirationDays);
@@ -5444,6 +6276,10 @@ export default function DebitCallSpreadLab({
     marketScenarioMaxOffsetDays,
   );
   const marketScenarioDateIso = addDaysToIso(todayIso, safeScenarioOffsetDays);
+  const marketScenarioDte = Math.max(
+    0,
+    marketScenarioMaxOffsetDays - safeScenarioOffsetDays,
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -5482,67 +6318,100 @@ export default function DebitCallSpreadLab({
 
   useEffect(() => {
     let isActive = true;
-    const urlState = getShareStateFromUrl(defaultExpirationDays);
-    const storedState = urlState ? null : getStoredShareState(defaultExpirationDays);
-    const initialState = urlState ?? storedState;
-    const storedCustomComparisons = initialState ? [] : getStoredCustomComparisons();
-    const explicitWorkflowTab = getWorkflowTabFromUrl();
-    const explicitDecisionComparisonView = getDecisionComparisonViewFromUrl();
-
-    queueMicrotask(() => {
-      if (!isActive) {
+    const restoreTimeouts: number[] = [];
+    const markReady = () => {
+      if (isActive) {
+        setIsUrlStateReady(true);
+      }
+    };
+    const restoreWorkspace = (attemptIndex: number) => {
+      if (!isActive || typeof window === "undefined") {
         return;
       }
 
-      if (initialState) {
-        setStrategy(initialState.strategy);
-        setSymbol(initialState.symbol);
-        setSpot(initialState.spot);
-        setVolatilityPct(initialState.volatilityPct);
-        setFutureVolatilityPct(initialState.futureVolatilityPct);
-        setLongStrike(initialState.longStrike);
-        setShortStrike(initialState.shortStrike);
-        setCapital(initialState.capital);
-        setAllowFractionalContracts(initialState.allowFractionalContracts);
-        setExpirationDays(initialState.expirationDays);
-        setScenarioPrice(initialState.scenarioPrice);
-        setScenarioPriceDraft(null);
-        setScenarioGraphView(initialState.scenarioGraphView);
-        setScenarioOffsetDays(initialState.scenarioOffsetDays);
-        setRatePct(initialState.ratePct);
-        setRatePctDraft(compactNumber(initialState.ratePct));
-        setComparisonPanelMode(initialState.comparisonPanelMode);
-        setCustomComparisons(initialState.customComparisons);
-        customComparisonIdCounter.current = getCustomComparisonCounterSeed(
-          initialState.customComparisons,
-        );
-        setGraphComparisonId(initialState.graphComparisonId);
-        setActiveWorkflowTab(initialState.workflowTab);
-      } else if (storedCustomComparisons.length > 0) {
-        setCustomComparisons(storedCustomComparisons);
-        customComparisonIdCounter.current = getCustomComparisonCounterSeed(
-          storedCustomComparisons,
-        );
-        setComparisonPanelMode("custom");
-      }
+      try {
+        const urlState = getShareStateFromUrl(defaultExpirationDays);
+        const storedState = urlState ? null : getStoredShareState(defaultExpirationDays);
+        const initialState = urlState ?? storedState;
+        const storedCustomComparisons = initialState ? [] : getStoredCustomComparisons();
+        const explicitWorkflowTab = getWorkflowTabFromUrl();
+        const explicitDecisionComparisonView = getDecisionComparisonViewFromUrl();
 
-      if (explicitWorkflowTab) {
-        setActiveWorkflowTab(explicitWorkflowTab);
-      }
+        if (initialState) {
+          setStrategy(initialState.strategy);
+          setSymbol(initialState.symbol);
+          setSpot(initialState.spot);
+          setVolatilityPct(initialState.volatilityPct);
+          setFutureVolatilityPct(initialState.futureVolatilityPct);
+          setLongStrike(initialState.longStrike);
+          setShortStrike(initialState.shortStrike);
+          setPutRatioShortCount(normalizePutRatioShortCount(initialState.ratioShortCount));
+          setCapital(initialState.capital);
+          setAllowFractionalContracts(initialState.allowFractionalContracts);
+          setExpirationDays(initialState.expirationDays);
+          setScenarioPrice(initialState.scenarioPrice);
+          setScenarioPriceDraft(null);
+          setScenarioGraphView(initialState.scenarioGraphView);
+          setScenarioOffsetDays(initialState.scenarioOffsetDays);
+          setRatePct(initialState.ratePct);
+          setRatePctDraft(compactNumber(initialState.ratePct));
+          setComparisonPanelMode(initialState.comparisonPanelMode);
+          setCustomComparisons(initialState.customComparisons);
+          customComparisonIdCounter.current = getCustomComparisonCounterSeed(
+            initialState.customComparisons,
+          );
+          setGraphComparisonId(initialState.graphComparisonId);
+          setActiveWorkflowTab(initialState.workflowTab);
+        } else if (storedCustomComparisons.length > 0) {
+          setCustomComparisons(storedCustomComparisons);
+          customComparisonIdCounter.current = getCustomComparisonCounterSeed(
+            storedCustomComparisons,
+          );
+          setComparisonPanelMode("custom");
+        }
 
-      if (explicitDecisionComparisonView) {
-        setDecisionComparisonView(explicitDecisionComparisonView);
-      }
+        if (explicitWorkflowTab) {
+          setActiveWorkflowTab(explicitWorkflowTab);
+        }
 
-      if (urlState || explicitWorkflowTab || explicitDecisionComparisonView) {
-        clearAppUrlState();
-      }
+        if (explicitDecisionComparisonView) {
+          setDecisionComparisonView(explicitDecisionComparisonView);
+        }
 
-      setIsUrlStateReady(true);
-    });
+        if (urlState || explicitWorkflowTab || explicitDecisionComparisonView) {
+          clearAppUrlState();
+        }
+
+        markReady();
+      } catch (error) {
+        const nextAttemptIndex = attemptIndex + 1;
+
+        if (nextAttemptIndex < WORKSPACE_RESTORE_RETRY_DELAYS_MS.length) {
+          restoreTimeouts.push(
+            window.setTimeout(
+              () => restoreWorkspace(nextAttemptIndex),
+              WORKSPACE_RESTORE_RETRY_DELAYS_MS[nextAttemptIndex],
+            ),
+          );
+          return;
+        }
+
+        console.warn("Callculator could not restore the saved workspace.", error);
+        markReady();
+      }
+    };
+
+    restoreTimeouts.push(
+      window.setTimeout(
+        () => restoreWorkspace(0),
+        WORKSPACE_RESTORE_RETRY_DELAYS_MS[0],
+      ),
+    );
+    restoreTimeouts.push(window.setTimeout(markReady, WORKSPACE_RESTORE_FALLBACK_MS));
 
     return () => {
       isActive = false;
+      restoreTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId));
     };
   }, [defaultExpirationDays]);
 
@@ -5567,6 +6436,7 @@ export default function DebitCallSpreadLab({
       futureVolatilityPct,
       longStrike,
       shortStrike,
+      ratioShortCount: putRatioShortCount,
       capital,
       allowFractionalContracts,
       expirationDays,
@@ -5589,6 +6459,7 @@ export default function DebitCallSpreadLab({
     graphComparisonId,
     activeWorkflowTab,
     longStrike,
+    putRatioShortCount,
     ratePct,
     safeScenarioOffsetDays,
     safeScenarioPrice,
@@ -5722,14 +6593,24 @@ export default function DebitCallSpreadLab({
 
   const updateSpot = (nextValue: number) => {
     const nextSpot = Math.round(nextValue);
+    const nextDefaultStrikes = getDefaultStrikesForStrategy(strategy, nextSpot);
 
     setSpot(nextSpot);
-    setLongStrike(nextSpot);
-    setShortStrike(
-      strategy === "debit-put-spread"
-        ? getOtmPutStrike(nextSpot, 10)
-        : getOtmStrike(nextSpot, 10),
-    );
+    setLongStrike(nextDefaultStrikes.longStrike);
+    setShortStrike(nextDefaultStrikes.shortStrike);
+    setCustomDraft((currentDraft) => {
+      const nextDraftStrikes = getDefaultStrikesForStrategy(
+        currentDraft.strategy,
+        nextSpot,
+      );
+
+      return {
+        ...currentDraft,
+        spot: nextSpot,
+        longStrike: nextDraftStrikes.longStrike,
+        shortStrike: nextDraftStrikes.shortStrike,
+      };
+    });
   };
   const updateVolatilityPct = (nextValue: number) => {
     setVolatilityPct(nextValue);
@@ -5851,16 +6732,28 @@ export default function DebitCallSpreadLab({
       setRatePct(Number(event.key));
     }
   };
-  const seedCustomDraftFromCurrent = () => {
+  const seedCustomDraftFromCurrent = (draftStrategy: OptionStrategy = strategy) => {
+    const nextDraftStrikes = getDefaultStrikesForStrategy(draftStrategy, spot);
+    const selectedComparisonId = graphComparisonId.startsWith("custom:")
+      ? graphComparisonId.slice("custom:".length)
+      : null;
+    const defaultExpirationDays =
+      (selectedComparisonId
+        ? customComparisons.find((comparison) => comparison.id === selectedComparisonId)
+            ?.expirationDays
+        : undefined) ??
+      customComparisons[0]?.expirationDays ??
+      expirationDays;
+
     setCustomDraft({
       label: "",
-      strategy,
-      longStrike,
-      shortStrike: isDebitSpread
-        ? normalizeShortStrikeForStrategy(strategy, longStrike, shortStrike)
-        : longStrike,
+      strategy: draftStrategy,
+      spot,
+      longStrike: nextDraftStrikes.longStrike,
+      shortStrike: nextDraftStrikes.shortStrike,
+      ratioShortCount: putRatioShortCount,
       capital,
-      expirationDays,
+      expirationDays: clamp(Math.round(defaultExpirationDays), 1, 1095),
       allowFractionalContracts,
     });
   };
@@ -5869,12 +6762,14 @@ export default function DebitCallSpreadLab({
     setCustomDraft({
       label: card.label,
       strategy: card.strategy,
+      spot: card.spot,
       longStrike: card.longStrike,
       shortStrike: normalizeShortStrikeForStrategy(
         card.strategy,
         card.longStrike,
         card.shortStrike,
       ),
+      ratioShortCount: normalizePutRatioShortCount(card.ratioShortCount),
       capital: card.capital,
       expirationDays: card.expirationDays,
       allowFractionalContracts: card.allowFractionalContracts,
@@ -5894,6 +6789,7 @@ export default function DebitCallSpreadLab({
     setShortStrike(
       normalizeShortStrikeForStrategy(card.strategy, nextLongStrike, card.shortStrike),
     );
+    setPutRatioShortCount(normalizePutRatioShortCount(card.ratioShortCount));
     setSpot(Math.max(1, Math.round(card.spot ?? spot)));
     setVolatilityPct(clamp(card.volatilityPct ?? volatilityPct, 0, 300));
     setFutureVolatilityPct(
@@ -5913,6 +6809,7 @@ export default function DebitCallSpreadLab({
         nextLongStrike,
         card.shortStrike,
       ),
+      ratioShortCount: normalizePutRatioShortCount(card.ratioShortCount),
       capital: card.capital,
       expirationDays: nextExpirationDays,
       allowFractionalContracts: card.allowFractionalContracts,
@@ -5946,10 +6843,7 @@ export default function DebitCallSpreadLab({
   };
   const openCustomComparisonEditor = () => {
     setEditingComparisonId(null);
-
-    if (comparisonPanelMode !== "custom") {
-      seedCustomDraftFromCurrent();
-    }
+    seedCustomDraftFromCurrent(customDraft.strategy);
 
     if (graphComparisonId.startsWith("preset:")) {
       setGraphComparisonId("editor");
@@ -5999,9 +6893,11 @@ export default function DebitCallSpreadLab({
   const customDraftError =
     customDraft.longStrike <= 0
       ? "Long strike has to be greater than zero."
-      : customDraft.strategy === "debit-call-spread" && customDraft.shortStrike <= customDraft.longStrike
+      : (customDraft.strategy === "debit-call-spread" ||
+            customDraft.strategy === "call-ratio-spread") &&
+          customDraft.shortStrike <= customDraft.longStrike
         ? "Short call strike has to be above the long call strike."
-      : customDraft.strategy === "debit-put-spread" && customDraft.shortStrike >= customDraft.longStrike
+      : isPutDownsideStrategy(customDraft.strategy) && customDraft.shortStrike >= customDraft.longStrike
         ? "Short put strike has to be below the long put strike."
         : customDraft.capital <= 0
           ? "Capital needs to be greater than zero."
@@ -6020,17 +6916,30 @@ export default function DebitCallSpreadLab({
       nextLongStrike,
       customDraft.shortStrike,
     );
+    const nextRatioShortCount = normalizePutRatioShortCount(customDraft.ratioShortCount);
     const nextSymbol = normalizeSymbol(symbol);
     const nextExpirationDays = clamp(Math.round(customDraft.expirationDays), 1, 1095);
+    const editedComparison = editingComparisonId
+      ? customComparisons.find((comparison) => comparison.id === editingComparisonId)
+      : undefined;
+    const shouldRegenerateLabel =
+      !customDraft.label.trim() ||
+      (editedComparison &&
+        isGeneratedCustomComparisonLabel(editedComparison) &&
+        customDraft.label.trim() === editedComparison.label);
+    const nextLabel = getCustomComparisonLabel({
+      ...customDraft,
+      label: shouldRegenerateLabel ? "" : customDraft.label,
+      longStrike: nextLongStrike,
+      shortStrike: nextShortStrike,
+      ratioShortCount: nextRatioShortCount,
+    });
     const nextComparisonBase = {
-      label: getCustomComparisonLabel({
-        ...customDraft,
-        longStrike: nextLongStrike,
-        shortStrike: nextShortStrike,
-      }),
+      label: nextLabel,
       strategy: nextStrategy,
       longStrike: nextLongStrike,
       shortStrike: nextShortStrike,
+      ratioShortCount: nextRatioShortCount,
       capital: Math.max(1, Math.round(customDraft.capital)),
       expirationDays: nextExpirationDays,
       allowFractionalContracts: customDraft.allowFractionalContracts,
@@ -6060,11 +6969,11 @@ export default function DebitCallSpreadLab({
 
       customComparisonIdCounter.current += 1;
       return [
-        ...currentComparisons,
         {
           id: nextId,
           ...nextComparisonBase,
         },
+        ...currentComparisons,
       ];
     });
     setGraphComparisonId(`custom:${nextId}`);
@@ -6089,6 +6998,9 @@ export default function DebitCallSpreadLab({
       comparison.strategy === strategy &&
       comparison.longStrike === nextLongStrike &&
       comparison.shortStrike === nextShortStrike &&
+      (!isRatioSpreadStrategy(strategy) ||
+        normalizePutRatioShortCount(comparison.ratioShortCount) ===
+          normalizePutRatioShortCount(putRatioShortCount)) &&
       comparison.capital === nextCapital &&
       comparison.expirationDays === nextExpirationDays &&
       comparison.allowFractionalContracts === allowFractionalContracts &&
@@ -6119,13 +7031,12 @@ export default function DebitCallSpreadLab({
         strategy,
         longStrike: nextLongStrike,
         shortStrike: nextShortStrike,
-      capital,
-      expirationDays,
-      allowFractionalContracts,
-    }),
+        ratioShortCount: putRatioShortCount,
+      }),
       strategy,
       longStrike: nextLongStrike,
       shortStrike: nextShortStrike,
+      ratioShortCount: normalizePutRatioShortCount(putRatioShortCount),
       capital: nextCapital,
       expirationDays: nextExpirationDays,
       allowFractionalContracts,
@@ -6139,8 +7050,8 @@ export default function DebitCallSpreadLab({
     };
 
     setCustomComparisons((currentComparisons) => [
-      ...currentComparisons,
       nextComparison,
+      ...currentComparisons,
     ]);
     setComparisonPanelMode("custom");
     setGraphComparisonId(`custom:${nextId}`);
@@ -6156,6 +7067,24 @@ export default function DebitCallSpreadLab({
     setGraphComparisonId((currentId) =>
       currentId === `custom:${id}` ? "editor" : currentId,
     );
+  };
+  const reorderCustomComparisons = (orderedIds: string[]) => {
+    setCustomComparisons((currentComparisons) => {
+      const orderedIdSet = new Set(orderedIds);
+      const comparisonsById = new Map(
+        currentComparisons.map((comparison) => [comparison.id, comparison]),
+      );
+      const orderedComparisons = orderedIds.flatMap((id) => {
+        const comparison = comparisonsById.get(id);
+
+        return comparison ? [comparison] : [];
+      });
+      const remainingComparisons = currentComparisons.filter(
+        (comparison) => !orderedIdSet.has(comparison.id),
+      );
+
+      return [...orderedComparisons, ...remainingComparisons];
+    });
   };
   const analyzePresetComparison = (card: ComparisonCardData) => {
     setComparisonPanelMode("presets");
@@ -6176,6 +7105,7 @@ export default function DebitCallSpreadLab({
     setShortStrike(
       normalizeShortStrikeForStrategy(card.strategy, nextLongStrike, card.shortStrike),
     );
+    setPutRatioShortCount(normalizePutRatioShortCount(card.ratioShortCount));
     setSpot(Math.max(1, Math.round(card.spot ?? spot)));
     setVolatilityPct(clamp(card.volatilityPct ?? volatilityPct, 0, 300));
     setFutureVolatilityPct(
@@ -6210,14 +7140,22 @@ export default function DebitCallSpreadLab({
     validationMessages.push(
       isDebitSpread
         ? "Strike prices have to be greater than zero."
-        : "Call strike has to be greater than zero.",
+        : isBearPut
+          ? "Put strike has to be greater than zero."
+          : "Call strike has to be greater than zero.",
     );
   }
   if (isDebitCallSpread && shortStrike <= longStrike) {
     validationMessages.push("For a debit call spread, the short strike must be above the long strike.");
   }
+  if (isCallRatioSpread && shortStrike <= longStrike) {
+    validationMessages.push("For a call ratio spread, the short strike must be above the long call strike.");
+  }
   if (isDebitPutSpread && shortStrike >= longStrike) {
     validationMessages.push("For a debit put spread, the short strike must be below the long strike.");
+  }
+  if (isPutRatioSpread && shortStrike >= longStrike) {
+    validationMessages.push("For a put ratio spread, the short strike must be below the long put strike.");
   }
   if (capital <= 0) {
     validationMessages.push("Capital needs to be greater than zero.");
@@ -6234,6 +7172,7 @@ export default function DebitCallSpreadLab({
       spot,
       longStrike,
       shortStrike,
+      ratioShortCount: putRatioShortCount,
       volatilityPct,
       futureVolatilityPct,
       capital,
@@ -6258,6 +7197,7 @@ export default function DebitCallSpreadLab({
       futureVolatilityPct,
       longStrike,
       marketScenarioMaxOffsetDays,
+      putRatioShortCount,
       ratePct,
       scenarioOffsetDays,
       scenarioPrice,
@@ -6272,6 +7212,13 @@ export default function DebitCallSpreadLab({
   );
 
   const snapshot = useMemo(() => createScenarioSnapshot(inputs), [inputs]);
+  if (isRatioSpread && validationMessages.length === 0 && snapshot.unitCost <= 0) {
+    validationMessages.push(
+      isPutRatioSpread
+        ? "This put ratio spread setup prices as a net credit. Move the short strike lower or the long strike higher to model it as a debit."
+        : "This call ratio setup prices as a net credit. Move the short strike higher or the long strike lower to model it as a debit.",
+    );
+  }
   const canModel = validationMessages.length === 0 && snapshot.unitCost > 0;
   const activeScenarioGraphView: ScenarioGraphView =
     scenarioGraphView === "overlay" || scenarioGraphView === "decay" || scenarioGraphView === "map"
@@ -6313,6 +7260,7 @@ export default function DebitCallSpreadLab({
         strategy,
         longStrike,
         shortStrike,
+        ratioShortCount: putRatioShortCount,
         capital,
         expirationDays,
         allowFractionalContracts,
@@ -6346,6 +7294,18 @@ export default function DebitCallSpreadLab({
         strategy: "debit-call-spread",
         longStrike: atmStrike,
         shortStrike: Math.max(atmStrike + 1, getOtmStrike(spot, 10)),
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+      {
+        id: "call-ratio-10-otm",
+        label: "10% OTM call ratio spread",
+        note: "Targets a moderate upside move with extra risk above the short calls.",
+        strategy: "call-ratio-spread",
+        longStrike: atmStrike,
+        shortStrike: Math.max(atmStrike + 1, getOtmStrike(spot, 10)),
+        ratioShortCount: 2,
         capital,
         expirationDays,
         allowFractionalContracts,
@@ -6395,6 +7355,29 @@ export default function DebitCallSpreadLab({
         allowFractionalContracts,
       },
       {
+        id: "bear-put-10-otm",
+        label: "10% OTM bear put",
+        note: "Single put for a moderate downside target.",
+        strategy: "bear-put",
+        longStrike: getOtmPutStrike(spot, 10),
+        shortStrike: getOtmPutStrike(spot, 10),
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+      {
+        id: "put-ratio-10-otm",
+        label: "10% OTM put ratio spread",
+        note: "Targets a moderate downside move with extra risk below the short puts.",
+        strategy: "put-ratio-spread",
+        longStrike: atmStrike,
+        shortStrike: getOtmPutStrike(spot, 10),
+        ratioShortCount: 2,
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+      {
         id: "put-spread-20-otm",
         label: "20% OTM put spread",
         note: "Lower-cost bearish target with capped downside profit.",
@@ -6418,6 +7401,7 @@ export default function DebitCallSpreadLab({
     expirationDays,
     inputs,
     longStrike,
+    putRatioShortCount,
     shortStrike,
     spot,
     strategy,
@@ -6457,6 +7441,7 @@ export default function DebitCallSpreadLab({
       strategy,
       longStrike,
       shortStrike,
+      ratioShortCount: putRatioShortCount,
       capital,
       expirationDays,
       allowFractionalContracts,
@@ -6489,6 +7474,7 @@ export default function DebitCallSpreadLab({
     effectiveComparisonPanelMode,
     inputs,
     longStrike,
+    putRatioShortCount,
     shortStrike,
     snapshot,
     strategy,
@@ -6506,16 +7492,30 @@ export default function DebitCallSpreadLab({
   const selectedComparisonBoardCardId = hasSavedComparisonCards
     ? selectedCustomCardId
     : selectedPresetCardId;
+  const selectedSavedStrategyCard = hasSavedComparisonCards
+    ? customComparisonCards.find((card) => card.id === selectedCustomCardId) ??
+      customComparisonCards[0] ??
+      null
+    : null;
   const visualizedInputs = selectedGraphComparison.inputs;
   const visualizedSnapshot = selectedGraphComparison.snapshot;
   const visualizedStrategy = visualizedInputs.strategy;
   const visualizedStrategyCopy = STRATEGY_COPY[visualizedStrategy];
   const visualizedIsDebitSpread = isDebitSpreadStrategy(visualizedStrategy);
-  const visualizedIsDebitPutSpread = visualizedStrategy === "debit-put-spread";
+  const visualizedIsBearPut = visualizedStrategy === "bear-put";
+  const visualizedIsPutSpread = visualizedStrategy === "debit-put-spread";
+  const visualizedIsPutRatioSpread = visualizedStrategy === "put-ratio-spread";
+  const visualizedIsCallRatioSpread = visualizedStrategy === "call-ratio-spread";
+  const visualizedIsRatioSpread = isRatioSpreadStrategy(visualizedStrategy);
+  const visualizedIsPutDownsideSpread = isPutDownsideStrategy(visualizedStrategy);
   const analyzedStrategyName = selectedGraphComparison.label.replace(/^#\d+\s+/, "");
   const analyzedStructureLabel = visualizedIsDebitSpread
-    ? `${formatCurrency(visualizedInputs.longStrike)} / ${formatCurrency(visualizedInputs.shortStrike)}`
-    : `${formatCurrency(visualizedInputs.longStrike)} call`;
+    ? `${formatCurrency(visualizedInputs.longStrike)} / ${formatCurrency(
+        visualizedInputs.shortStrike,
+      )}${visualizedIsRatioSpread ? ` x${visualizedInputs.ratioShortCount}` : ""}`
+    : `${formatCurrency(visualizedInputs.longStrike)} ${
+        visualizedIsBearPut ? "put" : "call"
+      }`;
   const visualizedMaxProfitAtExpiry =
     visualizedSnapshot.maxProfitPerUnit !== null
       ? visualizedSnapshot.maxProfitPerUnit *
@@ -6526,13 +7526,23 @@ export default function DebitCallSpreadLab({
     visualizedMaxProfitAtExpiry !== null && visualizedSnapshot.totalCost > 0
       ? visualizedMaxProfitAtExpiry / visualizedSnapshot.totalCost
       : null;
-  const visualizedMaxLossAtExpiry = -visualizedSnapshot.totalCost;
+  const visualizedMaxLossAtExpiry =
+    visualizedSnapshot.maxLossPerUnit === null
+      ? null
+      : -visualizedSnapshot.maxLossPerUnit *
+        visualizedSnapshot.contracts *
+        CONTRACT_MULTIPLIER;
+  const visualizedMaxLossReturnAtExpiry =
+    visualizedMaxLossAtExpiry !== null && visualizedSnapshot.totalCost > 0
+      ? visualizedMaxLossAtExpiry / visualizedSnapshot.totalCost
+      : null;
   const visualizedScenarioVisualizerInputs = useMemo(
     () => ({
       strategy: visualizedInputs.strategy,
       currentPrice: visualizedInputs.spot,
       longStrike: visualizedInputs.longStrike,
       shortStrike: visualizedInputs.shortStrike,
+      ratioShortCount: visualizedInputs.ratioShortCount,
       currentDte: visualizedSnapshot.expirationDays,
       numberOfSpreads: visualizedSnapshot.contracts,
       entryDebit: visualizedSnapshot.unitCost,
@@ -6547,6 +7557,7 @@ export default function DebitCallSpreadLab({
     visualizedInputs.strategy,
     visualizedInputs.longStrike,
     visualizedInputs.shortStrike,
+    visualizedInputs.ratioShortCount,
     visualizedInputs.futureVolatilityPct,
     visualizedSnapshot.contracts,
     visualizedSnapshot.unitCost,
@@ -6697,7 +7708,7 @@ export default function DebitCallSpreadLab({
     const hoverSnapshot = createScenarioSnapshot({
       ...visualizedInputs,
       scenarioPrice: price,
-      scenarioOffsetDays: clamp(offsetDays, 0, expirationDays),
+      scenarioOffsetDays: clamp(offsetDays, 0, visualizedSnapshot.expirationDays),
     });
 
     return {
@@ -6829,15 +7840,11 @@ export default function DebitCallSpreadLab({
     })),
   ];
   const updateStrategySelection = (nextStrategy: OptionStrategy) => {
+    const nextDefaultStrikes = getDefaultStrikesForStrategy(nextStrategy, spot);
+
     setStrategy(nextStrategy);
-    setLongStrike(Math.max(1, Math.round(spot)));
-    setShortStrike(
-      nextStrategy === "debit-put-spread"
-        ? getOtmPutStrike(spot, 10)
-        : nextStrategy === "debit-call-spread"
-          ? getOtmStrike(spot, 10)
-          : Math.max(1, Math.round(spot)),
-    );
+    setLongStrike(nextDefaultStrikes.longStrike);
+    setShortStrike(nextDefaultStrikes.shortStrike);
     setScenarioGraphView("map");
   };
   const showGuidedSidebar = workflowLayout === "guided" && isSidebarVisible;
@@ -6867,7 +7874,7 @@ export default function DebitCallSpreadLab({
       )}
     >
       <section className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        {stepHeader("1", "Stock & sizing", "Set the underlying assumptions and how much capital to deploy.")}
+        {stepHeader("1", "Stock setup", "Set the underlying assumptions.")}
         <label className="flex min-w-0 items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
           <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-500">
             Ticker
@@ -6919,50 +7926,6 @@ export default function DebitCallSpreadLab({
           }))}
         />
 
-        <NumberSliderField
-          label="Capital to deploy"
-          help={strategyCopy.capitalHelp}
-          min={500}
-          max={100000}
-          step={100}
-          value={capital}
-          onChange={setCapital}
-          prefix="$"
-          displayScale={moneyDisplayUnitScale}
-          displaySuffix={moneyDisplayUnitSuffix}
-        />
-
-        <div
-          className="flex min-w-0 flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between"
-          role="group"
-          aria-label="Position sizing"
-        >
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="text-sm font-medium text-slate-900">Contracts</span>
-            <InfoIcon label="Whole rounds down so the position fits in cash. Fractional uses the full capital amount as if partial contracts were tradable." />
-          </div>
-          <div className="inline-flex min-w-0 rounded-md border border-slate-300 bg-white p-0.5">
-            {[
-              { label: "Whole", value: false },
-              { label: "Fractional", value: true },
-            ].map((option) => (
-              <button
-                key={option.label}
-                type="button"
-                aria-pressed={allowFractionalContracts === option.value}
-                onClick={() => setAllowFractionalContracts(option.value)}
-                className={cn(
-                  "rounded-sm px-2.5 py-1 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
-                  allowFractionalContracts === option.value &&
-                    "bg-[var(--accent-soft)] text-[var(--accent-strong)]",
-                )}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <details className="group rounded-md border border-slate-200 bg-slate-50 shadow-sm">
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium text-slate-700">
             <span>Advanced pricing</span>
@@ -7010,9 +7973,15 @@ export default function DebitCallSpreadLab({
           "Pick a strategy",
           strategy === "debit-call-spread"
             ? "Buy one call and sell a higher-strike call. Defined risk, capped upside."
+            : strategy === "call-ratio-spread"
+              ? `Buy one call and sell ${putRatioShortCount} higher-strike calls. Best at the short strike with uncapped upside risk.`
+            : strategy === "bear-put"
+              ? "Buy one put. Bearish, defined risk, profit increases as the stock falls."
             : strategy === "debit-put-spread"
               ? "Buy one put and sell a lower-strike put. Defined risk, capped downside profit."
-              : "Buy a single call. Higher risk, uncapped upside.",
+              : strategy === "put-ratio-spread"
+                ? `Buy one put and sell ${putRatioShortCount} lower-strike puts. Best at the short strike with extra downside risk.`
+                : "Buy a single call. Higher risk, uncapped upside.",
         )}
         <label className="block min-w-0 xl:hidden">
           <span className="sr-only">Option strategy</span>
@@ -7029,7 +7998,7 @@ export default function DebitCallSpreadLab({
           </select>
         </label>
         <div
-          className="hidden min-w-0 grid-cols-3 gap-2 xl:grid"
+          className="hidden min-w-0 grid-cols-6 gap-2 xl:grid"
           role="group"
           aria-label="Option strategy"
         >
@@ -7051,7 +8020,7 @@ export default function DebitCallSpreadLab({
           ))}
         </div>
         {isDebitSpread && (
-          isDebitCallSpread ? shortStrike > longStrike : shortStrike < longStrike
+          isPutDownsideSpread ? shortStrike < longStrike : shortStrike > longStrike
         ) ? (
           <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <span className="font-semibold text-slate-900">
@@ -7063,7 +8032,7 @@ export default function DebitCallSpreadLab({
         {isDebitSpread ? (
           <>
             <NumberSliderField
-              label={isDebitPutSpread ? "Long put (buy)" : "Long call (buy)"}
+              label={isPutDownsideSpread ? "Long put (buy)" : "Long call (buy)"}
               help="The strike you buy."
               min={5}
               max={longStrikeSliderMax}
@@ -7081,12 +8050,26 @@ export default function DebitCallSpreadLab({
                 );
               }}
               prefix="$"
-              quickActions={isDebitPutSpread ? putStrikeActions : undefined}
+              quickActions={isPutDownsideSpread ? putStrikeActions : callStrikeActions}
             />
 
             <NumberSliderField
-              label={isDebitPutSpread ? "Short put (sell)" : "Short call (sell)"}
-              help="The strike you sell."
+              label={
+                isPutRatioSpread
+                  ? `Short puts (sell ${putRatioShortCount})`
+                  : isCallRatioSpread
+                    ? `Short calls (sell ${putRatioShortCount})`
+                  : isPutDownsideSpread
+                    ? "Short put (sell)"
+                    : "Short call (sell)"
+              }
+              help={
+                isPutRatioSpread
+                  ? `The strike where you sell ${putRatioShortCount} puts.`
+                  : isCallRatioSpread
+                    ? `The strike where you sell ${putRatioShortCount} calls.`
+                  : "The strike you sell."
+              }
               min={5}
               max={shortStrikeSliderMax}
               step={1}
@@ -7098,23 +8081,94 @@ export default function DebitCallSpreadLab({
               }
               prefix="$"
               quickActions={
-                isDebitPutSpread ? shortPutStrikeOtmActions : shortStrikeOtmActions
+                isPutDownsideSpread ? shortPutStrikeOtmActions : shortStrikeOtmActions
               }
             />
+            {isRatioSpread ? (
+              <NumberSliderField
+                label="Ratio"
+                help={
+                  isPutRatioSpread
+                    ? "The number of lower-strike puts sold for each long put."
+                    : "The number of higher-strike calls sold for each long call."
+                }
+                min={PUT_RATIO_SHORT_COUNT_MIN}
+                max={PUT_RATIO_SHORT_COUNT_MAX}
+                step={1}
+                value={putRatioShortCount}
+                onChange={(nextValue) =>
+                  setPutRatioShortCount(normalizePutRatioShortCount(nextValue))
+                }
+                prefix="1 / "
+              />
+            ) : null}
           </>
         ) : (
           <NumberSliderField
-            label="Call strike"
-            help="The strike price of the call you buy."
+            label={isBearPut ? "Put strike" : "Call strike"}
+            help={
+              isBearPut
+                ? "The strike price of the put you buy."
+                : "The strike price of the call you buy."
+            }
             min={5}
             max={longStrikeSliderMax}
             step={1}
             value={longStrike}
-            onChange={setLongStrike}
+            onChange={(nextValue) => {
+              setLongStrike(nextValue);
+              if (isBearPut) {
+                setShortStrike(nextValue);
+              }
+            }}
             prefix="$"
-            quickActions={callStrikeActions}
+            quickActions={isBearPut ? putStrikeActions : callStrikeActions}
           />
         )}
+
+        <NumberSliderField
+          label="Capital to deploy"
+          help={strategyCopy.capitalHelp}
+          min={500}
+          max={100000}
+          step={100}
+          value={capital}
+          onChange={setCapital}
+          prefix="$"
+          displayScale={moneyDisplayUnitScale}
+          displaySuffix={moneyDisplayUnitSuffix}
+        />
+
+        <div
+          className="flex min-w-0 flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between"
+          role="group"
+          aria-label="Position sizing"
+        >
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className="text-sm font-medium text-slate-900">Contracts</span>
+            <InfoIcon label="Whole rounds down so the position fits in cash. Fractional uses the full capital amount as if partial contracts were tradable." />
+          </div>
+          <div className="inline-flex min-w-0 rounded-md border border-slate-300 bg-white p-0.5">
+            {[
+              { label: "Whole", value: false },
+              { label: "Fractional", value: true },
+            ].map((option) => (
+              <button
+                key={option.label}
+                type="button"
+                aria-pressed={allowFractionalContracts === option.value}
+                onClick={() => setAllowFractionalContracts(option.value)}
+                className={cn(
+                  "rounded-sm px-2.5 py-1 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                  allowFractionalContracts === option.value &&
+                    "bg-[var(--accent-soft)] text-[var(--accent-strong)]",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="grid min-w-0 gap-2 border-t border-slate-100 pt-3">
           <button
@@ -7147,6 +8201,7 @@ export default function DebitCallSpreadLab({
           <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
             Loading workspace...
           </div>
+          {children ? <div className="mt-2">{children}</div> : null}
         </div>
       </main>
     );
@@ -7232,7 +8287,7 @@ export default function DebitCallSpreadLab({
               {formatLongDate(marketScenarioDateIso)}
             </div>
             <div className="mt-1 truncate whitespace-nowrap text-[11px] leading-tight text-slate-500">
-              {safeScenarioOffsetDays} days from today
+              {marketScenarioDte} DTE
             </div>
           </div>
         </div>
@@ -7252,8 +8307,12 @@ export default function DebitCallSpreadLab({
           className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
         />
         <div className="mt-1.5 grid min-h-5 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums sm:text-[11px]">
-          <span className="truncate whitespace-nowrap">{formatLongDate(todayIso)}</span>
-          <span className="truncate whitespace-nowrap text-right">{formatLongDate(marketScenarioMaxDateIso)}</span>
+          <span className="truncate whitespace-nowrap">
+            {formatLongDate(todayIso)} · {marketScenarioMaxOffsetDays} DTE
+          </span>
+          <span className="truncate whitespace-nowrap text-right">
+            {formatLongDate(marketScenarioMaxDateIso)} · 0 DTE
+          </span>
         </div>
       </div>
 
@@ -7276,6 +8335,7 @@ export default function DebitCallSpreadLab({
   const marketScenarioSummary = [
     `${formatCurrency(safeScenarioPrice)} stock`,
     formatLongDate(marketScenarioDateIso),
+    `${marketScenarioDte} DTE`,
     `${compactNumber(futureVolatilityPct)}% IV`,
   ].join(" · ");
   const marketScenarioCard = (
@@ -7323,7 +8383,7 @@ export default function DebitCallSpreadLab({
   );
 
   const setupFormFields = (
-    <div className="grid min-w-0 gap-x-2 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid min-w-0 gap-x-2 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-[minmax(10rem,18rem)_minmax(10rem,18rem)_minmax(10rem,18rem)]">
       <label className="block min-w-0">
         <span className="text-xs font-medium text-slate-500">Ticker</span>
         <input
@@ -7351,17 +8411,6 @@ export default function DebitCallSpreadLab({
         step={0.1}
         allowDecimals
         onChange={(value) => updateVolatilityPct(clamp(value, 0, 150))}
-      />
-
-      <CompactNumberInput
-        label="Capital"
-        value={capital}
-        min={0}
-        prefix="$"
-        displayScale={moneyDisplayUnitScale}
-        displaySuffix={moneyDisplayUnitSuffix}
-        step={100}
-        onChange={(value) => setCapital(Math.max(0, Math.round(value)))}
       />
     </div>
   );
@@ -7452,11 +8501,12 @@ export default function DebitCallSpreadLab({
                 symbol={symbol}
                 spot={spot}
                 volatilityPct={volatilityPct}
-                capital={capital}
                 expirationDays={expirationDays}
                 strategy={strategy}
                 longStrike={longStrike}
                 shortStrike={shortStrike}
+                ratioShortCount={putRatioShortCount}
+                selectedStrategy={selectedSavedStrategyCard}
                 isOpen={isCoreSetupOpen}
                 strategyCount={customComparisonCards.length}
                 onToggle={() => {
@@ -7493,6 +8543,7 @@ export default function DebitCallSpreadLab({
                     showSetupForm={isSetupFormVisible}
                     moneyDisplayUnitScale={moneyDisplayUnitScale}
                     moneyDisplayUnitSuffix={moneyDisplayUnitSuffix}
+                    currentSpot={spot}
                     scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
                     scenarioPrice={safeScenarioPrice}
                     symbol={symbol}
@@ -7507,6 +8558,7 @@ export default function DebitCallSpreadLab({
                     onEditComparison={editCustomComparison}
                     onOpenEditor={openCustomComparisonEditor}
                     onRemoveComparison={removeCustomComparison}
+                    onReorderComparisons={reorderCustomComparisons}
                     onToggleSetupForm={() =>
                       setIsSetupFormVisible((currentValue) => !currentValue)
                     }
@@ -7530,6 +8582,7 @@ export default function DebitCallSpreadLab({
                   showSummary
                   moneyDisplayUnitScale={moneyDisplayUnitScale}
                   moneyDisplayUnitSuffix={moneyDisplayUnitSuffix}
+                  currentSpot={spot}
                   scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
                   scenarioPrice={safeScenarioPrice}
                   symbol={symbol}
@@ -7543,6 +8596,7 @@ export default function DebitCallSpreadLab({
                   onEditComparison={editCustomComparison}
                   onOpenEditor={openCustomComparisonEditor}
                   onRemoveComparison={removeCustomComparison}
+                  onReorderComparisons={reorderCustomComparisons}
                   onUseQuickStart={useCustomQuickStart}
                 />
               </div>
@@ -7616,13 +8670,14 @@ export default function DebitCallSpreadLab({
                     cards={comparisonBoardCards}
                     selectedCardId={selectedComparisonBoardCardId}
                     view={decisionComparisonView}
+                    onAnalyzeCard={analyzeCustomComparison}
                     onViewChange={changeDecisionComparisonView}
                   />
                 ) : (
                   <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600 shadow-sm">
-                    <p className="font-medium text-slate-900">Pick a strategy in step 1 first.</p>
+                    <p className="font-medium text-slate-900">Create a strategy first.</p>
                     <p className="mt-1 text-xs text-slate-500">
-                      Once your inputs are valid, the comparison board will show the available outcomes.
+                      Use Create Strategy in setup, then the comparison board will show the available outcomes.
                     </p>
                   </div>
                 )}
@@ -7802,8 +8857,13 @@ export default function DebitCallSpreadLab({
 	                            Best case at expiry
 	                          </p>
 	                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-	                            {visualizedIsDebitPutSpread ? "≤" : "≥"}{" "}
-                              {formatCurrency(visualizedInputs.shortStrike)}
+	                            {visualizedIsBearPut
+                                ? "At $0"
+                                : `${visualizedIsRatioSpread
+                                ? "At"
+                                : visualizedIsPutSpread
+                                  ? "≤"
+                                  : "≥"} ${formatCurrency(visualizedInputs.shortStrike)}`}
 	                          </p>
 	                        </div>
 		                        <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
@@ -7817,7 +8877,7 @@ export default function DebitCallSpreadLab({
 	                            </span>
 	                          </span>
 	                          <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
-	                            B/E {formatCurrency(visualizedSnapshot.breakEvenAtExpiry)}
+	                            {getBreakEvenLabel(visualizedSnapshot)} {formatBreakEvenAtExpiry(visualizedSnapshot)}
 	                          </span>
 	                        </div>
 	                      </div>
@@ -7851,18 +8911,34 @@ export default function DebitCallSpreadLab({
 	                            Worst case at expiry
 	                          </p>
 	                          <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-	                            {visualizedIsDebitPutSpread ? ">" : "<"}{" "}
-                              {formatCurrency(visualizedInputs.longStrike)}
+	                            {visualizedIsPutRatioSpread
+                                ? "At $0"
+                                : visualizedIsBearPut
+                                  ? "≥"
+                                : visualizedIsCallRatioSpread
+                                  ? "Above upper B/E"
+                                : visualizedIsPutDownsideSpread
+                                  ? ">"
+                                  : "<"}{" "}
+                              {visualizedIsPutRatioSpread || visualizedIsCallRatioSpread
+                                ? ""
+                                : formatCurrency(visualizedInputs.longStrike)}
 	                          </p>
 	                        </div>
 		                          <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-rose-700 tabular-nums">
-	                            {formatCurrency(visualizedMaxLossAtExpiry)}
+	                            {visualizedMaxLossAtExpiry === null
+                                ? "Uncapped"
+                                : formatCurrency(visualizedMaxLossAtExpiry)}
 	                          </p>
                           <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
                             <span className="font-medium text-slate-500">
                               Max loss ·{" "}
 	                              <span className="font-mono font-semibold text-rose-700 tabular-nums">
-	                                {visualizedSnapshot.totalCost > 0 ? "-100%" : "N/A"}
+	                                {visualizedMaxLossAtExpiry === null
+                                      ? "Uncapped"
+                                      : visualizedMaxLossReturnAtExpiry !== null
+                                        ? formatPercent(visualizedMaxLossReturnAtExpiry)
+                                        : "N/A"}
 	                              </span>
 	                            </span>
 	                            <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
@@ -7971,6 +9047,7 @@ export default function DebitCallSpreadLab({
             </section>
               </>
             ) : null}
+            {children ? <div className="mt-2">{children}</div> : null}
           </div>
         </div>
       </div>
