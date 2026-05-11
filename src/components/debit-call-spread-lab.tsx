@@ -2343,6 +2343,7 @@ function CompactStrategyList({
     ? cards
     : orderSelectedCardsFirst(cards, selectedCardId);
   const canReorder = Boolean(onReorderCards && orderedCards.length > 1);
+
   const getRowIdFromTarget = (target: EventTarget | null): string | null => {
     if (!(target instanceof Element)) {
       return null;
@@ -2352,9 +2353,7 @@ function CompactStrategyList({
 
     return row instanceof HTMLElement ? row.dataset.strategyRowId ?? null : null;
   };
-  const isRowControlTarget = (target: EventTarget | null): boolean =>
-    target instanceof Element &&
-    Boolean(target.closest("[data-row-control='true']"));
+
   const suppressNextSelectClick = (cardId: string) => {
     suppressedSelectClickRef.current = cardId;
     window.setTimeout(() => {
@@ -2363,17 +2362,20 @@ function CompactStrategyList({
       }
     }, 0);
   };
+
   const beginRowDrag = (
     event: PointerEvent<HTMLElement>,
     card: ComparisonCardData,
   ) => {
     if (
       !canReorder ||
-      isRowControlTarget(event.target) ||
       (event.pointerType === "mouse" && event.button !== 0)
     ) {
       return;
     }
+
+    event.preventDefault();
+    event.stopPropagation();
 
     activeRowDragRef.current = {
       cardId: card.id,
@@ -2387,6 +2389,7 @@ function CompactStrategyList({
       event.currentTarget.setPointerCapture(event.pointerId);
     }
   };
+
   const moveRowDrag = (event: PointerEvent<HTMLElement>) => {
     const activeDrag = activeRowDragRef.current;
 
@@ -2420,6 +2423,7 @@ function CompactStrategyList({
     const nextCards = moveCardById(orderedCards, activeDrag.cardId, targetCardId);
     onReorderCards(nextCards.map((orderedCard) => orderedCard.id));
   };
+
   const endRowDrag = (event: PointerEvent<HTMLElement>) => {
     const activeDrag = activeRowDragRef.current;
 
@@ -2438,6 +2442,7 @@ function CompactStrategyList({
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
   };
+
   return (
     <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="hidden grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase text-slate-500 md:grid">
@@ -2456,35 +2461,71 @@ function CompactStrategyList({
           const isDragging = card.id === draggingCardId;
           const pnlIsPositive = card.snapshot.pnl >= 0;
           const tone = getComparisonCardTone(card);
+
+          const dragHandle = canReorder ? (
+            <button
+              type="button"
+              aria-label={`Drag ${card.label} to reorder`}
+              onPointerDown={(event) => beginRowDrag(event, card)}
+              onPointerMove={moveRowDrag}
+              onPointerUp={endRowDrag}
+              onPointerCancel={endRowDrag}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              className="pointer-events-auto relative z-30 inline-flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-faint)] hover:text-slate-950 active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 16 16"
+                className="size-3.5"
+                fill="currentColor"
+              >
+                <circle cx="5" cy="3" r="1.1" />
+                <circle cx="11" cy="3" r="1.1" />
+                <circle cx="5" cy="8" r="1.1" />
+                <circle cx="11" cy="8" r="1.1" />
+                <circle cx="5" cy="13" r="1.1" />
+                <circle cx="11" cy="13" r="1.1" />
+              </svg>
+            </button>
+          ) : null;
+
           const rowContent = (
             <>
               <div className="min-w-0 pr-8 md:pr-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className="truncate font-semibold text-slate-950">
-                    {card.label}
-                  </span>
-                  <span
-                    className={cn(
-                      "rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none",
-                      tone.badge,
-                    )}
-                  >
-                    {tone.label}
-                  </span>
-                  {isSelected ? (
-                    <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
-                      Selected
-                    </span>
-                  ) : null}
-                  {isEditing ? (
-                    <span className="rounded-full border border-[var(--accent-border)] bg-white px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--accent-strong)]">
-                      Editing
-                    </span>
-                  ) : null}
+                <div className="flex min-w-0 items-start gap-1.5">
+                  {dragHandle}
+                  <div className="min-w-0">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="truncate font-semibold text-slate-950">
+                        {card.label}
+                      </span>
+                      <span
+                        className={cn(
+                          "rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                          tone.badge,
+                        )}
+                      >
+                        {tone.label}
+                      </span>
+                      {isSelected ? (
+                        <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                          Selected
+                        </span>
+                      ) : null}
+                      {isEditing ? (
+                        <span className="rounded-full border border-[var(--accent-border)] bg-white px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--accent-strong)]">
+                          Editing
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-0.5 truncate font-mono text-xs text-slate-500 tabular-nums">
+                      {getComparisonSetupLabel(card)}
+                    </p>
+                  </div>
                 </div>
-                <p className="mt-0.5 truncate font-mono text-xs text-slate-500 tabular-nums">
-                  {getComparisonSetupLabel(card)}
-                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-x-3 gap-y-1 md:contents">
@@ -2542,6 +2583,7 @@ function CompactStrategyList({
               </div>
             </>
           );
+
           const rowContentClassName = cn(
             "relative z-20 grid min-w-0 gap-1.5 px-2.5 py-2 text-left text-sm pointer-events-none md:gap-2 md:px-3",
             "md:col-span-6 md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem] md:items-center",
@@ -2551,17 +2593,12 @@ function CompactStrategyList({
             <article
               key={card.id}
               data-strategy-row-id={card.id}
-              onPointerDown={(event) => beginRowDrag(event, card)}
-              onPointerMove={moveRowDrag}
-              onPointerUp={endRowDrag}
-              onPointerCancel={endRowDrag}
               className={cn(
-                "group relative grid min-w-0 bg-white text-sm transition-colors md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9rem] md:items-stretch",
+                "group relative grid min-w-0 bg-white text-sm transition-[background-color,box-shadow,opacity,transform] md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9rem] md:items-stretch",
                 onAnalyzeCard && !isSelected && "hover:bg-[var(--accent-faint)] focus-within:bg-[var(--accent-faint)]",
                 isSelected && "bg-[var(--accent-soft)]",
                 isEditing && "bg-[var(--accent-faint)] ring-1 ring-inset ring-[var(--accent)]",
-                canReorder && "cursor-grab touch-none select-none active:cursor-grabbing",
-                isDragging && "opacity-60 shadow-md",
+                isDragging && "z-30 scale-[0.995] bg-white/80 opacity-70 shadow-lg ring-1 ring-inset ring-slate-300",
               )}
             >
               {isSelected ? (
@@ -2587,7 +2624,7 @@ function CompactStrategyList({
                   }}
                   className={cn(
                     "absolute inset-0 z-10 bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]",
-                    canReorder ? "cursor-grab active:cursor-grabbing" : "cursor-pointer",
+                    "cursor-pointer",
                   )}
                 />
               ) : null}
