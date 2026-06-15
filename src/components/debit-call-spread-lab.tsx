@@ -448,6 +448,8 @@ const SAVED_STRATEGIES_STORAGE_KEY = "callculator-saved-strategies";
 const ORDERED_CUSTOM_COMPARISONS_PREFIX = "o2:";
 const WORKSPACE_RESTORE_RETRY_DELAYS_MS = [0, 150, 500];
 const WORKSPACE_RESTORE_FALLBACK_MS = 1200;
+const STRIKE_DECIMAL_DIGITS = 4;
+const STRIKE_MIN_GAP = 0.01;
 const WORKFLOW_TABS: Array<{ value: WorkflowTab; label: string; step: string }> = [
   { value: "setup", label: "Setup", step: "1" },
   { value: "decision", label: "Compare", step: "2" },
@@ -725,7 +727,7 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
         ratioShortCountToken,
       ] = entry.split(",");
       const strategy = decodeStrategyToken(strategyToken);
-      const longStrike = Math.max(1, Math.round(parseShareNumber(longStrikeToken, 100)));
+      const longStrike = normalizeStrikeValue(parseShareNumber(longStrikeToken, 100));
       const shortStrike = normalizeShortStrikeForStrategy(
         strategy,
         longStrike,
@@ -1008,7 +1010,7 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
   );
   const strategy = decodeStrategyToken(strategyToken);
   const spot = Math.max(1, Math.round(parseShareNumber(spotToken, 100)));
-  const longStrike = Math.max(1, Math.round(parseShareNumber(longStrikeToken, 120)));
+  const longStrike = normalizeStrikeValue(parseShareNumber(longStrikeToken, 120));
   const decodedShortStrike = normalizeShortStrikeForStrategy(
     strategy,
     longStrike,
@@ -1131,6 +1133,10 @@ function formatScaledCurrency(value: number, unit: MoneyDisplayUnit): string {
 
 function formatCurrency(value: number): string {
   return formatScaledCurrency(value, activeMoneyDisplayUnit);
+}
+
+function formatStrikeCurrency(value: number): string {
+  return `$${formatInputDisplayValue(value)}`;
 }
 
 function formatCompactCurrency(value: number): string {
@@ -1263,20 +1269,36 @@ function isRatioSpreadStrategy(strategy: OptionStrategy): boolean {
   return strategy === "put-ratio-spread" || strategy === "call-ratio-spread";
 }
 
+function normalizeStrikeValue(value: number): number {
+  return Math.max(1, roundTo(value, STRIKE_DECIMAL_DIGITS));
+}
+
 function normalizeShortStrikeForStrategy(
   strategy: OptionStrategy,
   longStrike: number,
   shortStrike: number,
 ): number {
+  const safeLongStrike = normalizeStrikeValue(longStrike);
+  const safeShortStrike = normalizeStrikeValue(shortStrike);
+
   if (strategy === "long-call" || strategy === "bear-put") {
-    return longStrike;
+    return safeLongStrike;
   }
 
   if (isPutDownsideStrategy(strategy)) {
-    return Math.max(1, Math.min(Math.round(shortStrike), Math.round(longStrike) - 1));
+    return Math.max(
+      1,
+      roundTo(
+        Math.min(safeShortStrike, safeLongStrike - STRIKE_MIN_GAP),
+        STRIKE_DECIMAL_DIGITS,
+      ),
+    );
   }
 
-  return Math.max(Math.round(shortStrike), Math.round(longStrike) + 1);
+  return roundTo(
+    Math.max(safeShortStrike, safeLongStrike + STRIKE_MIN_GAP),
+    STRIKE_DECIMAL_DIGITS,
+  );
 }
 
 function getDefaultStrikesForStrategy(
@@ -1683,12 +1705,12 @@ function ActiveSetupStrip({
     selectedStrategy?.expirationDays ?? expirationDays;
   const isSpread = isDebitSpreadStrategy(displayStrategy);
   const structure = isSpread
-    ? `${formatCurrency(displayLongStrike)} / ${formatCurrency(displayShortStrike)}${
+    ? `${formatStrikeCurrency(displayLongStrike)} / ${formatStrikeCurrency(displayShortStrike)}${
         isRatioSpreadStrategy(displayStrategy)
           ? ` x${normalizePutRatioShortCount(displayRatioShortCount)}`
           : ""
       }`
-    : `${formatCurrency(displayLongStrike)} ${displayStrategy === "bear-put" ? "put" : "call"}`;
+    : `${formatStrikeCurrency(displayLongStrike)} ${displayStrategy === "bear-put" ? "put" : "call"}`;
   const strategyLabel = getStrategyDisplayLabel(displayStrategy);
   const hasSavedStrategies = strategyCount > 0 && Boolean(selectedStrategy);
   const savedStrategyLabel =
@@ -1828,20 +1850,20 @@ function SetupSummaryStrip({
 
 function getComparisonStrikeLabel(candidate: ComparisonCandidate): string {
   if (candidate.strategy === "long-call") {
-    return `${formatCurrency(candidate.longStrike)} call`;
+    return `${formatStrikeCurrency(candidate.longStrike)} call`;
   }
 
   if (candidate.strategy === "bear-put") {
-    return `${formatCurrency(candidate.longStrike)} put`;
+    return `${formatStrikeCurrency(candidate.longStrike)} put`;
   }
 
   if (isRatioSpreadStrategy(candidate.strategy)) {
-    return `${formatCurrency(candidate.longStrike)} / ${formatCurrency(
+    return `${formatStrikeCurrency(candidate.longStrike)} / ${formatStrikeCurrency(
       candidate.shortStrike,
     )} x${normalizePutRatioShortCount(candidate.ratioShortCount)}`;
   }
 
-  return `${formatCurrency(candidate.longStrike)} / ${formatCurrency(candidate.shortStrike)}`;
+  return `${formatStrikeCurrency(candidate.longStrike)} / ${formatStrikeCurrency(candidate.shortStrike)}`;
 }
 
 function getComparisonSetupLabel(candidate: ComparisonCandidate): string {
@@ -1867,6 +1889,13 @@ function getStrategyDisplayLabel(strategy: OptionStrategy): string {
   if (strategy === "bear-put") return "Bear put";
   if (strategy === "debit-put-spread") return "Debit put spread";
   return "Debit call spread";
+}
+
+function getUnitCostMetricLabel(strategy: OptionStrategy): string {
+  if (strategy === "long-call") return "Call cost";
+  if (strategy === "bear-put") return "Put cost";
+  if (isPutDownsideStrategy(strategy)) return "Put spread cost";
+  return "Spread cost";
 }
 
 function getBreakEvenLabel(snapshot: ScenarioSnapshot): string {
@@ -1942,11 +1971,11 @@ function getEntryLegPricingDetails(card: ComparisonCardData): Array<{
 
   return [
     {
-      label: `Long ${formatCurrency(card.longStrike)} ${legName} / contract`,
+      label: `Long ${formatStrikeCurrency(card.longStrike)} ${legName} / contract`,
       value: formatCurrency(longLegCost * CONTRACT_MULTIPLIER),
     },
     {
-      label: `Short ${formatCurrency(card.shortStrike)} ${legName} / contract`,
+      label: `Short ${formatStrikeCurrency(card.shortStrike)} ${legName} / contract`,
       value: formatCurrency(shortLegCost * CONTRACT_MULTIPLIER),
     },
     ...(shortCount > 1
@@ -1971,12 +2000,12 @@ function getCustomComparisonLabel(
   }
 
   if (draft.strategy === "long-call" || draft.strategy === "bear-put") {
-    return `${formatCurrency(draft.longStrike)} ${
+    return `${formatStrikeCurrency(draft.longStrike)} ${
       draft.strategy === "bear-put" ? "bear put" : "long call"
     }`;
   }
 
-  return `${formatCurrency(draft.longStrike)} / ${formatCurrency(draft.shortStrike)} ${
+  return `${formatStrikeCurrency(draft.longStrike)} / ${formatStrikeCurrency(draft.shortStrike)} ${
     draft.strategy === "put-ratio-spread"
       ? `1/${normalizePutRatioShortCount(draft.ratioShortCount)} put ratio spread`
       : draft.strategy === "call-ratio-spread"
@@ -2211,6 +2240,10 @@ function ComparisonCardGrid({
             value: formatBreakEvenAtExpiry(card.snapshot),
           },
           { label: "DTE", value: card.expirationDays },
+          {
+            label: getUnitCostMetricLabel(card.strategy),
+            value: formatCurrency(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
+          },
           { label: "Max at expiry", value: maxAtExpiryLabel },
           { label: "Contracts", value: formatQuantity(card.snapshot.contracts) },
         ];
@@ -2729,13 +2762,13 @@ function getOutcomeStrategyTitle(card: ComparisonCardData): string {
   }
 
   if (card.strategy === "put-ratio-spread") {
-    return `${formatCurrency(card.longStrike)} / ${formatCurrency(
+    return `${formatStrikeCurrency(card.longStrike)} / ${formatStrikeCurrency(
       card.shortStrike,
     )} 1/${normalizePutRatioShortCount(card.ratioShortCount)} put ratio spread`;
   }
 
   if (card.strategy === "call-ratio-spread") {
-    return `${formatCurrency(card.longStrike)} / ${formatCurrency(
+    return `${formatStrikeCurrency(card.longStrike)} / ${formatStrikeCurrency(
       card.shortStrike,
     )} 1/${normalizePutRatioShortCount(card.ratioShortCount)} call ratio spread`;
   }
@@ -2776,6 +2809,11 @@ function DecisionOutcomeCards({
           {
             label: getBreakEvenLabel(card.snapshot),
             value: formatBreakEvenAtExpiry(card.snapshot),
+            valueClassName: "text-slate-950",
+          },
+          {
+            label: getUnitCostMetricLabel(card.strategy),
+            value: formatCurrency(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
             valueClassName: "text-slate-950",
           },
           {
@@ -2853,7 +2891,7 @@ function DecisionOutcomeCards({
                 </div>
               </div>
 
-              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3">
                 {metrics.map((metric) => (
                   <div
                     key={metric.label}
@@ -2945,7 +2983,10 @@ function DetailedDecisionOutcomeCards({
         ];
         const riskDetails = [
           { label: "Entry cost", value: formatCurrency(totalCost) },
-          { label: "Unit debit", value: formatCurrency(card.snapshot.unitCost * CONTRACT_MULTIPLIER) },
+          {
+            label: getUnitCostMetricLabel(card.strategy),
+            value: formatCurrency(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
+          },
           { label: "Contracts", value: formatQuantity(card.snapshot.contracts) },
           { label: "Cash left", value: formatCurrency(card.snapshot.cashLeft) },
           { label: getBreakEvenLabel(card.snapshot), value: formatBreakEvenAtExpiry(card.snapshot) },
@@ -3175,10 +3216,10 @@ function DecisionOutcomeMatrix({
                     </p>
                     <p className="mt-0.5 truncate font-mono text-xs text-slate-500 tabular-nums">
                       {card.strategy === "long-call" || card.strategy === "bear-put"
-                        ? `${formatCurrency(card.longStrike)} ${
+                        ? `${formatStrikeCurrency(card.longStrike)} ${
                             card.strategy === "bear-put" ? "put" : "call"
                           }`
-                        : `${formatCurrency(card.longStrike)} / ${formatCurrency(card.shortStrike)}${
+                        : `${formatStrikeCurrency(card.longStrike)} / ${formatStrikeCurrency(card.shortStrike)}${
                             isRatioSpreadStrategy(card.strategy)
                               ? ` x${normalizePutRatioShortCount(card.ratioShortCount)}`
                               : ""
@@ -3787,19 +3828,25 @@ function CustomComparisonBoard({
                 }
                 value={draft.longStrike}
                 min={1}
+                step={0.01}
+                allowDecimals
                 prefix="$"
                 className="lg:col-span-1 xl:col-span-1"
-                onChange={(nextValue) =>
+                onChange={(nextValue) => {
+                  const nextLongStrike = normalizeStrikeValue(nextValue);
+
                   onDraftChange({
                     ...draft,
-                    longStrike: Math.max(1, nextValue),
-                    shortStrike: normalizeShortStrikeForStrategy(
-                      draft.strategy,
-                      Math.max(1, nextValue),
-                      draft.shortStrike,
-                    ),
-                  })
-                }
+                    longStrike: nextLongStrike,
+                    shortStrike: isPutSpreadDraft
+                      ? draft.shortStrike
+                      : normalizeShortStrikeForStrategy(
+                          draft.strategy,
+                          nextLongStrike,
+                          draft.shortStrike,
+                        ),
+                  });
+                }}
               />
 
               {isSpreadDraft ? (
@@ -3815,16 +3862,20 @@ function CustomComparisonBoard({
                   }
                   value={draft.shortStrike}
                   min={1}
+                  step={0.01}
+                  allowDecimals
                   prefix="$"
                   className="lg:col-span-1 xl:col-span-1"
                   onChange={(nextValue) =>
                     onDraftChange({
                       ...draft,
-                      shortStrike: normalizeShortStrikeForStrategy(
-                        draft.strategy,
-                        draft.longStrike,
-                        nextValue,
-                      ),
+                      shortStrike: isPutSpreadDraft
+                        ? normalizeStrikeValue(nextValue)
+                        : normalizeShortStrikeForStrategy(
+                            draft.strategy,
+                            draft.longStrike,
+                            nextValue,
+                          ),
                     })
                   }
                 />
@@ -4067,6 +4118,7 @@ function NumberSliderField({
   const helpId = `${fieldId}-help`;
   const dragMaxRef = useRef<number | null>(null);
   const [dragMax, setDragMax] = useState<number | null>(null);
+  const [draftInputValue, setDraftInputValue] = useState<string | null>(null);
   const safeDisplayScale =
     displayScale && Number.isFinite(displayScale) && displayScale > 0
       ? displayScale
@@ -4078,9 +4130,9 @@ function NumberSliderField({
     Number.isFinite(value) && (value < min || value > max)
       ? value
       : safeValue;
-  const displayInputValue = formatInputDisplayValue(
-    inputValue / safeDisplayScale,
-  );
+  const displayInputValue =
+    draftInputValue ??
+    formatInputDisplayValue(inputValue / safeDisplayScale);
   const displayMin = min / safeDisplayScale;
   const displayMax = sliderMax / safeDisplayScale;
   const displaySliderMax = sliderMax / safeDisplayScale;
@@ -4098,7 +4150,31 @@ function NumberSliderField({
 
     onChange(Math.max(normalizeActualValue(nextValue * safeDisplayScale), 0));
   };
+  const handleInputTextChange = (nextValue: string) => {
+    const parsedValue = parseInputValue(nextValue);
+
+    setDraftInputValue(nextValue);
+
+    if (nextValue.trim() && Number.isFinite(parsedValue)) {
+      handleInputChange(parsedValue);
+    }
+  };
+  const commitInputText = () => {
+    if (draftInputValue === null) {
+      return;
+    }
+
+    const parsedValue = parseInputValue(draftInputValue);
+
+    if (draftInputValue.trim() && Number.isFinite(parsedValue)) {
+      handleInputChange(parsedValue);
+    }
+
+    setDraftInputValue(null);
+  };
   const handleSliderChange = (nextValue: number) => {
+    setDraftInputValue(null);
+
     if (dragMaxRef.current === null) {
       dragMaxRef.current = sliderMax;
       setDragMax(sliderMax);
@@ -4158,9 +4234,23 @@ function NumberSliderField({
               step={displayStep}
               aria-labelledby={labelId}
               aria-describedby={helpId}
-              onKeyDown={(event) => handleNumberKeyDown(event, handleInputChange)}
-              onInput={(event) => handleInputChange(parseInputValue(event.currentTarget.value))}
-              onChange={(event) => handleInputChange(parseInputValue(event.target.value))}
+              onFocus={() => setDraftInputValue(displayInputValue)}
+              onBlur={commitInputText}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.currentTarget.blur();
+                  return;
+                }
+
+                if (!allowDecimals) {
+                  handleNumberKeyDown(event, (nextValue) => {
+                    setDraftInputValue(formatInputDisplayValue(nextValue));
+                    handleInputChange(nextValue);
+                  });
+                }
+              }}
+              onInput={(event) => handleInputTextChange(event.currentTarget.value)}
+              onChange={(event) => handleInputTextChange(event.target.value)}
               className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none tabular-nums"
             />
             {displaySuffixLabel ? (
@@ -6302,10 +6392,10 @@ export default function DebitCallSpreadLab({
     ? Math.max(5, longStrike - 1)
     : Math.max(baseStrikeSliderMax + 20, longStrike + 5);
   const expiryIso = addDaysToIso(todayIso, expirationDays);
-  const marketScenarioMaxOffsetDays = Math.max(
-    expirationDays,
-    ...customComparisons.map((comparison) => comparison.expirationDays),
-  );
+  const marketScenarioMaxOffsetDays =
+    customComparisons.length > 0
+      ? Math.max(...customComparisons.map((comparison) => comparison.expirationDays))
+      : expirationDays;
   const marketScenarioMaxDateIso = addDaysToIso(todayIso, marketScenarioMaxOffsetDays);
   const safeScenarioOffsetDays = clamp(
     scenarioOffsetDays,
@@ -6355,14 +6445,16 @@ export default function DebitCallSpreadLab({
 
   useEffect(() => {
     let isActive = true;
+    let didFinishRestore = false;
     const restoreTimeouts: number[] = [];
     const markReady = () => {
-      if (isActive) {
+      if (isActive && !didFinishRestore) {
+        didFinishRestore = true;
         setIsUrlStateReady(true);
       }
     };
     const restoreWorkspace = (attemptIndex: number) => {
-      if (!isActive || typeof window === "undefined") {
+      if (!isActive || didFinishRestore || typeof window === "undefined") {
         return;
       }
 
@@ -6438,16 +6530,18 @@ export default function DebitCallSpreadLab({
       }
     };
 
-    restoreTimeouts.push(
-      window.setTimeout(
-        () => restoreWorkspace(0),
-        WORKSPACE_RESTORE_RETRY_DELAYS_MS[0],
-      ),
-    );
+    restoreWorkspace(0);
+
+    const handlePageShow = () => {
+      restoreWorkspace(0);
+    };
+
+    window.addEventListener("pageshow", handlePageShow);
     restoreTimeouts.push(window.setTimeout(markReady, WORKSPACE_RESTORE_FALLBACK_MS));
 
     return () => {
       isActive = false;
+      window.removeEventListener("pageshow", handlePageShow);
       restoreTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId));
     };
   }, [defaultExpirationDays]);
@@ -6631,11 +6725,21 @@ export default function DebitCallSpreadLab({
   const updateSpot = (nextValue: number) => {
     const nextSpot = Math.round(nextValue);
     const nextDefaultStrikes = getDefaultStrikesForStrategy(strategy, nextSpot);
+    const isEditingSavedStrategy = Boolean(editingComparisonId);
 
     setSpot(nextSpot);
-    setLongStrike(nextDefaultStrikes.longStrike);
-    setShortStrike(nextDefaultStrikes.shortStrike);
+    if (!isEditingSavedStrategy) {
+      setLongStrike(nextDefaultStrikes.longStrike);
+      setShortStrike(nextDefaultStrikes.shortStrike);
+    }
     setCustomDraft((currentDraft) => {
+      if (isEditingSavedStrategy) {
+        return {
+          ...currentDraft,
+          spot: nextSpot,
+        };
+      }
+
       const nextDraftStrikes = getDefaultStrikesForStrategy(
         currentDraft.strategy,
         nextSpot,
@@ -6653,17 +6757,24 @@ export default function DebitCallSpreadLab({
     setVolatilityPct(nextValue);
     setFutureVolatilityPct(nextValue);
   };
-  const updateExpirationDays = (nextValue: number) => {
-    const nextExpirationDays = clamp(Math.round(nextValue), 0, 1095);
-    const nextScenarioMaxOffsetDays = Math.max(
-      nextExpirationDays,
-      ...customComparisons.map((comparison) => comparison.expirationDays),
-    );
+  const syncMarketScenarioDteRange = (
+    comparisons: CustomComparisonConfig[],
+    nextExpirationDays = expirationDays,
+  ) => {
+    const nextScenarioMaxOffsetDays =
+      comparisons.length > 0
+        ? Math.max(...comparisons.map((comparison) => comparison.expirationDays))
+        : nextExpirationDays;
 
-    setExpirationDays(nextExpirationDays);
     setScenarioOffsetDays((currentDays) =>
       clamp(currentDays, 0, nextScenarioMaxOffsetDays),
     );
+  };
+  const updateExpirationDays = (nextValue: number) => {
+    const nextExpirationDays = clamp(Math.round(nextValue), 0, 1095);
+
+    setExpirationDays(nextExpirationDays);
+    syncMarketScenarioDteRange(customComparisons, nextExpirationDays);
   };
   const revealScenarioComparisons = () => {
     setComparisonPanelMode((currentMode) =>
@@ -6814,7 +6925,7 @@ export default function DebitCallSpreadLab({
   };
   const editCustomComparison = (card: ComparisonCardData) => {
     const nextSymbol = normalizeSymbol(card.symbol ?? symbol);
-    const nextLongStrike = Math.max(1, Math.round(card.longStrike));
+    const nextLongStrike = normalizeStrikeValue(card.longStrike);
     const nextExpirationDays = clamp(Math.round(card.expirationDays), 1, 1095);
     const nextRatePct = clamp(card.ratePct ?? ratePct, 0, 15);
 
@@ -6947,7 +7058,7 @@ export default function DebitCallSpreadLab({
     }
 
     const nextStrategy = customDraft.strategy;
-    const nextLongStrike = Math.max(1, Math.round(customDraft.longStrike));
+    const nextLongStrike = normalizeStrikeValue(customDraft.longStrike);
     const nextShortStrike = normalizeShortStrikeForStrategy(
       nextStrategy,
       nextLongStrike,
@@ -6991,28 +7102,32 @@ export default function DebitCallSpreadLab({
     const nextId =
       editingComparisonId ??
       `custom-${customComparisonIdCounter.current + 1}-${customComparisons.length}`;
+    const isEditingExistingComparison = Boolean(
+      editingComparisonId &&
+        customComparisons.some((comparison) => comparison.id === editingComparisonId),
+    );
 
-    setCustomComparisons((currentComparisons) => {
-      if (
-        editingComparisonId &&
-        currentComparisons.some((comparison) => comparison.id === editingComparisonId)
-      ) {
-        return currentComparisons.map((comparison) =>
+    const nextComparisons =
+      isEditingExistingComparison
+        ? customComparisons.map((comparison) =>
           comparison.id === editingComparisonId
             ? { ...comparison, ...nextComparisonBase }
             : comparison,
-        );
-      }
+        )
+        : [
+            {
+              id: nextId,
+              ...nextComparisonBase,
+            },
+            ...customComparisons,
+          ];
 
+    if (!isEditingExistingComparison) {
       customComparisonIdCounter.current += 1;
-      return [
-        {
-          id: nextId,
-          ...nextComparisonBase,
-        },
-        ...currentComparisons,
-      ];
-    });
+    }
+
+    setCustomComparisons(nextComparisons);
+    syncMarketScenarioDteRange(nextComparisons);
     setGraphComparisonId(`custom:${nextId}`);
     setEditingComparisonId(null);
 
@@ -7022,7 +7137,7 @@ export default function DebitCallSpreadLab({
     setIsStrategyShelfOpen(true);
   };
   const addCurrentStrategyComparison = () => {
-    const nextLongStrike = Math.max(1, Math.round(longStrike));
+    const nextLongStrike = normalizeStrikeValue(longStrike);
     const nextShortStrike = normalizeShortStrikeForStrategy(
       strategy,
       nextLongStrike,
@@ -7053,6 +7168,7 @@ export default function DebitCallSpreadLab({
     if (matchingComparison) {
       setComparisonPanelMode("custom");
       setGraphComparisonId(`custom:${matchingComparison.id}`);
+      syncMarketScenarioDteRange(customComparisons);
       setIsCustomComparisonEditorOpen(false);
       setIsSetupFormVisible(false);
       setIsStrategyShelfOpen(true);
@@ -7086,10 +7202,10 @@ export default function DebitCallSpreadLab({
       dividendYieldPct: 0,
     };
 
-    setCustomComparisons((currentComparisons) => [
-      nextComparison,
-      ...currentComparisons,
-    ]);
+    const nextComparisons = [nextComparison, ...customComparisons];
+
+    setCustomComparisons(nextComparisons);
+    syncMarketScenarioDteRange(nextComparisons);
     setComparisonPanelMode("custom");
     setGraphComparisonId(`custom:${nextId}`);
     setIsCustomComparisonEditorOpen(false);
@@ -7097,9 +7213,10 @@ export default function DebitCallSpreadLab({
     setIsStrategyShelfOpen(true);
   };
   const removeCustomComparison = (id: string) => {
-    setCustomComparisons((currentComparisons) =>
-      currentComparisons.filter((comparison) => comparison.id !== id),
-    );
+    const nextComparisons = customComparisons.filter((comparison) => comparison.id !== id);
+
+    setCustomComparisons(nextComparisons);
+    syncMarketScenarioDteRange(nextComparisons);
     setEditingComparisonId((currentId) => (currentId === id ? null : currentId));
     setGraphComparisonId((currentId) =>
       currentId === `custom:${id}` ? "editor" : currentId,
@@ -7130,7 +7247,7 @@ export default function DebitCallSpreadLab({
   };
   const loadComparisonSetup = (card: ComparisonCardData) => {
     const nextSymbol = normalizeSymbol(card.symbol ?? symbol);
-    const nextLongStrike = Math.max(1, Math.round(card.longStrike));
+    const nextLongStrike = normalizeStrikeValue(card.longStrike);
     const nextExpirationDays = clamp(Math.round(card.expirationDays), 1, 1095);
     const nextRatePct = clamp(card.ratePct ?? ratePct, 0, 15);
 
@@ -7547,10 +7664,10 @@ export default function DebitCallSpreadLab({
   const visualizedIsPutDownsideSpread = isPutDownsideStrategy(visualizedStrategy);
   const analyzedStrategyName = selectedGraphComparison.label.replace(/^#\d+\s+/, "");
   const analyzedStructureLabel = visualizedIsDebitSpread
-    ? `${formatCurrency(visualizedInputs.longStrike)} / ${formatCurrency(
+    ? `${formatStrikeCurrency(visualizedInputs.longStrike)} / ${formatStrikeCurrency(
         visualizedInputs.shortStrike,
       )}${visualizedIsRatioSpread ? ` x${visualizedInputs.ratioShortCount}` : ""}`
-    : `${formatCurrency(visualizedInputs.longStrike)} ${
+    : `${formatStrikeCurrency(visualizedInputs.longStrike)} ${
         visualizedIsBearPut ? "put" : "call"
       }`;
   const visualizedMaxProfitAtExpiry =
@@ -8061,7 +8178,7 @@ export default function DebitCallSpreadLab({
         ) ? (
           <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
             <span className="font-semibold text-slate-900">
-              {formatCurrency(Math.abs(shortStrike - longStrike))} wide
+              {formatStrikeCurrency(Math.abs(shortStrike - longStrike))} wide
             </span>{" "}
             spread between long and short strikes.
           </p>
@@ -8073,17 +8190,20 @@ export default function DebitCallSpreadLab({
               help="The strike you buy."
               min={5}
               max={longStrikeSliderMax}
-              step={1}
+              step={0.01}
+              allowDecimals
               value={longStrike}
               onChange={(nextValue) => {
-                const nextLongStrike = Math.max(1, nextValue);
+                const nextLongStrike = normalizeStrikeValue(nextValue);
                 setLongStrike(nextLongStrike);
                 setShortStrike((currentShortStrike) =>
-                  normalizeShortStrikeForStrategy(
-                    strategy,
-                    nextLongStrike,
-                    currentShortStrike,
-                  ),
+                  isPutDownsideSpread
+                    ? currentShortStrike
+                    : normalizeShortStrikeForStrategy(
+                        strategy,
+                        nextLongStrike,
+                        currentShortStrike,
+                      ),
                 );
               }}
               prefix="$"
@@ -8109,11 +8229,14 @@ export default function DebitCallSpreadLab({
               }
               min={5}
               max={shortStrikeSliderMax}
-              step={1}
+              step={0.01}
+              allowDecimals
               value={shortStrike}
               onChange={(nextValue) =>
                 setShortStrike(
-                  normalizeShortStrikeForStrategy(strategy, longStrike, nextValue),
+                  isPutDownsideSpread
+                    ? normalizeStrikeValue(nextValue)
+                    : normalizeShortStrikeForStrategy(strategy, longStrike, nextValue),
                 )
               }
               prefix="$"
@@ -8150,12 +8273,15 @@ export default function DebitCallSpreadLab({
             }
             min={5}
             max={longStrikeSliderMax}
-            step={1}
+            step={0.01}
+            allowDecimals
             value={longStrike}
             onChange={(nextValue) => {
-              setLongStrike(nextValue);
+              const nextLongStrike = normalizeStrikeValue(nextValue);
+
+              setLongStrike(nextLongStrike);
               if (isBearPut) {
-                setShortStrike(nextValue);
+                setShortStrike(nextLongStrike);
               }
             }}
             prefix="$"
@@ -8225,24 +8351,6 @@ export default function DebitCallSpreadLab({
       </section>
     </div>
   );
-
-  if (!isUrlStateReady) {
-    return (
-      <main
-        ref={scrollContainerRef}
-        data-color-scheme={colorScheme}
-        className="h-dvh overflow-x-hidden overflow-y-auto overscroll-none bg-stone-100 text-slate-900"
-      >
-        <div className="mx-auto w-full max-w-7xl px-2 pb-2 pt-1 sm:px-4 sm:pb-3 md:px-6">
-          <h1 className="sr-only">Callculator debit spread strategy simulator</h1>
-          <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">
-            Loading workspace...
-          </div>
-          {children ? <div className="mt-2">{children}</div> : null}
-        </div>
-      </main>
-    );
-  }
 
   const scenarioControlsBlock = (
     <div className="grid min-w-0 gap-2 md:grid-cols-3">
@@ -8900,7 +9008,7 @@ export default function DebitCallSpreadLab({
                                 ? "At"
                                 : visualizedIsPutSpread
                                   ? "≤"
-                                  : "≥"} ${formatCurrency(visualizedInputs.shortStrike)}`}
+                                  : "≥"} ${formatStrikeCurrency(visualizedInputs.shortStrike)}`}
 	                          </p>
 	                        </div>
 		                        <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
@@ -8959,7 +9067,7 @@ export default function DebitCallSpreadLab({
                                   : "<"}{" "}
                               {visualizedIsPutRatioSpread || visualizedIsCallRatioSpread
                                 ? ""
-                                : formatCurrency(visualizedInputs.longStrike)}
+                                : formatStrikeCurrency(visualizedInputs.longStrike)}
 	                          </p>
 	                        </div>
 		                          <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-rose-700 tabular-nums">
