@@ -448,6 +448,8 @@ const SAVED_STRATEGIES_STORAGE_KEY = "callculator-saved-strategies";
 const ORDERED_CUSTOM_COMPARISONS_PREFIX = "o2:";
 const WORKSPACE_RESTORE_RETRY_DELAYS_MS = [0, 150, 500];
 const WORKSPACE_RESTORE_FALLBACK_MS = 1200;
+const PRICE_DECIMAL_DIGITS = 4;
+const CAPITAL_DECIMAL_DIGITS = 2;
 const STRIKE_DECIMAL_DIGITS = 4;
 const STRIKE_MIN_GAP = 0.01;
 const WORKFLOW_TABS: Array<{ value: WorkflowTab; label: string; step: string }> = [
@@ -736,12 +738,13 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
           isPutDownsideStrategy(strategy) ? longStrike - 10 : longStrike + 10,
         ),
       );
-      const capital = Math.max(0, Math.round(parseShareNumber(capitalToken, 10000)));
+      const capital = normalizeCapitalValue(parseShareNumber(capitalToken, 10000));
       const expirationDays = clamp(
         Math.round(parseShareNumber(expirationDaysToken, 60)),
         1,
         1095,
       );
+      const spot = parseOptionalShareNumber(spotToken);
 
       if (capital <= 0) {
         return [];
@@ -757,7 +760,7 @@ function decodeCustomComparisons(value: string | undefined): CustomComparisonCon
         allowFractionalContracts: fractionalToken === "1",
         id: decodeShareText(idToken, `shared-custom-${index}`),
         todayIso: decodeShareText(todayIsoToken, "") || undefined,
-        spot: parseOptionalShareNumber(spotToken),
+        spot: spot === undefined ? undefined : normalizePriceValue(spot),
         volatilityPct: parseOptionalShareNumber(volatilityPctToken),
         futureVolatilityPct: parseOptionalShareNumber(futureVolatilityPctToken),
         scenarioPrice: parseOptionalShareNumber(scenarioPriceToken),
@@ -1009,7 +1012,7 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     1095,
   );
   const strategy = decodeStrategyToken(strategyToken);
-  const spot = Math.max(1, Math.round(parseShareNumber(spotToken, 100)));
+  const spot = normalizePriceValue(parseShareNumber(spotToken, 100));
   const longStrike = normalizeStrikeValue(parseShareNumber(longStrikeToken, 120));
   const decodedShortStrike = normalizeShortStrikeForStrategy(
     strategy,
@@ -1052,7 +1055,7 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     longStrike,
     ratioShortCount,
     shortStrike,
-    capital: Math.max(0, Math.round(parseShareNumber(capitalToken, 10000))),
+    capital: normalizeCapitalValue(parseShareNumber(capitalToken, 10000)),
     allowFractionalContracts: fractionalToken === "1",
     expirationDays,
     scenarioPrice: Math.max(1, Math.round(parseShareNumber(scenarioPriceToken, 145))),
@@ -1136,6 +1139,10 @@ function formatCurrency(value: number): string {
 }
 
 function formatStrikeCurrency(value: number): string {
+  return `$${formatInputDisplayValue(value)}`;
+}
+
+function formatPriceCurrency(value: number): string {
   return `$${formatInputDisplayValue(value)}`;
 }
 
@@ -1267,6 +1274,22 @@ function isPutDownsideStrategy(strategy: OptionStrategy): boolean {
 
 function isRatioSpreadStrategy(strategy: OptionStrategy): boolean {
   return strategy === "put-ratio-spread" || strategy === "call-ratio-spread";
+}
+
+function normalizePriceValue(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+
+  return Math.max(1, roundTo(value, PRICE_DECIMAL_DIGITS));
+}
+
+function normalizeCapitalValue(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, roundTo(value, CAPITAL_DECIMAL_DIGITS));
 }
 
 function normalizeStrikeValue(value: number): number {
@@ -1761,7 +1784,7 @@ function ActiveSetupStrip({
                 {symbol.trim() || "Underlying"}
               </span>
               <span className="font-mono text-[11px] font-medium tabular-nums text-slate-600">
-                {formatCurrency(spot)} spot
+                {formatPriceCurrency(spot)} spot
               </span>
               <span className="font-mono text-[11px] font-medium tabular-nums text-slate-600">
                 {compactNumber(volatilityPct)}% IV
@@ -1827,7 +1850,7 @@ function SetupSummaryStrip({
 }) {
   const items = [
     ["Ticker", symbol.trim() || "Underlying"],
-    ["Current price", formatCurrency(spot)],
+    ["Current price", formatPriceCurrency(spot)],
     ["Current IV", `${compactNumber(volatilityPct)}%`],
   ];
 
@@ -1870,7 +1893,7 @@ function getComparisonSetupLabel(candidate: ComparisonCandidate): string {
   const details = [
     candidate.symbol?.trim() || null,
     Number.isFinite(candidate.spot)
-      ? `${formatCurrency(candidate.spot ?? 0)} spot`
+      ? `${formatPriceCurrency(candidate.spot ?? 0)} spot`
       : null,
     Number.isFinite(candidate.volatilityPct)
       ? `${compactNumber(candidate.volatilityPct ?? 0)}% IV`
@@ -2962,7 +2985,7 @@ function DetailedDecisionOutcomeCards({
         const setupDetails = [
           { label: "Strategy", value: getStrategyDisplayLabel(card.strategy) },
           { label: "Structure", value: getOutcomeStrategyTitle(card) },
-          { label: "Spot", value: card.spot !== undefined ? formatCurrency(card.spot) : "Current" },
+          { label: "Spot", value: card.spot !== undefined ? formatPriceCurrency(card.spot) : "Current" },
           { label: "Capital", value: formatCurrency(card.capital) },
           { label: "Sizing", value: card.allowFractionalContracts ? "Fractional" : "Whole" },
           { label: "Expiry DTE", value: `${card.snapshot.expirationDays}` },
@@ -6723,7 +6746,7 @@ export default function DebitCallSpreadLab({
   };
 
   const updateSpot = (nextValue: number) => {
-    const nextSpot = Math.round(nextValue);
+    const nextSpot = normalizePriceValue(nextValue);
     const nextDefaultStrikes = getDefaultStrikesForStrategy(strategy, nextSpot);
     const isEditingSavedStrategy = Boolean(editingComparisonId);
 
@@ -6938,12 +6961,12 @@ export default function DebitCallSpreadLab({
       normalizeShortStrikeForStrategy(card.strategy, nextLongStrike, card.shortStrike),
     );
     setPutRatioShortCount(normalizePutRatioShortCount(card.ratioShortCount));
-    setSpot(Math.max(1, Math.round(card.spot ?? spot)));
+    setSpot(normalizePriceValue(card.spot ?? spot));
     setVolatilityPct(clamp(card.volatilityPct ?? volatilityPct, 0, 300));
     setFutureVolatilityPct(
       clamp(card.futureVolatilityPct ?? futureVolatilityPct, 0, 300),
     );
-    setCapital(Math.max(1, Math.round(card.capital)));
+    setCapital(Math.max(1, normalizeCapitalValue(card.capital)));
     setAllowFractionalContracts(card.allowFractionalContracts);
     setExpirationDays(nextExpirationDays);
     setRatePct(nextRatePct);
@@ -7088,7 +7111,7 @@ export default function DebitCallSpreadLab({
       longStrike: nextLongStrike,
       shortStrike: nextShortStrike,
       ratioShortCount: nextRatioShortCount,
-      capital: Math.max(1, Math.round(customDraft.capital)),
+      capital: Math.max(1, normalizeCapitalValue(customDraft.capital)),
       expirationDays: nextExpirationDays,
       allowFractionalContracts: customDraft.allowFractionalContracts,
       symbol: nextSymbol,
@@ -7131,7 +7154,12 @@ export default function DebitCallSpreadLab({
     setGraphComparisonId(`custom:${nextId}`);
     setEditingComparisonId(null);
 
-    setCustomDraft((currentDraft) => ({ ...currentDraft, label: "" }));
+    setCapital(nextComparisonBase.capital);
+    setCustomDraft((currentDraft) => ({
+      ...currentDraft,
+      label: "",
+      capital: nextComparisonBase.capital,
+    }));
     setIsCustomComparisonEditorOpen(false);
     setIsSetupFormVisible(false);
     setIsStrategyShelfOpen(true);
@@ -7143,7 +7171,7 @@ export default function DebitCallSpreadLab({
       nextLongStrike,
       shortStrike,
     );
-    const nextCapital = Math.max(1, Math.round(capital));
+    const nextCapital = Math.max(1, normalizeCapitalValue(capital));
     const nextSymbol = normalizeSymbol(symbol);
     const nextExpirationDays = clamp(Math.round(expirationDays), 1, 1095);
     const matchingComparison = customComparisons.find((comparison) =>
@@ -7204,6 +7232,11 @@ export default function DebitCallSpreadLab({
 
     const nextComparisons = [nextComparison, ...customComparisons];
 
+    setCapital(nextCapital);
+    setCustomDraft((currentDraft) => ({
+      ...currentDraft,
+      capital: nextCapital,
+    }));
     setCustomComparisons(nextComparisons);
     syncMarketScenarioDteRange(nextComparisons);
     setComparisonPanelMode("custom");
@@ -7260,12 +7293,12 @@ export default function DebitCallSpreadLab({
       normalizeShortStrikeForStrategy(card.strategy, nextLongStrike, card.shortStrike),
     );
     setPutRatioShortCount(normalizePutRatioShortCount(card.ratioShortCount));
-    setSpot(Math.max(1, Math.round(card.spot ?? spot)));
+    setSpot(normalizePriceValue(card.spot ?? spot));
     setVolatilityPct(clamp(card.volatilityPct ?? volatilityPct, 0, 300));
     setFutureVolatilityPct(
       clamp(card.futureVolatilityPct ?? futureVolatilityPct, 0, 300),
     );
-    setCapital(Math.max(1, Math.round(card.capital)));
+    setCapital(Math.max(1, normalizeCapitalValue(card.capital)));
     setAllowFractionalContracts(card.allowFractionalContracts);
     setExpirationDays(nextExpirationDays);
     setRatePct(nextRatePct);
@@ -8047,10 +8080,11 @@ export default function DebitCallSpreadLab({
           help={`Used to price the ${strategyCopy.unitName} today.`}
           min={5}
           max={currentPriceSliderMax}
-          step={1}
+          step={0.01}
           value={spot}
           onChange={updateSpot}
           prefix="$"
+          allowDecimals
         />
 
         <NumberSliderField
@@ -8412,7 +8446,7 @@ export default function DebitCallSpreadLab({
             {spot > 0
               ? `${safeScenarioPrice >= spot ? "+" : ""}${Math.round(
                   ((safeScenarioPrice - spot) / spot) * 100,
-                )}% vs spot ${formatCurrency(spot)}`
+                )}% vs spot ${formatPriceCurrency(spot)}`
               : ""}
           </span>
           <span className="whitespace-nowrap text-right">{formatCurrency(scenarioPriceSliderMax)}</span>
@@ -8545,6 +8579,8 @@ export default function DebitCallSpreadLab({
         value={spot}
         min={1}
         prefix="$"
+        step={0.01}
+        allowDecimals
         onChange={(value) => updateSpot(Math.max(1, value))}
       />
 
