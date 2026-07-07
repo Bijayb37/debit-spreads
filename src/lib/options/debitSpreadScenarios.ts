@@ -4,6 +4,7 @@ import {
   blackScholesPut,
   clamp,
   getCallRatioSpreadUpperBreakEvenAtExpiry,
+  normalizeCallCalendarShortExpirationDays,
   getPutRatioSpreadLowerBreakEvenAtExpiry,
   getPutRatioSpreadMaxLossPerUnit,
   normalizePutRatioShortCount,
@@ -27,6 +28,7 @@ export type DebitSpreadScenarioInputs = {
   shortStrike: number;
   ratioShortCount?: number;
   currentDte: number;
+  shortExpirationDays?: number;
   numberOfSpreads: number;
   entryDebit: number;
   impliedVolatilityPct: number;
@@ -133,17 +135,25 @@ export function calculateDebitSpreadScenario(
   const isPutSpread = inputs.strategy === "debit-put-spread";
   const isPutRatioSpread = inputs.strategy === "put-ratio-spread";
   const isCallRatioSpread = inputs.strategy === "call-ratio-spread";
+  const isCallCalendar = inputs.strategy === "call-calendar";
   const isPutPricedStrategy = isPutSpread || isPutRatioSpread || isBearPut;
   const ratioShortCount = normalizePutRatioShortCount(inputs.ratioShortCount);
-  const spreadWidth = isLongCall || isBearPut
+  const spreadWidth = isLongCall || isBearPut || isCallCalendar
     ? 0
     : isPutSpread || isPutRatioSpread
       ? Math.max(inputs.longStrike - inputs.shortStrike, 0)
       : Math.max(inputs.shortStrike - inputs.longStrike, 0);
   const safeDte = Math.max(Math.round(dte), 0);
+  const safeCurrentDte = Math.max(Math.round(inputs.currentDte), 0);
+  const elapsedDays = Math.max(safeCurrentDte - safeDte, 0);
+  const shortInitialDte = normalizeCallCalendarShortExpirationDays(
+    inputs.shortExpirationDays,
+    safeCurrentDte,
+  );
+  const shortDte = isCallCalendar ? Math.max(shortInitialDte - elapsedDays, 0) : safeDte;
   const entryCost = inputs.entryDebit * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
   const maxProfit =
-    isLongCall
+    isLongCall || isCallCalendar
       ? null
       : isBearPut
         ? Math.max(inputs.longStrike - inputs.entryDebit, 0) *
@@ -153,6 +163,7 @@ export function calculateDebitSpreadScenario(
         CONTRACT_MULTIPLIER *
         inputs.numberOfSpreads;
   const timeYears = safeDte / YEAR_DAYS;
+  const shortTimeYears = shortDte / YEAR_DAYS;
   const volatility = Math.max(inputs.impliedVolatilityPct, 0) / 100;
   const rate = inputs.riskFreeRatePct / 100;
   const dividendYield = (inputs.dividendYieldPct ?? 0) / 100;
@@ -182,6 +193,17 @@ export function calculateDebitSpreadScenario(
     ? 0
     : isBearPut
       ? 0
+    : isCallCalendar
+      ? shortDte === 0
+        ? Math.max(underlyingPrice - inputs.longStrike, 0)
+        : blackScholesCall({
+            spot: underlyingPrice,
+            strike: inputs.longStrike,
+            timeYears: shortTimeYears,
+            volatility,
+            rate,
+            dividendYield,
+          })
     : isPutSpread || isPutRatioSpread
       ? safeDte === 0
         ? Math.max(inputs.shortStrike - underlyingPrice, 0)
@@ -208,6 +230,8 @@ export function calculateDebitSpreadScenario(
       ? longCallValue
       : isBearPut
         ? longCallValue
+      : isCallCalendar
+        ? Math.max(longCallValue - shortCallValue, 0)
       : isPutRatioSpread || isCallRatioSpread
         ? longCallValue - ratioShortCount * shortCallValue
       : isPutSpread
@@ -261,8 +285,9 @@ export function buildDebitSpreadScenarioGrid(
   const isPutSpread = inputs.strategy === "debit-put-spread";
   const isPutRatioSpread = inputs.strategy === "put-ratio-spread";
   const isCallRatioSpread = inputs.strategy === "call-ratio-spread";
+  const isCallCalendar = inputs.strategy === "call-calendar";
   const ratioShortCount = normalizePutRatioShortCount(inputs.ratioShortCount);
-  const spreadWidth = isLongCall || isBearPut
+  const spreadWidth = isLongCall || isBearPut || isCallCalendar
     ? 0
     : isPutSpread || isPutRatioSpread
       ? Math.max(inputs.longStrike - inputs.shortStrike, 0)
@@ -284,7 +309,7 @@ export function buildDebitSpreadScenarioGrid(
     summary: {
       spreadWidth,
       entryCost,
-      maxProfit: isLongCall
+      maxProfit: isLongCall || isCallCalendar
         ? null
         : isBearPut
           ? Math.max(inputs.longStrike - inputs.entryDebit, 0) *
@@ -301,12 +326,16 @@ export function buildDebitSpreadScenarioGrid(
             ratioShortCount,
           ) *
           CONTRACT_MULTIPLIER *
-          inputs.numberOfSpreads
+            inputs.numberOfSpreads
         : isCallRatioSpread
           ? null
+        : isCallCalendar
+          ? entryCost
         : entryCost,
       expiryBreakeven: isCallRatioSpread
         ? callRatioUpperBreakeven ?? inputs.longStrike + inputs.entryDebit
+        : isCallCalendar
+          ? inputs.longStrike
         : isPutSpread || isPutRatioSpread || isBearPut
         ? inputs.longStrike - inputs.entryDebit
         : inputs.longStrike + inputs.entryDebit,

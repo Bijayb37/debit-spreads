@@ -9,6 +9,7 @@ const DEFAULT_PUT_RATIO_SHORT_COUNT = PUT_RATIO_SHORT_COUNT_MIN;
 export type OptionStrategy =
   | "debit-call-spread"
   | "call-ratio-spread"
+  | "call-calendar"
   | "debit-put-spread"
   | "bear-put"
   | "put-ratio-spread"
@@ -31,6 +32,7 @@ type PriceDebitCallSpreadInput = Omit<BlackScholesCallInput, "strike"> & {
 
 type PriceStrategyInput = PriceDebitCallSpreadInput & {
   strategy: OptionStrategy;
+  shortTimeYears?: number;
 };
 
 export type StrategyInputs = {
@@ -41,6 +43,7 @@ export type StrategyInputs = {
   longStrike: number;
   shortStrike: number;
   ratioShortCount: number;
+  shortExpirationDays?: number;
   volatilityPct: number;
   futureVolatilityPct: number;
   capital: number;
@@ -58,6 +61,9 @@ export type ScenarioSnapshot = {
   selectedDateIso: string;
   timeNowYears: number;
   timeAtScenarioYears: number;
+  shortExpirationDays: number;
+  shortTimeNowYears: number;
+  shortTimeAtScenarioYears: number;
   width: number;
   ratioShortCount: number;
   unitCost: number;
@@ -131,6 +137,29 @@ export function normalizePutRatioShortCount(value: number | undefined): number {
     PUT_RATIO_SHORT_COUNT_MIN,
     PUT_RATIO_SHORT_COUNT_MAX,
   );
+}
+
+export function getDefaultCallCalendarShortExpirationDays(expirationDays: number): number {
+  const maxShortExpirationDays = Math.max(0, Math.round(expirationDays) - 1);
+
+  return Math.min(30, maxShortExpirationDays);
+}
+
+export function normalizeCallCalendarShortExpirationDays(
+  value: number | undefined,
+  expirationDays: number,
+): number {
+  const maxShortExpirationDays = Math.max(0, Math.round(expirationDays) - 1);
+
+  if (maxShortExpirationDays <= 0) {
+    return 0;
+  }
+
+  if (!Number.isFinite(value)) {
+    return getDefaultCallCalendarShortExpirationDays(expirationDays);
+  }
+
+  return clamp(Math.round(value ?? 0), 0, maxShortExpirationDays);
 }
 
 function isoToUtcTimestamp(isoDate: string): number {
@@ -439,6 +468,37 @@ export function priceCallRatioSpread({
   return longCall - shortCount * shortCall;
 }
 
+export function priceCallCalendar({
+  spot,
+  longStrike,
+  timeYears,
+  shortTimeYears = timeYears,
+  volatility,
+  rate,
+  dividendYield,
+}: PriceDebitCallSpreadInput & { shortTimeYears?: number }): number {
+  const safeLongTimeYears = Math.max(timeYears, 0);
+  const safeShortTimeYears = Math.max(shortTimeYears, 0);
+  const longCall = blackScholesCall({
+    spot,
+    strike: longStrike,
+    timeYears: safeLongTimeYears,
+    volatility,
+    rate,
+    dividendYield,
+  });
+  const shortCall = blackScholesCall({
+    spot,
+    strike: longStrike,
+    timeYears: safeShortTimeYears,
+    volatility,
+    rate,
+    dividendYield,
+  });
+
+  return Math.max(longCall - shortCall, 0);
+}
+
 export function getPutRatioSpreadLowerBreakEvenAtExpiry(
   longStrike: number,
   shortStrike: number,
@@ -484,6 +544,7 @@ function priceStrategy({
   longStrike,
   shortStrike,
   ratioShortCount,
+  shortTimeYears,
   timeYears,
   volatility,
   rate,
@@ -537,6 +598,19 @@ function priceStrategy({
     });
   }
 
+  if (strategy === "call-calendar") {
+    return priceCallCalendar({
+      spot,
+      longStrike,
+      shortStrike,
+      shortTimeYears,
+      timeYears,
+      volatility,
+      rate,
+      dividendYield,
+    });
+  }
+
   if (strategy === "debit-put-spread") {
     return priceDebitPutSpread({
       spot,
@@ -573,6 +647,10 @@ function intrinsicStrategyValue(
 
   if (strategy === "bear-put") {
     return Math.max(longStrike - spot, 0);
+  }
+
+  if (strategy === "call-calendar") {
+    return 0;
   }
 
   if (strategy === "debit-put-spread") {
@@ -620,6 +698,7 @@ export function createScenarioSnapshot({
   longStrike,
   shortStrike,
   ratioShortCount,
+  shortExpirationDays,
   volatilityPct,
   futureVolatilityPct,
   capital,
@@ -641,6 +720,15 @@ export function createScenarioSnapshot({
     (expirationDays - selectedOffsetDays) / YEAR_DAYS,
     0,
   );
+  const isCallCalendar = strategy === "call-calendar";
+  const normalizedShortExpirationDays = isCallCalendar
+    ? normalizeCallCalendarShortExpirationDays(shortExpirationDays, expirationDays)
+    : expirationDays;
+  const shortTimeNowYears = normalizedShortExpirationDays / YEAR_DAYS;
+  const shortTimeAtScenarioYears = Math.max(
+    (normalizedShortExpirationDays - selectedOffsetDays) / YEAR_DAYS,
+    0,
+  );
   const volatility = Math.max(volatilityPct, 0) / 100;
   const futureVolatility = Math.max(futureVolatilityPct, 0) / 100;
   const rate = ratePct / 100;
@@ -652,7 +740,7 @@ export function createScenarioSnapshot({
     strategy === "debit-put-spread" || isPutRatioSpread;
   const normalizedRatioShortCount = normalizePutRatioShortCount(ratioShortCount);
   const width =
-    strategy === "long-call" || isBearPut
+    strategy === "long-call" || isBearPut || isCallCalendar
       ? 0
       : isPutDownsideStrategy
         ? Math.max(longStrike - shortStrike, 0)
@@ -663,6 +751,7 @@ export function createScenarioSnapshot({
     longStrike,
     shortStrike,
     ratioShortCount: normalizedRatioShortCount,
+    shortTimeYears: shortTimeNowYears,
     timeYears: timeNowYears,
     volatility,
     rate,
@@ -684,6 +773,7 @@ export function createScenarioSnapshot({
     longStrike,
     shortStrike,
     ratioShortCount: normalizedRatioShortCount,
+    shortTimeYears: shortTimeAtScenarioYears,
     timeYears: timeAtScenarioYears,
     volatility: futureVolatility,
     rate,
@@ -694,9 +784,9 @@ export function createScenarioSnapshot({
   const pnl = scenarioPositionValue - totalCost;
   const roi = totalCost > 0 ? pnl / totalCost : 0;
   const maxValuePerUnit =
-    strategy === "long-call" ? null : isBearPut ? longStrike : width;
+    strategy === "long-call" || isCallCalendar ? null : isBearPut ? longStrike : width;
   const maxProfitPerUnit =
-    strategy === "long-call"
+    strategy === "long-call" || isCallCalendar
       ? null
       : isBearPut
         ? Math.max(longStrike - unitCost, 0)
@@ -724,6 +814,8 @@ export function createScenarioSnapshot({
     ? longStrike - unitCost
     : isCallRatioSpread
       ? callRatioUpperBreakEvenAtExpiry ?? longStrike + unitCost
+      : isCallCalendar
+        ? longStrike
       : isPutDownsideStrategy
         ? longStrike - unitCost
         : longStrike + unitCost;
@@ -746,6 +838,9 @@ export function createScenarioSnapshot({
     selectedDateIso,
     timeNowYears,
     timeAtScenarioYears,
+    shortExpirationDays: normalizedShortExpirationDays,
+    shortTimeNowYears,
+    shortTimeAtScenarioYears,
     width,
     ratioShortCount: normalizedRatioShortCount,
     unitCost,
@@ -756,7 +851,7 @@ export function createScenarioSnapshot({
     maxValuePerUnit,
     maxProfitPerUnit,
     maxLossPerUnit,
-    isProfitCapped: strategy !== "long-call",
+    isProfitCapped: strategy !== "long-call" && !isCallCalendar,
     breakEvenAtExpiry,
     lowerBreakEvenAtExpiry,
     scenarioUnitValue,
@@ -809,12 +904,17 @@ export function buildTimelineRows(inputs: StrategyInputs): TimelineRow[] {
     8,
   ).map((offset) => {
     const timeYears = Math.max((snapshot.expirationDays - offset) / YEAR_DAYS, 0);
+    const shortTimeYears = Math.max(
+      (snapshot.shortExpirationDays - offset) / YEAR_DAYS,
+      0,
+    );
     const unitValue = priceStrategy({
       strategy: inputs.strategy,
       spot: inputs.scenarioPrice,
       longStrike: inputs.longStrike,
       shortStrike: inputs.shortStrike,
       ratioShortCount: inputs.ratioShortCount,
+      shortTimeYears,
       timeYears,
       volatility: futureVolatility,
       rate,
@@ -875,6 +975,7 @@ export function buildPriceLadderRows(inputs: StrategyInputs): PriceLadderRow[] {
         longStrike: inputs.longStrike,
         shortStrike: inputs.shortStrike,
         ratioShortCount: inputs.ratioShortCount,
+        shortTimeYears: snapshot.shortTimeAtScenarioYears,
         timeYears: snapshot.timeAtScenarioYears,
         volatility: futureVolatility,
         rate,
@@ -944,6 +1045,7 @@ export function buildPriceCurve(inputs: StrategyInputs): PriceCurvePoint[] {
       longStrike: inputs.longStrike,
       shortStrike: inputs.shortStrike,
       ratioShortCount: inputs.ratioShortCount,
+      shortTimeYears: snapshot.shortTimeAtScenarioYears,
       timeYears: snapshot.timeAtScenarioYears,
       volatility: futureVolatility,
       rate,
@@ -955,6 +1057,7 @@ export function buildPriceCurve(inputs: StrategyInputs): PriceCurvePoint[] {
       longStrike: inputs.longStrike,
       shortStrike: inputs.shortStrike,
       ratioShortCount: inputs.ratioShortCount,
+      shortTimeYears: 0,
       timeYears: 0,
       volatility: futureVolatility,
       rate,
