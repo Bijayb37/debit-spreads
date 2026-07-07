@@ -49,6 +49,7 @@ export type StrategyInputs = {
   capital: number;
   allowFractionalContracts: boolean;
   scenarioPrice: number;
+  calendarShortPrice?: number;
   scenarioOffsetDays: number;
   ratePct: number;
   dividendYieldPct: number;
@@ -62,6 +63,8 @@ export type ScenarioSnapshot = {
   timeNowYears: number;
   timeAtScenarioYears: number;
   shortExpirationDays: number;
+  calendarShortPrice: number;
+  usesCalendarShortPrice: boolean;
   shortTimeNowYears: number;
   shortTimeAtScenarioYears: number;
   width: number;
@@ -499,6 +502,59 @@ export function priceCallCalendar({
   return Math.max(longCall - shortCall, 0);
 }
 
+function priceCallCalendarScenario({
+  longValuationPrice,
+  shortSettlementPrice,
+  longStrike,
+  selectedOffsetDays,
+  shortExpirationDays,
+  timeYears,
+  shortTimeYears,
+  volatility,
+  rate,
+  dividendYield,
+}: {
+  longValuationPrice: number;
+  shortSettlementPrice: number;
+  longStrike: number;
+  selectedOffsetDays: number;
+  shortExpirationDays: number;
+  timeYears: number;
+  shortTimeYears: number;
+  volatility: number;
+  rate: number;
+  dividendYield: number;
+}): number {
+  if (selectedOffsetDays >= shortExpirationDays) {
+    const longSpot =
+      selectedOffsetDays === shortExpirationDays
+        ? shortSettlementPrice
+        : longValuationPrice;
+    const longCall = blackScholesCall({
+      spot: longSpot,
+      strike: longStrike,
+      timeYears,
+      volatility,
+      rate,
+      dividendYield,
+    });
+    const shortSettlement = Math.max(shortSettlementPrice - longStrike, 0);
+
+    return longCall - shortSettlement;
+  }
+
+  return priceCallCalendar({
+    spot: longValuationPrice,
+    longStrike,
+    shortStrike: longStrike,
+    shortTimeYears,
+    timeYears,
+    volatility,
+    rate,
+    dividendYield,
+  });
+}
+
 export function getPutRatioSpreadLowerBreakEvenAtExpiry(
   longStrike: number,
   shortStrike: number,
@@ -704,6 +760,7 @@ export function createScenarioSnapshot({
   capital,
   allowFractionalContracts,
   scenarioPrice,
+  calendarShortPrice,
   scenarioOffsetDays,
   ratePct,
   dividendYieldPct,
@@ -729,6 +786,9 @@ export function createScenarioSnapshot({
     (normalizedShortExpirationDays - selectedOffsetDays) / YEAR_DAYS,
     0,
   );
+  const normalizedCalendarShortPrice = Math.max(calendarShortPrice ?? scenarioPrice, 1);
+  const usesCalendarShortPrice =
+    isCallCalendar && selectedOffsetDays >= normalizedShortExpirationDays;
   const volatility = Math.max(volatilityPct, 0) / 100;
   const futureVolatility = Math.max(futureVolatilityPct, 0) / 100;
   const rate = ratePct / 100;
@@ -767,18 +827,31 @@ export function createScenarioSnapshot({
     allowFractionalContracts && contracts > 0
       ? capital
       : contracts * unitCost * CONTRACT_MULTIPLIER;
-  const scenarioUnitValue = priceStrategy({
-    strategy,
-    spot: scenarioPrice,
-    longStrike,
-    shortStrike,
-    ratioShortCount: normalizedRatioShortCount,
-    shortTimeYears: shortTimeAtScenarioYears,
-    timeYears: timeAtScenarioYears,
-    volatility: futureVolatility,
-    rate,
-    dividendYield,
-  });
+  const scenarioUnitValue = isCallCalendar
+    ? priceCallCalendarScenario({
+        longValuationPrice: scenarioPrice,
+        shortSettlementPrice: normalizedCalendarShortPrice,
+        longStrike,
+        selectedOffsetDays,
+        shortExpirationDays: normalizedShortExpirationDays,
+        shortTimeYears: shortTimeAtScenarioYears,
+        timeYears: timeAtScenarioYears,
+        volatility: futureVolatility,
+        rate,
+        dividendYield,
+      })
+    : priceStrategy({
+        strategy,
+        spot: scenarioPrice,
+        longStrike,
+        shortStrike,
+        ratioShortCount: normalizedRatioShortCount,
+        shortTimeYears: shortTimeAtScenarioYears,
+        timeYears: timeAtScenarioYears,
+        volatility: futureVolatility,
+        rate,
+        dividendYield,
+      });
   const scenarioPositionValue =
     scenarioUnitValue * CONTRACT_MULTIPLIER * contracts;
   const pnl = scenarioPositionValue - totalCost;
@@ -839,6 +912,8 @@ export function createScenarioSnapshot({
     timeNowYears,
     timeAtScenarioYears,
     shortExpirationDays: normalizedShortExpirationDays,
+    calendarShortPrice: normalizedCalendarShortPrice,
+    usesCalendarShortPrice,
     shortTimeNowYears,
     shortTimeAtScenarioYears,
     width,
@@ -897,6 +972,7 @@ export function buildTimelineRows(inputs: StrategyInputs): TimelineRow[] {
   const futureVolatility = Math.max(inputs.futureVolatilityPct, 0) / 100;
   const rate = inputs.ratePct / 100;
   const dividendYield = inputs.dividendYieldPct / 100;
+  const isCallCalendar = inputs.strategy === "call-calendar";
 
   return buildOffsets(
     snapshot.expirationDays,
@@ -908,18 +984,31 @@ export function buildTimelineRows(inputs: StrategyInputs): TimelineRow[] {
       (snapshot.shortExpirationDays - offset) / YEAR_DAYS,
       0,
     );
-    const unitValue = priceStrategy({
-      strategy: inputs.strategy,
-      spot: inputs.scenarioPrice,
-      longStrike: inputs.longStrike,
-      shortStrike: inputs.shortStrike,
-      ratioShortCount: inputs.ratioShortCount,
-      shortTimeYears,
-      timeYears,
-      volatility: futureVolatility,
-      rate,
-      dividendYield,
-    });
+    const unitValue = isCallCalendar
+      ? priceCallCalendarScenario({
+          longValuationPrice: inputs.scenarioPrice,
+          shortSettlementPrice: snapshot.calendarShortPrice,
+          longStrike: inputs.longStrike,
+          selectedOffsetDays: offset,
+          shortExpirationDays: snapshot.shortExpirationDays,
+          shortTimeYears,
+          timeYears,
+          volatility: futureVolatility,
+          rate,
+          dividendYield,
+        })
+      : priceStrategy({
+          strategy: inputs.strategy,
+          spot: inputs.scenarioPrice,
+          longStrike: inputs.longStrike,
+          shortStrike: inputs.shortStrike,
+          ratioShortCount: inputs.ratioShortCount,
+          shortTimeYears,
+          timeYears,
+          volatility: futureVolatility,
+          rate,
+          dividendYield,
+        });
     const positionValue = unitValue * CONTRACT_MULTIPLIER * snapshot.contracts;
     const pnl = positionValue - snapshot.totalCost;
     return {
@@ -948,6 +1037,7 @@ export function buildPriceLadderRows(inputs: StrategyInputs): PriceLadderRow[] {
   const rate = inputs.ratePct / 100;
   const dividendYield = inputs.dividendYieldPct / 100;
   const isCallRatioSpread = inputs.strategy === "call-ratio-spread";
+  const isCallCalendar = inputs.strategy === "call-calendar";
   const isPutDownsideStrategy =
     inputs.strategy === "debit-put-spread" ||
     inputs.strategy === "put-ratio-spread";
@@ -956,8 +1046,21 @@ export function buildPriceLadderRows(inputs: StrategyInputs): PriceLadderRow[] {
       ? inputs.shortStrike
       : inputs.longStrike;
   const lowerStrike = isPutDownsideStrategy ? inputs.shortStrike : inputs.longStrike;
-  const anchorPrice = Math.max(inputs.spot, inputs.scenarioPrice, upperStrike);
-  const floorPrice = Math.max(1, Math.min(lowerStrike, inputs.spot, inputs.scenarioPrice) * 0.7);
+  const anchorPrice = Math.max(
+    inputs.spot,
+    inputs.scenarioPrice,
+    snapshot.calendarShortPrice,
+    upperStrike,
+  );
+  const floorPrice = Math.max(
+    1,
+    Math.min(
+      lowerStrike,
+      inputs.spot,
+      inputs.scenarioPrice,
+      snapshot.calendarShortPrice,
+    ) * 0.7,
+  );
   const ceilingPrice = Math.max(
     anchorPrice * 1.3,
     inputs.strategy === "debit-call-spread"
@@ -969,18 +1072,35 @@ export function buildPriceLadderRows(inputs: StrategyInputs): PriceLadderRow[] {
 
   return buildPriceSteps(floorPrice, ceilingPrice, inputs.scenarioPrice, 10).map(
     (price) => {
-      const unitValue = priceStrategy({
-        strategy: inputs.strategy,
-        spot: price,
-        longStrike: inputs.longStrike,
-        shortStrike: inputs.shortStrike,
-        ratioShortCount: inputs.ratioShortCount,
-        shortTimeYears: snapshot.shortTimeAtScenarioYears,
-        timeYears: snapshot.timeAtScenarioYears,
-        volatility: futureVolatility,
-        rate,
-        dividendYield,
-      });
+      const shortSettlementPrice =
+        isCallCalendar && snapshot.selectedOffsetDays === snapshot.shortExpirationDays
+          ? price
+          : snapshot.calendarShortPrice;
+      const unitValue = isCallCalendar
+        ? priceCallCalendarScenario({
+            longValuationPrice: price,
+            shortSettlementPrice,
+            longStrike: inputs.longStrike,
+            selectedOffsetDays: snapshot.selectedOffsetDays,
+            shortExpirationDays: snapshot.shortExpirationDays,
+            shortTimeYears: snapshot.shortTimeAtScenarioYears,
+            timeYears: snapshot.timeAtScenarioYears,
+            volatility: futureVolatility,
+            rate,
+            dividendYield,
+          })
+        : priceStrategy({
+            strategy: inputs.strategy,
+            spot: price,
+            longStrike: inputs.longStrike,
+            shortStrike: inputs.shortStrike,
+            ratioShortCount: inputs.ratioShortCount,
+            shortTimeYears: snapshot.shortTimeAtScenarioYears,
+            timeYears: snapshot.timeAtScenarioYears,
+            volatility: futureVolatility,
+            rate,
+            dividendYield,
+          });
       const positionValue = unitValue * CONTRACT_MULTIPLIER * snapshot.contracts;
       const pnl = positionValue - snapshot.totalCost;
 
@@ -1009,6 +1129,7 @@ export function buildPriceCurve(inputs: StrategyInputs): PriceCurvePoint[] {
   const rate = inputs.ratePct / 100;
   const dividendYield = inputs.dividendYieldPct / 100;
   const isCallRatioSpread = inputs.strategy === "call-ratio-spread";
+  const isCallCalendar = inputs.strategy === "call-calendar";
   const isPutDownsideStrategy =
     inputs.strategy === "debit-put-spread" ||
     inputs.strategy === "put-ratio-spread";
@@ -1019,6 +1140,7 @@ export function buildPriceCurve(inputs: StrategyInputs): PriceCurvePoint[] {
   const lowerStrike = isPutDownsideStrategy ? inputs.shortStrike : inputs.longStrike;
   const ceilingPrice = Math.max(
     inputs.scenarioPrice,
+    snapshot.calendarShortPrice,
     upperStrike,
     inputs.spot,
     inputs.longStrike,
@@ -1039,30 +1161,60 @@ export function buildPriceCurve(inputs: StrategyInputs): PriceCurvePoint[] {
       minPrice + ((maxPrice - minPrice) * index) / Math.max(pointCount - 1, 1),
       2,
     );
-    const selectedUnitValue = priceStrategy({
-      strategy: inputs.strategy,
-      spot: price,
-      longStrike: inputs.longStrike,
-      shortStrike: inputs.shortStrike,
-      ratioShortCount: inputs.ratioShortCount,
-      shortTimeYears: snapshot.shortTimeAtScenarioYears,
-      timeYears: snapshot.timeAtScenarioYears,
-      volatility: futureVolatility,
-      rate,
-      dividendYield,
-    });
-    const expiryUnitValue = priceStrategy({
-      strategy: inputs.strategy,
-      spot: price,
-      longStrike: inputs.longStrike,
-      shortStrike: inputs.shortStrike,
-      ratioShortCount: inputs.ratioShortCount,
-      shortTimeYears: 0,
-      timeYears: 0,
-      volatility: futureVolatility,
-      rate,
-      dividendYield,
-    });
+    const selectedShortSettlementPrice =
+      isCallCalendar && snapshot.selectedOffsetDays === snapshot.shortExpirationDays
+        ? price
+        : snapshot.calendarShortPrice;
+    const selectedUnitValue = isCallCalendar
+      ? priceCallCalendarScenario({
+          longValuationPrice: price,
+          shortSettlementPrice: selectedShortSettlementPrice,
+          longStrike: inputs.longStrike,
+          selectedOffsetDays: snapshot.selectedOffsetDays,
+          shortExpirationDays: snapshot.shortExpirationDays,
+          shortTimeYears: snapshot.shortTimeAtScenarioYears,
+          timeYears: snapshot.timeAtScenarioYears,
+          volatility: futureVolatility,
+          rate,
+          dividendYield,
+        })
+      : priceStrategy({
+          strategy: inputs.strategy,
+          spot: price,
+          longStrike: inputs.longStrike,
+          shortStrike: inputs.shortStrike,
+          ratioShortCount: inputs.ratioShortCount,
+          shortTimeYears: snapshot.shortTimeAtScenarioYears,
+          timeYears: snapshot.timeAtScenarioYears,
+          volatility: futureVolatility,
+          rate,
+          dividendYield,
+        });
+    const expiryUnitValue = isCallCalendar
+      ? priceCallCalendarScenario({
+          longValuationPrice: price,
+          shortSettlementPrice: snapshot.calendarShortPrice,
+          longStrike: inputs.longStrike,
+          selectedOffsetDays: snapshot.expirationDays,
+          shortExpirationDays: snapshot.shortExpirationDays,
+          shortTimeYears: 0,
+          timeYears: 0,
+          volatility: futureVolatility,
+          rate,
+          dividendYield,
+        })
+      : priceStrategy({
+          strategy: inputs.strategy,
+          spot: price,
+          longStrike: inputs.longStrike,
+          shortStrike: inputs.shortStrike,
+          ratioShortCount: inputs.ratioShortCount,
+          shortTimeYears: 0,
+          timeYears: 0,
+          volatility: futureVolatility,
+          rate,
+          dividendYield,
+        });
 
     return {
       price,
