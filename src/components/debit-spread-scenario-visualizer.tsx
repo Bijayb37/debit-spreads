@@ -331,12 +331,12 @@ function formatExpiryBreakeven(
   summary: ReturnType<typeof buildDebitSpreadScenarioGrid>["summary"],
 ): string {
   if (summary.lowerExpiryBreakeven !== null) {
-    return `${formatCurrency(summary.lowerExpiryBreakeven)} / ${formatCurrency(
+    return `${formatDecimalCurrency(summary.lowerExpiryBreakeven)} / ${formatDecimalCurrency(
       summary.expiryBreakeven,
     )}`;
   }
 
-  return formatCurrency(summary.expiryBreakeven);
+  return formatDecimalCurrency(summary.expiryBreakeven);
 }
 
 function SelectedScenarioPanel({

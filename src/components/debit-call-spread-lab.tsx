@@ -1221,6 +1221,31 @@ function formatCurrency(value: number): string {
   return formatScaledCurrency(value, activeMoneyDisplayUnit);
 }
 
+function formatCurrencyWithCents(value: number): string {
+  const roundedValue = roundTo(value, 2);
+  const safeValue = Object.is(roundedValue, -0) ? 0 : roundedValue;
+  const absValue = Math.abs(safeValue);
+
+  if (activeMoneyDisplayUnit === "dollars" || absValue < 1000) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(safeValue);
+  }
+
+  const divisor = activeMoneyDisplayUnit === "millions" ? 1_000_000 : 1_000;
+  const suffix = activeMoneyDisplayUnit === "millions" ? "M" : "K";
+  const scaledValue = absValue / divisor;
+  const formattedValue = new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(scaledValue);
+
+  return `${safeValue < 0 ? "-" : ""}$${formattedValue}${suffix}`;
+}
+
 function formatStrikeCurrency(value: number): string {
   return `$${formatInputDisplayValue(value)}`;
 }
@@ -2108,12 +2133,12 @@ function getDteDisplayLabel(card: ComparisonCardData): string {
 
 function formatBreakEvenAtExpiry(snapshot: ScenarioSnapshot): string {
   if (snapshot.lowerBreakEvenAtExpiry !== null) {
-    return `${formatCurrency(snapshot.lowerBreakEvenAtExpiry)} / ${formatCurrency(
+    return `${formatCurrencyWithCents(snapshot.lowerBreakEvenAtExpiry)} / ${formatCurrencyWithCents(
       snapshot.breakEvenAtExpiry,
     )}`;
   }
 
-  return formatCurrency(snapshot.breakEvenAtExpiry);
+  return formatCurrencyWithCents(snapshot.breakEvenAtExpiry);
 }
 
 function getValuationDte(snapshot: ScenarioSnapshot): number {
@@ -2499,7 +2524,7 @@ function ComparisonCardGrid({
             { label: "DTE", value: getDteDisplayLabel(card) },
           {
             label: getUnitCostMetricLabel(card.strategy),
-            value: formatCurrency(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
+            value: formatCurrencyWithCents(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
           },
           { label: "Max at expiry", value: maxAtExpiryLabel },
           { label: "Contracts", value: formatQuantity(card.snapshot.contracts) },
@@ -3084,7 +3109,7 @@ function DecisionOutcomeCards({
           },
           {
             label: getUnitCostMetricLabel(card.strategy),
-            value: formatCurrency(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
+            value: formatCurrencyWithCents(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
             valueClassName: "text-slate-950",
           },
           {
@@ -3261,7 +3286,7 @@ function DetailedDecisionOutcomeCards({
           { label: "Entry cost", value: formatCurrency(totalCost) },
           {
             label: getUnitCostMetricLabel(card.strategy),
-            value: formatCurrency(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
+            value: formatCurrencyWithCents(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
           },
           { label: "Contracts", value: formatQuantity(card.snapshot.contracts) },
           { label: "Cash left", value: formatCurrency(card.snapshot.cashLeft) },
@@ -7814,10 +7839,36 @@ export default function DebitCallSpreadLab({
     setIsStrategyShelfOpen(true);
   };
   const removeCustomComparison = (id: string) => {
+    const removedComparison = customComparisons.find((comparison) => comparison.id === id);
     const nextComparisons = customComparisons.filter((comparison) => comparison.id !== id);
+    const nextComparisonMaxExpirationDays =
+      nextComparisons.length > 0
+        ? Math.max(...nextComparisons.map((comparison) => comparison.expirationDays))
+        : defaultExpirationDays;
+    const shouldMoveEditorOffDeletedExpiration =
+      graphComparisonId === `custom:${id}` ||
+      (removedComparison !== undefined &&
+        expirationDays === removedComparison.expirationDays);
+    const nextExpirationDays = shouldMoveEditorOffDeletedExpiration
+      ? clamp(Math.round(nextComparisonMaxExpirationDays), 1, 1095)
+      : expirationDays;
 
     setCustomComparisons(nextComparisons);
-    syncMarketScenarioDteRange(nextComparisons, expirationDays, true);
+    if (shouldMoveEditorOffDeletedExpiration) {
+      setExpirationDays(nextExpirationDays);
+      setShortExpirationDays((currentDays) =>
+        normalizeCallCalendarShortExpirationDays(currentDays, nextExpirationDays),
+      );
+      setCustomDraft((currentDraft) => ({
+        ...currentDraft,
+        expirationDays: nextExpirationDays,
+        shortExpirationDays: normalizeCallCalendarShortExpirationDays(
+          currentDraft.shortExpirationDays,
+          nextExpirationDays,
+        ),
+      }));
+    }
+    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays, true);
     setEditingComparisonId((currentId) => (currentId === id ? null : currentId));
     setGraphComparisonId((currentId) =>
       currentId === `custom:${id}` ? "editor" : currentId,
@@ -9892,8 +9943,8 @@ export default function DebitCallSpreadLab({
                               </p>
                               <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
                                 {visualizedIsCallCalendar
-                                  ? `At ${formatCurrency(visualizedSnapshot.breakEvenAtExpiry)}`
-                                  : `≥ ${formatCurrency(visualizedSnapshot.breakEvenAtExpiry)}`}
+                                  ? `At ${formatCurrencyWithCents(visualizedSnapshot.breakEvenAtExpiry)}`
+                                  : `≥ ${formatCurrencyWithCents(visualizedSnapshot.breakEvenAtExpiry)}`}
                               </p>
                             </div>
                           <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
@@ -9907,7 +9958,7 @@ export default function DebitCallSpreadLab({
                               </span>
                               <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
                                 {visualizedIsCallCalendar ? "Target" : "B/E"}{" "}
-                              {formatCurrency(visualizedSnapshot.breakEvenAtExpiry)}
+                              {formatCurrencyWithCents(visualizedSnapshot.breakEvenAtExpiry)}
                               </span>
                             </div>
                         </div>
