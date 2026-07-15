@@ -681,6 +681,30 @@ function getCustomComparisonCreationOrder(
   return match ? Number(match[1]) : fallbackIndex;
 }
 
+function getSavedStrategyDteKey(
+  comparisons: readonly CustomComparisonConfig[],
+): string {
+  return comparisons
+    .map((comparison) => `${comparison.id}:${comparison.expirationDays}`)
+    .sort()
+    .join("|");
+}
+
+function getMarketScenarioMaxDte(
+  comparisons: readonly CustomComparisonConfig[],
+  fallbackExpirationDays: number,
+): number {
+  if (comparisons.length === 0) {
+    return clamp(Math.round(fallbackExpirationDays), 0, 1095);
+  }
+
+  return Math.max(
+    ...comparisons.map((comparison) =>
+      clamp(Math.round(comparison.expirationDays), 0, 1095),
+    ),
+  );
+}
+
 function encodeCustomComparisons(comparisons: CustomComparisonConfig[]): string {
   const encodedComparisons = comparisons
     .slice(0, 12)
@@ -6679,6 +6703,8 @@ export default function DebitCallSpreadLab({
   const [customComparisons, setCustomComparisons] = useState<
     CustomComparisonConfig[]
   >([]);
+  const hasInitializedSavedStrategyDteSyncRef = useRef(false);
+  const previousSavedStrategyDteKeyRef = useRef("");
   const [isStrategyShelfOpen, setIsStrategyShelfOpen] = useState(false);
   const [isCustomComparisonEditorOpen, setIsCustomComparisonEditorOpen] =
     useState(false);
@@ -6785,10 +6811,14 @@ export default function DebitCallSpreadLab({
     ? Math.max(5, longStrike - 1)
     : Math.max(baseStrikeSliderMax + 20, longStrike + 5);
   const expiryIso = addDaysToIso(todayIso, expirationDays);
-  const marketScenarioMaxOffsetDays =
-    customComparisons.length > 0
-      ? Math.max(...customComparisons.map((comparison) => comparison.expirationDays))
-      : expirationDays;
+  const savedStrategyDteKey = useMemo(
+    () => getSavedStrategyDteKey(customComparisons),
+    [customComparisons],
+  );
+  const marketScenarioMaxOffsetDays = useMemo(
+    () => getMarketScenarioMaxDte(customComparisons, expirationDays),
+    [customComparisons, expirationDays],
+  );
   const marketScenarioMaxDateIso = addDaysToIso(todayIso, marketScenarioMaxOffsetDays);
   const safeScenarioOffsetDays = clamp(
     scenarioOffsetDays,
@@ -6965,6 +6995,27 @@ export default function DebitCallSpreadLab({
 
     storeCustomComparisons(customComparisons);
   }, [customComparisons, isUrlStateReady]);
+
+  useEffect(() => {
+    if (!isUrlStateReady) {
+      previousSavedStrategyDteKeyRef.current = savedStrategyDteKey;
+      return;
+    }
+
+    if (!hasInitializedSavedStrategyDteSyncRef.current) {
+      hasInitializedSavedStrategyDteSyncRef.current = true;
+      previousSavedStrategyDteKeyRef.current = savedStrategyDteKey;
+      return;
+    }
+
+    if (previousSavedStrategyDteKeyRef.current === savedStrategyDteKey) {
+      return;
+    }
+
+    previousSavedStrategyDteKeyRef.current = savedStrategyDteKey;
+    setValuationDteDraft(null);
+    setScenarioOffsetDays(0);
+  }, [isUrlStateReady, savedStrategyDteKey]);
 
   useEffect(() => {
     if (!isUrlStateReady) {
@@ -7190,10 +7241,10 @@ export default function DebitCallSpreadLab({
     nextExpirationDays = expirationDays,
     shouldUseMaxDte = false,
   ) => {
-    const nextScenarioMaxOffsetDays =
-      comparisons.length > 0
-        ? Math.max(...comparisons.map((comparison) => comparison.expirationDays))
-        : nextExpirationDays;
+    const nextScenarioMaxOffsetDays = getMarketScenarioMaxDte(
+      comparisons,
+      nextExpirationDays,
+    );
 
     setValuationDteDraft(null);
     setScenarioOffsetDays((currentDays) =>
@@ -7841,10 +7892,10 @@ export default function DebitCallSpreadLab({
   const removeCustomComparison = (id: string) => {
     const removedComparison = customComparisons.find((comparison) => comparison.id === id);
     const nextComparisons = customComparisons.filter((comparison) => comparison.id !== id);
-    const nextComparisonMaxExpirationDays =
-      nextComparisons.length > 0
-        ? Math.max(...nextComparisons.map((comparison) => comparison.expirationDays))
-        : defaultExpirationDays;
+    const nextComparisonMaxExpirationDays = getMarketScenarioMaxDte(
+      nextComparisons,
+      defaultExpirationDays,
+    );
     const shouldMoveEditorOffDeletedExpiration =
       graphComparisonId === `custom:${id}` ||
       (removedComparison !== undefined &&
