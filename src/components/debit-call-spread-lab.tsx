@@ -681,6 +681,24 @@ function getCustomComparisonCreationOrder(
   return match ? Number(match[1]) : fallbackIndex;
 }
 
+function getLatestCreatedCustomComparison(
+  comparisons: readonly CustomComparisonConfig[],
+): CustomComparisonConfig | null {
+  return comparisons.reduce<{
+    comparison: CustomComparisonConfig;
+    creationOrder: number;
+  } | null>((latest, comparison, index) => {
+    const creationOrder = getCustomComparisonCreationOrder(
+      comparison,
+      comparisons.length - index,
+    );
+
+    return !latest || creationOrder > latest.creationOrder
+      ? { comparison, creationOrder }
+      : latest;
+  }, null)?.comparison ?? null;
+}
+
 function getSavedStrategyDteKey(
   comparisons: readonly CustomComparisonConfig[],
 ): string {
@@ -4132,10 +4150,16 @@ function CustomComparisonBoard({
                       spot: currentSpot,
                       longStrike: nextDraftStrikes.longStrike,
                       shortStrike: nextDraftStrikes.shortStrike,
-                      shortExpirationDays: normalizeCallCalendarShortExpirationDays(
-                        draft.shortExpirationDays,
-                        draft.expirationDays,
-                      ),
+                      shortExpirationDays:
+                        nextStrategy === "call-calendar" &&
+                        draft.strategy !== "call-calendar"
+                          ? getDefaultCallCalendarShortExpirationDays(
+                              draft.expirationDays,
+                            )
+                          : normalizeCallCalendarShortExpirationDays(
+                              draft.shortExpirationDays,
+                              draft.expirationDays,
+                            ),
                     });
                   }}
                   className="mt-0.5 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm font-medium text-slate-950 shadow-sm outline-none focus:border-[var(--accent)] focus:outline-2 focus:outline-offset-2 focus:outline-[var(--accent)]"
@@ -6785,8 +6809,6 @@ export default function DebitCallSpreadLab({
     (calendarShortPrice < scenarioPriceSliderMin || calendarShortPrice > scenarioPriceSliderMax)
       ? Math.round(calendarShortPrice)
       : safeCalendarShortPrice;
-  const displayedScenarioPriceInputValue =
-    scenarioPriceDraft ?? String(scenarioPriceInputValue);
   const displayedCalendarShortPriceInputValue =
     calendarShortPriceDraft ?? String(calendarShortPriceInputValue);
   const currentPriceSliderMax = getSliderMax(
@@ -6840,6 +6862,60 @@ export default function DebitCallSpreadLab({
     shortExpirationDays,
     expirationDays,
   );
+  const selectedCalendarConfig = graphComparisonId.startsWith("custom:")
+    ? customComparisons.find(
+        (comparison) =>
+          comparison.id === graphComparisonId.slice("custom:".length) &&
+          comparison.strategy === "call-calendar",
+      ) ?? null
+    : null;
+  const firstSavedCalendarConfig =
+    customComparisons.find(
+      (comparison) => comparison.strategy === "call-calendar",
+    ) ?? null;
+  const isSelectedCalendarPreset =
+    graphComparisonId === "preset:call-calendar-atm";
+  const calendarReferenceConfig =
+    selectedCalendarConfig ?? firstSavedCalendarConfig;
+  const calendarReferenceShortExpirationDays = selectedCalendarConfig
+    ? normalizeCallCalendarShortExpirationDays(
+        selectedCalendarConfig.shortExpirationDays,
+        selectedCalendarConfig.expirationDays,
+      )
+    : isCallCalendar
+      ? safeCalendarShortExpirationDays
+      : isSelectedCalendarPreset
+        ? getDefaultCallCalendarShortExpirationDays(expirationDays)
+        : calendarReferenceConfig
+          ? normalizeCallCalendarShortExpirationDays(
+              calendarReferenceConfig.shortExpirationDays,
+              calendarReferenceConfig.expirationDays,
+            )
+          : safeCalendarShortExpirationDays;
+  const shouldShowCalendarShortPrice =
+    isCallCalendar ||
+    isSelectedCalendarPreset ||
+    firstSavedCalendarConfig !== null;
+  const calendarReferenceTodayIso =
+    selectedCalendarConfig?.todayIso ??
+    (isCallCalendar || isSelectedCalendarPreset
+      ? todayIso
+      : calendarReferenceConfig?.todayIso ?? todayIso);
+  const calendarShortExpiryDateIso = addDaysToIso(
+    calendarReferenceTodayIso,
+    calendarReferenceShortExpirationDays,
+  );
+  const isValuationAtCalendarShortExpiry =
+    shouldShowCalendarShortPrice &&
+    safeScenarioOffsetDays === calendarReferenceShortExpirationDays;
+  const effectiveScenarioPrice = isValuationAtCalendarShortExpiry
+    ? safeCalendarShortPrice
+    : safeScenarioPrice;
+  const effectiveScenarioPriceInputValue = isValuationAtCalendarShortExpiry
+    ? calendarShortPriceInputValue
+    : scenarioPriceInputValue;
+  const displayedScenarioPriceInputValue =
+    scenarioPriceDraft ?? String(effectiveScenarioPriceInputValue);
 
   useEffect(() => {
     let isActive = true;
@@ -7018,6 +7094,34 @@ export default function DebitCallSpreadLab({
   }, [isUrlStateReady, savedStrategyDteKey]);
 
   useEffect(() => {
+    if (
+      !isUrlStateReady ||
+      !isValuationAtCalendarShortExpiry ||
+      safeScenarioPrice === safeCalendarShortPrice
+    ) {
+      return;
+    }
+
+    let isActive = true;
+
+    queueMicrotask(() => {
+      if (isActive) {
+        setScenarioPrice(safeCalendarShortPrice);
+        setScenarioPriceDraft(null);
+      }
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [
+    isUrlStateReady,
+    isValuationAtCalendarShortExpiry,
+    safeCalendarShortPrice,
+    safeScenarioPrice,
+  ]);
+
+  useEffect(() => {
     if (!isUrlStateReady) {
       return;
     }
@@ -7035,7 +7139,7 @@ export default function DebitCallSpreadLab({
       capital,
       allowFractionalContracts,
       expirationDays,
-      scenarioPrice: safeScenarioPrice,
+      scenarioPrice: effectiveScenarioPrice,
       calendarShortPrice: safeCalendarShortPrice,
       scenarioOffsetDays: safeScenarioOffsetDays,
       ratePct,
@@ -7059,7 +7163,7 @@ export default function DebitCallSpreadLab({
     ratePct,
     safeScenarioOffsetDays,
     safeCalendarShortPrice,
-    safeScenarioPrice,
+    effectiveScenarioPrice,
     scenarioGraphView,
     shortExpirationDays,
     shortStrike,
@@ -7274,26 +7378,65 @@ export default function DebitCallSpreadLab({
   };
   const updateScenarioPrice = (nextValue: number) => {
     revealScenarioComparisons();
-    setScenarioPrice(
-      clamp(nextValue, scenarioPriceSliderMin, scenarioPriceSliderMax),
+    const nextPrice = clamp(
+      nextValue,
+      scenarioPriceSliderMin,
+      scenarioPriceSliderMax,
     );
+
+    setScenarioPrice(nextPrice);
+    if (
+      shouldShowCalendarShortPrice &&
+      safeScenarioOffsetDays === calendarReferenceShortExpirationDays
+    ) {
+      setCalendarShortPrice(nextPrice);
+      setCalendarShortPriceDraft(null);
+    }
   };
   const updateCalendarShortPrice = (nextValue: number) => {
     revealScenarioComparisons();
-    setCalendarShortPrice(
-      clamp(nextValue, scenarioPriceSliderMin, scenarioPriceSliderMax),
+    const nextPrice = clamp(
+      nextValue,
+      scenarioPriceSliderMin,
+      scenarioPriceSliderMax,
     );
+
+    setCalendarShortPrice(nextPrice);
+    if (
+      shouldShowCalendarShortPrice &&
+      safeScenarioOffsetDays === calendarReferenceShortExpirationDays
+    ) {
+      setScenarioPrice(nextPrice);
+      setScenarioPriceDraft(null);
+    }
   };
   const updateScenarioOffsetDays = (nextValue: number) => {
     revealScenarioComparisons();
+    const nextOffsetDays = clamp(nextValue, 0, marketScenarioMaxOffsetDays);
+
     setValuationDteDraft(null);
-    setScenarioOffsetDays(clamp(nextValue, 0, marketScenarioMaxOffsetDays));
+    setScenarioOffsetDays(nextOffsetDays);
+    if (
+      shouldShowCalendarShortPrice &&
+      nextOffsetDays === calendarReferenceShortExpirationDays
+    ) {
+      setScenarioPrice(safeCalendarShortPrice);
+      setScenarioPriceDraft(null);
+    }
   };
   const updateValuationDte = (nextValue: number) => {
     revealScenarioComparisons();
     const nextDte = clamp(Math.round(nextValue), 0, marketScenarioMaxOffsetDays);
+    const nextOffsetDays = marketScenarioMaxOffsetDays - nextDte;
 
-    setScenarioOffsetDays(marketScenarioMaxOffsetDays - nextDte);
+    setScenarioOffsetDays(nextOffsetDays);
+    if (
+      shouldShowCalendarShortPrice &&
+      nextOffsetDays === calendarReferenceShortExpirationDays
+    ) {
+      setScenarioPrice(safeCalendarShortPrice);
+      setScenarioPriceDraft(null);
+    }
   };
   const updateValuationDteDraft = (nextValue: string) => {
     const parsedValue = Number(nextValue);
@@ -7347,7 +7490,16 @@ export default function DebitCallSpreadLab({
 
     if (nextValue.trim() && Number.isFinite(parsedValue)) {
       revealScenarioComparisons();
-      setScenarioPrice(Math.round(parsedValue));
+      const nextPrice = Math.round(parsedValue);
+
+      setScenarioPrice(nextPrice);
+      if (
+        shouldShowCalendarShortPrice &&
+        safeScenarioOffsetDays === calendarReferenceShortExpirationDays
+      ) {
+        setCalendarShortPrice(nextPrice);
+        setCalendarShortPriceDraft(null);
+      }
     }
   };
   const updateCalendarShortPriceDraft = (nextValue: string) => {
@@ -7357,14 +7509,23 @@ export default function DebitCallSpreadLab({
 
     if (nextValue.trim() && Number.isFinite(parsedValue)) {
       revealScenarioComparisons();
-      setCalendarShortPrice(Math.round(parsedValue));
+      const nextPrice = Math.round(parsedValue);
+
+      setCalendarShortPrice(nextPrice);
+      if (
+        shouldShowCalendarShortPrice &&
+        safeScenarioOffsetDays === calendarReferenceShortExpirationDays
+      ) {
+        setScenarioPrice(nextPrice);
+        setScenarioPriceDraft(null);
+      }
     }
   };
   const commitScenarioPriceDraft = (nextValue: string) => {
     const parsedValue = Number(nextValue);
     const committedValue = Number.isFinite(parsedValue)
       ? Math.round(parsedValue)
-      : safeScenarioPrice;
+      : effectiveScenarioPrice;
 
     updateScenarioPrice(committedValue);
     setScenarioPriceDraft(null);
@@ -7467,6 +7628,79 @@ export default function DebitCallSpreadLab({
       setRatePct(Number(event.key));
     }
   };
+  const seedCustomDraftFromComparison = (
+    comparison: CustomComparisonConfig,
+  ) => {
+    const nextSymbol = normalizeSymbol(comparison.symbol ?? symbol);
+    const nextSpot = normalizePriceValue(comparison.spot ?? spot);
+    const nextLongStrike = normalizeStrikeValue(comparison.longStrike);
+    const nextShortStrike = normalizeShortStrikeForStrategy(
+      comparison.strategy,
+      nextLongStrike,
+      comparison.shortStrike,
+    );
+    const nextRatioShortCount = normalizePutRatioShortCount(
+      comparison.ratioShortCount,
+    );
+    const nextExpirationDays = clamp(
+      Math.round(comparison.expirationDays),
+      1,
+      1095,
+    );
+    const nextShortExpirationDays = normalizeCallCalendarShortExpirationDays(
+      comparison.shortExpirationDays,
+      nextExpirationDays,
+    );
+    const nextVolatilityPct = clamp(
+      comparison.volatilityPct ?? volatilityPct,
+      0,
+      300,
+    );
+    const nextFutureVolatilityPct = clamp(
+      comparison.futureVolatilityPct ?? futureVolatilityPct,
+      0,
+      300,
+    );
+    const nextCapital = Math.max(1, normalizeCapitalValue(comparison.capital));
+    const nextRatePct = clamp(comparison.ratePct ?? ratePct, 0, 15);
+
+    if (nextSymbol) {
+      setSymbol(nextSymbol);
+    }
+    setStrategy(comparison.strategy);
+    setSpot(nextSpot);
+    setLongStrike(nextLongStrike);
+    setShortStrike(nextShortStrike);
+    setPutRatioShortCount(nextRatioShortCount);
+    setShortExpirationDays(nextShortExpirationDays);
+    setVolatilityPct(nextVolatilityPct);
+    setFutureVolatilityPct(nextFutureVolatilityPct);
+    setCapital(nextCapital);
+    setExpirationDays(nextExpirationDays);
+    setAllowFractionalContracts(comparison.allowFractionalContracts);
+    setRatePct(nextRatePct);
+    setRatePctDraft(compactNumber(nextRatePct));
+    setCustomDraft({
+      label: comparison.label,
+      strategy: comparison.strategy,
+      symbol: nextSymbol,
+      todayIso: comparison.todayIso,
+      spot: nextSpot,
+      longStrike: nextLongStrike,
+      shortStrike: nextShortStrike,
+      ratioShortCount: nextRatioShortCount,
+      shortExpirationDays: nextShortExpirationDays,
+      volatilityPct: nextVolatilityPct,
+      futureVolatilityPct: nextFutureVolatilityPct,
+      capital: nextCapital,
+      expirationDays: nextExpirationDays,
+      allowFractionalContracts: comparison.allowFractionalContracts,
+      scenarioPrice: comparison.scenarioPrice,
+      scenarioOffsetDays: comparison.scenarioOffsetDays,
+      ratePct: nextRatePct,
+      dividendYieldPct: comparison.dividendYieldPct,
+    });
+  };
   const seedCustomDraftFromCurrent = (draftStrategy: OptionStrategy = strategy) => {
     const selectedComparisonId = graphComparisonId.startsWith("custom:")
       ? graphComparisonId.slice("custom:".length)
@@ -7495,10 +7729,13 @@ export default function DebitCallSpreadLab({
       ratioShortCount: putRatioShortCount,
       capital,
       expirationDays: draftExpirationDays,
-      shortExpirationDays: normalizeCallCalendarShortExpirationDays(
-        shortExpirationDays,
-        draftExpirationDays,
-      ),
+      shortExpirationDays:
+        draftStrategy === "call-calendar" && strategy !== "call-calendar"
+          ? getDefaultCallCalendarShortExpirationDays(draftExpirationDays)
+          : normalizeCallCalendarShortExpirationDays(
+              shortExpirationDays,
+              draftExpirationDays,
+            ),
       allowFractionalContracts,
     });
   };
@@ -7595,7 +7832,13 @@ export default function DebitCallSpreadLab({
   };
   const openCustomComparisonEditor = () => {
     setEditingComparisonId(null);
-    seedCustomDraftFromCurrent(customDraft.strategy);
+    const latestComparison = getLatestCreatedCustomComparison(customComparisons);
+
+    if (latestComparison) {
+      seedCustomDraftFromComparison(latestComparison);
+    } else {
+      seedCustomDraftFromCurrent(customDraft.strategy);
+    }
 
     if (graphComparisonId.startsWith("preset:")) {
       setGraphComparisonId("editor");
@@ -7673,7 +7916,7 @@ export default function DebitCallSpreadLab({
     ),
     capital: Math.max(1, normalizeCapitalValue(customDraft.capital)),
     allowFractionalContracts: customDraft.allowFractionalContracts,
-    scenarioPrice: safeScenarioPrice,
+    scenarioPrice: effectiveScenarioPrice,
     calendarShortPrice: safeCalendarShortPrice,
     scenarioOffsetDays: clamp(safeScenarioOffsetDays, 0, customDraftExpirationDays),
     ratePct: clamp(customDraft.ratePct ?? ratePct, 0, 15),
@@ -7759,6 +8002,11 @@ export default function DebitCallSpreadLab({
       editingComparisonId &&
         customComparisons.some((comparison) => comparison.id === editingComparisonId),
     );
+    const shouldInitializeCalendarShortPrice =
+      nextStrategy === "call-calendar" &&
+      !customComparisons.some(
+        (comparison) => comparison.strategy === "call-calendar",
+      );
 
     const nextComparisons =
       isEditingExistingComparison
@@ -7780,17 +8028,16 @@ export default function DebitCallSpreadLab({
     }
 
     setCustomComparisons(nextComparisons);
+    if (shouldInitializeCalendarShortPrice) {
+      setCalendarShortPrice(effectiveScenarioPrice);
+      setCalendarShortPriceDraft(null);
+    }
     syncMarketScenarioDteRange(nextComparisons, nextExpirationDays, true);
     setGraphComparisonId(`custom:${nextId}`);
     setEditingComparisonId(null);
 
     setCapital(nextComparisonBase.capital);
-    setCustomDraft((currentDraft) => ({
-      ...currentDraft,
-      label: "",
-      capital: nextComparisonBase.capital,
-      shortExpirationDays: nextShortExpirationDays,
-    }));
+    setCustomDraft(nextComparisonBase);
     setIsCustomComparisonEditorOpen(false);
     setIsSetupFormVisible(false);
     setIsStrategyShelfOpen(true);
@@ -7876,11 +8123,26 @@ export default function DebitCallSpreadLab({
     const nextComparisons = [nextComparison, ...customComparisons];
 
     setCapital(nextCapital);
-    setCustomDraft((currentDraft) => ({
-      ...currentDraft,
-      capital: nextCapital,
-      shortExpirationDays: nextShortExpirationDays,
-    }));
+    setCustomDraft({
+      label: nextComparison.label,
+      strategy: nextComparison.strategy,
+      symbol: nextComparison.symbol,
+      todayIso: nextComparison.todayIso,
+      spot: nextComparison.spot,
+      longStrike: nextComparison.longStrike,
+      shortStrike: nextComparison.shortStrike,
+      ratioShortCount: nextComparison.ratioShortCount,
+      shortExpirationDays: nextComparison.shortExpirationDays,
+      volatilityPct: nextComparison.volatilityPct,
+      futureVolatilityPct: nextComparison.futureVolatilityPct,
+      capital: nextComparison.capital,
+      expirationDays: nextComparison.expirationDays,
+      allowFractionalContracts: nextComparison.allowFractionalContracts,
+      scenarioPrice: nextComparison.scenarioPrice,
+      scenarioOffsetDays: nextComparison.scenarioOffsetDays,
+      ratePct: nextComparison.ratePct,
+      dividendYieldPct: nextComparison.dividendYieldPct,
+    });
     setCustomComparisons(nextComparisons);
     syncMarketScenarioDteRange(nextComparisons, nextExpirationDays, true);
     setComparisonPanelMode("custom");
@@ -8191,10 +8453,13 @@ export default function DebitCallSpreadLab({
         strategy: "call-calendar",
         longStrike: atmStrike,
         shortStrike: atmStrike,
-        shortExpirationDays: normalizeCallCalendarShortExpirationDays(
-          shortExpirationDays,
-          expirationDays,
-        ),
+        shortExpirationDays:
+          strategy === "call-calendar"
+            ? normalizeCallCalendarShortExpirationDays(
+                shortExpirationDays,
+                expirationDays,
+              )
+            : getDefaultCallCalendarShortExpirationDays(expirationDays),
         capital,
         expirationDays,
         allowFractionalContracts,
@@ -8402,30 +8667,6 @@ export default function DebitCallSpreadLab({
   const visualizedIsPutDownsideSpread = isPutDownsideStrategy(visualizedStrategy);
   const analyzedStrategyName = selectedGraphComparison.label.replace(/^#\d+\s+/, "");
   const visualizedIsCallCalendar = visualizedStrategy === "call-calendar";
-  const firstSavedCalendarCard =
-    customComparisonCards.find((card) => card.strategy === "call-calendar") ?? null;
-  const firstSavedCalendarConfig =
-    customComparisons.find((comparison) => comparison.strategy === "call-calendar") ?? null;
-  const calendarReferenceSnapshot =
-    visualizedIsCallCalendar
-      ? visualizedSnapshot
-      : isCallCalendar
-        ? snapshot
-        : firstSavedCalendarCard?.snapshot ?? null;
-  const calendarReferenceShortExpirationDays =
-    calendarReferenceSnapshot?.shortExpirationDays ??
-    (firstSavedCalendarConfig
-      ? normalizeCallCalendarShortExpirationDays(
-          firstSavedCalendarConfig.shortExpirationDays,
-          firstSavedCalendarConfig.expirationDays,
-        )
-      : safeCalendarShortExpirationDays);
-  const shouldShowCalendarShortPrice =
-    isCallCalendar || firstSavedCalendarCard !== null || firstSavedCalendarConfig !== null;
-  const calendarShortExpiryDateIso = addDaysToIso(
-    todayIso,
-    calendarReferenceShortExpirationDays,
-  );
   const analyzedStructureLabel = visualizedIsCallCalendar
     ? `${formatStrikeCurrency(visualizedInputs.longStrike)} ${visualizedSnapshot.shortExpirationDays}/${visualizedSnapshot.expirationDays} DTE`
     : visualizedIsDebitSpread
@@ -8525,9 +8766,18 @@ export default function DebitCallSpreadLab({
     }
 
     const sampleCount = Math.min(Math.max(visualizedExpirationDays + 1, 12), 80);
-    const offsets = Array.from({ length: sampleCount }, (_, index) =>
-      Math.round((visualizedExpirationDays * index) / Math.max(sampleCount - 1, 1)),
-    );
+    const offsets = [
+      ...new Set([
+        ...Array.from({ length: sampleCount }, (_, index) =>
+          Math.round(
+            (visualizedExpirationDays * index) / Math.max(sampleCount - 1, 1),
+          ),
+        ),
+        ...(visualizedInputs.strategy === "call-calendar"
+          ? [visualizedSnapshot.shortExpirationDays]
+          : []),
+      ]),
+    ].sort((first, second) => first - second);
     const seenOffsets = new Set<number>();
     return offsets.flatMap((offset) => {
       if (seenOffsets.has(offset)) return [];
@@ -8543,7 +8793,12 @@ export default function DebitCallSpreadLab({
         pnl: decaySnapshot.pnl,
       }];
     });
-  }, [canModel, visualizedInputs, visualizedSnapshot.expirationDays]);
+  }, [
+    canModel,
+    visualizedInputs,
+    visualizedSnapshot.expirationDays,
+    visualizedSnapshot.shortExpirationDays,
+  ]);
   const overlayCurves = useMemo<OverlayCurve[]>(() => {
     if (!canModel) {
       return [];
@@ -8772,22 +9027,24 @@ export default function DebitCallSpreadLab({
       value: getOtmPutStrike(spot, percent),
     })),
   ];
-    const updateStrategySelection = (nextStrategy: OptionStrategy) => {
-      const nextDefaultStrikes = getDefaultStrikesForStrategy(nextStrategy, spot, {
-        expirationDays,
-        volatilityPct,
-        ratioShortCount: putRatioShortCount,
-        ratePct,
-      });
+  const updateStrategySelection = (nextStrategy: OptionStrategy) => {
+    const nextDefaultStrikes = getDefaultStrikesForStrategy(nextStrategy, spot, {
+      expirationDays,
+      volatilityPct,
+      ratioShortCount: putRatioShortCount,
+      ratePct,
+    });
 
-      setStrategy(nextStrategy);
-      setLongStrike(nextDefaultStrikes.longStrike);
-      setShortStrike(nextDefaultStrikes.shortStrike);
+    setStrategy(nextStrategy);
+    setLongStrike(nextDefaultStrikes.longStrike);
+    setShortStrike(nextDefaultStrikes.shortStrike);
     if (nextStrategy === "call-calendar") {
       setShortExpirationDays(getDefaultCallCalendarShortExpirationDays(expirationDays));
+      setCalendarShortPrice(effectiveScenarioPrice);
+      setCalendarShortPriceDraft(null);
     }
-      setScenarioGraphView("map");
-    };
+    setScenarioGraphView("map");
+  };
   const showGuidedSidebar = workflowLayout === "guided" && isSidebarVisible;
   const isTopBarVisible = isTopBarPinnedVisible || isTopBarHoverRevealed;
   const isAnalysisVisible =
@@ -9243,7 +9500,7 @@ export default function DebitCallSpreadLab({
           min={scenarioPriceSliderMin}
           max={scenarioPriceSliderMax}
           step={1}
-          value={safeScenarioPrice}
+          value={effectiveScenarioPrice}
           aria-label={
             shouldShowCalendarShortPrice
               ? "Valuation stock price"
@@ -9254,7 +9511,7 @@ export default function DebitCallSpreadLab({
           onPointerDown={blurFocusedField}
           onTouchStart={blurFocusedField}
           style={getRangeTrackStyle(
-            safeScenarioPrice,
+            effectiveScenarioPrice,
             scenarioPriceSliderMin,
             scenarioPriceSliderMax,
           )}
@@ -9264,8 +9521,8 @@ export default function DebitCallSpreadLab({
           <span className="whitespace-nowrap">{formatCurrency(scenarioPriceSliderMin)}</span>
           <span className="min-w-0 truncate whitespace-nowrap text-center text-slate-600">
             {spot > 0
-              ? `${safeScenarioPrice >= spot ? "+" : ""}${Math.round(
-                  ((safeScenarioPrice - spot) / spot) * 100,
+              ? `${effectiveScenarioPrice >= spot ? "+" : ""}${Math.round(
+                  ((effectiveScenarioPrice - spot) / spot) * 100,
                 )}% vs spot ${formatPriceCurrency(spot)}`
               : ""}
           </span>
@@ -9425,13 +9682,13 @@ export default function DebitCallSpreadLab({
     shouldShowCalendarShortPrice
       ? [
           `${formatCurrency(safeCalendarShortPrice)} short expiry`,
-          `${formatCurrency(safeScenarioPrice)} valuation`,
+          `${formatCurrency(effectiveScenarioPrice)} valuation`,
           formatLongDate(marketScenarioDateIso),
           `${marketScenarioDte} DTE`,
           `${compactNumber(futureVolatilityPct)}% IV`,
         ]
       : [
-          `${formatCurrency(safeScenarioPrice)} stock`,
+          `${formatCurrency(effectiveScenarioPrice)} stock`,
           formatLongDate(marketScenarioDateIso),
           `${marketScenarioDte} DTE`,
           `${compactNumber(futureVolatilityPct)}% IV`,
@@ -9648,7 +9905,7 @@ export default function DebitCallSpreadLab({
                     currentVolatilityPct={volatilityPct}
                     currentRatePct={ratePct}
                     scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
-                    scenarioPrice={safeScenarioPrice}
+                    scenarioPrice={effectiveScenarioPrice}
                     symbol={symbol}
                     onDraftChange={setCustomDraft}
                     onAddComparison={addCustomComparison}
@@ -9689,7 +9946,7 @@ export default function DebitCallSpreadLab({
                   currentVolatilityPct={volatilityPct}
                   currentRatePct={ratePct}
                   scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
-                  scenarioPrice={safeScenarioPrice}
+                  scenarioPrice={effectiveScenarioPrice}
                   symbol={symbol}
                   onDraftChange={setCustomDraft}
                   onAddComparison={addCustomComparison}
@@ -9735,7 +9992,7 @@ export default function DebitCallSpreadLab({
                     cards={comparisonCards}
                     selectedCardId={selectedPresetCardId}
                     scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
-                    scenarioPrice={safeScenarioPrice}
+                    scenarioPrice={effectiveScenarioPrice}
                     symbol={symbol}
                   />
                 ) : null}
@@ -9924,7 +10181,7 @@ export default function DebitCallSpreadLab({
                               At your scenario
                               </p>
                               <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-                                {formatCurrency(safeScenarioPrice)} · {formatLongDate(visualizedSnapshot.selectedDateIso)}
+                                {formatCurrency(effectiveScenarioPrice)} · {formatLongDate(visualizedSnapshot.selectedDateIso)}
                               </p>
                             </div>
                             <p
@@ -10082,7 +10339,7 @@ export default function DebitCallSpreadLab({
                     <TimeDecayChart
                       title={`${visualizedStrategyCopy.unitTitle} value over time`}
                       subtitle={`At a fixed underlying price of ${formatCurrency(
-                        safeScenarioPrice,
+                        effectiveScenarioPrice,
                       )} and ${futureVolatilityPct}% IV. Hover to read the ${visualizedStrategyCopy.unitName}'s value and P/L on any date.`}
                       points={decayPoints}
                       expirationDays={visualizedSnapshot.expirationDays}
@@ -10090,7 +10347,7 @@ export default function DebitCallSpreadLab({
                       selectedPositionValue={visualizedSnapshot.scenarioPositionValue}
                       selectedPnl={visualizedSnapshot.pnl}
                       totalCost={visualizedSnapshot.totalCost}
-                      scenarioPriceLabel={formatCurrency(safeScenarioPrice)}
+                      scenarioPriceLabel={formatCurrency(effectiveScenarioPrice)}
                     />
                 ) : null}
 
@@ -10099,7 +10356,7 @@ export default function DebitCallSpreadLab({
                       key={`multi-${graphRenderKey}`}
                       inputs={visualizedScenarioVisualizerInputs}
                       view="multi"
-                    selectedUnderlyingPrice={safeScenarioPrice}
+                    selectedUnderlyingPrice={effectiveScenarioPrice}
                     selectedDte={
                       visualizedSnapshot.expirationDays - visualizedSnapshot.selectedOffsetDays
                     }
@@ -10139,7 +10396,7 @@ export default function DebitCallSpreadLab({
                   <ResultsTable
                     title={`${strategyCopy.unitTitle} value over time at the selected stock price`}
                     subtitle={`These rows keep ${symbol.trim() || "the stock"} fixed at ${formatCurrency(
-                      safeScenarioPrice,
+                      effectiveScenarioPrice,
                     )} and move the date toward expiry.`}
                     columns={timelineColumns}
                     rows={timelineRows}

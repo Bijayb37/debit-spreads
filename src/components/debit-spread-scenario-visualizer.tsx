@@ -3,7 +3,10 @@
 import { useMemo, useState } from "react";
 import type { CSSProperties } from "react";
 import { cn } from "@/lib/cn";
-import { normalizePutRatioShortCount } from "@/lib/debit-call-spread";
+import {
+  normalizeCallCalendarShortExpirationDays,
+  normalizePutRatioShortCount,
+} from "@/lib/debit-call-spread";
 import {
   calculateDebitSpreadScenario,
   buildDebitSpreadScenarioGrid,
@@ -177,15 +180,50 @@ function buildPriceSeriesWithSelection(currentPrice: number, selectedPrice: numb
   );
 }
 
-function buildEvenDteBuckets(currentDte: number, steps: number): number[] {
+function spreadChartLabelPositions(
+  labels: Array<{ id: number; y: number }>,
+  minY: number,
+  maxY: number,
+  minimumGap: number,
+): Map<number, number> {
+  const sortedLabels = labels
+    .map((label) => ({ ...label }))
+    .sort((first, second) => first.y - second.y);
+
+  sortedLabels.forEach((label, index) => {
+    label.y = Math.max(
+      label.y,
+      index === 0 ? minY : sortedLabels[index - 1].y + minimumGap,
+    );
+  });
+
+  const overflow = Math.max((sortedLabels.at(-1)?.y ?? maxY) - maxY, 0);
+  if (overflow > 0) {
+    sortedLabels.forEach((label) => {
+      label.y -= overflow;
+    });
+  }
+
+  return new Map(sortedLabels.map((label) => [label.id, label.y]));
+}
+
+function buildEvenDteBuckets(
+  currentDte: number,
+  steps: number,
+  requiredDtes: number[] = [],
+): number[] {
   const safeCurrentDte = Math.max(0, Math.round(currentDte));
   const safeSteps = Math.min(Math.max(Math.round(steps), 2), safeCurrentDte + 1);
+  const evenBuckets = Array.from({ length: safeSteps }, (_, index) =>
+    Math.round(safeCurrentDte - (safeCurrentDte * index) / Math.max(safeSteps - 1, 1)),
+  );
 
-  return [...new Set(
-    Array.from({ length: safeSteps }, (_, index) =>
-      Math.round(safeCurrentDte - (safeCurrentDte * index) / Math.max(safeSteps - 1, 1)),
-    ),
-  )].sort((first, second) => second - first);
+  return [
+    ...new Set([
+      ...evenBuckets,
+      ...requiredDtes.map((dte) => normalizeDte(dte, safeCurrentDte)),
+    ]),
+  ].sort((first, second) => second - first);
 }
 
 function normalizeDte(dte: number, currentDte: number): number {
@@ -833,6 +871,14 @@ function MultiDateTab({
     [inputs.currentPrice, selectedScenario.underlyingPrice],
   );
   const selectedDte = normalizeDte(selectedScenario.dte, inputs.currentDte);
+  const calendarShortExpiryDte = Math.max(
+    inputs.currentDte -
+      normalizeCallCalendarShortExpirationDays(
+        inputs.shortExpirationDays,
+        inputs.currentDte,
+      ),
+    0,
+  );
   const [savedDtes, setSavedDtes] = useState<number[]>([]);
   const savedDteEntries = useMemo(
     () =>
@@ -845,6 +891,15 @@ function MultiDateTab({
     () => {
       const entries = [
         { dte: inputs.currentDte, label: "Today", removable: false },
+        ...(isCallCalendar
+          ? [
+              {
+                dte: calendarShortExpiryDte,
+                label: "Short expiry",
+                removable: false,
+              },
+            ]
+          : []),
         ...savedDteEntries.map((dte) => ({
           dte,
           label: `${dte} DTE`,
@@ -870,7 +925,13 @@ function MultiDateTab({
         return true;
       });
     },
-    [inputs.currentDte, savedDteEntries, selectedDte],
+    [
+      calendarShortExpiryDte,
+      inputs.currentDte,
+      isCallCalendar,
+      savedDteEntries,
+      selectedDte,
+    ],
   );
   const canAddSelectedDte =
     selectedDte !== inputs.currentDte &&
@@ -903,6 +964,15 @@ function MultiDateTab({
   const maxPrice = Math.max(...prices);
   const x = (price: number) => padding.left + ((price - minPrice) / Math.max(maxPrice - minPrice, 1)) * chartWidth;
   const y = (value: number) => padding.top + ((yMax - value) / Math.max(yMax - yMin, 1)) * chartHeight;
+  const curveEndLabelY = spreadChartLabelPositions(
+    curves.map((curve) => ({
+      id: curve.dte,
+      y: y(curve.points[curve.points.length - 1].profitLoss) + 4,
+    })),
+    padding.top + 8,
+    height - padding.bottom - 4,
+    12,
+  );
   const selectedPoint = calculateDebitSpreadScenario(
     inputs,
     selectedScenario.underlyingPrice,
@@ -1021,7 +1091,7 @@ function MultiDateTab({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
-                <text x={x(lastPoint.underlyingPrice) + 8} y={y(lastPoint.profitLoss) + 4} className="font-mono text-[10px]" fill={CURVE_COLORS[index % CURVE_COLORS.length]}>
+                <text x={x(lastPoint.underlyingPrice) + 8} y={curveEndLabelY.get(curve.dte)} className="font-mono text-[10px]" fill={CURVE_COLORS[index % CURVE_COLORS.length]}>
                   {curve.label}
                 </text>
               </g>
@@ -1170,10 +1240,25 @@ function TimeValueTab({
   const width = 820;
   const height = 320;
   const padding = { top: 26, right: 28, bottom: 50, left: 78 };
-  const offsets = Array.from({ length: Math.min(inputs.currentDte + 1, 61) }, (_, index) =>
-    Math.round((inputs.currentDte * index) / Math.max(Math.min(inputs.currentDte, 60), 1)),
+  const sampledOffsets = Array.from(
+    { length: Math.min(inputs.currentDte + 1, 61) },
+    (_, index) =>
+      Math.round(
+        (inputs.currentDte * index) /
+          Math.max(Math.min(inputs.currentDte, 60), 1),
+      ),
   );
-  const points = [...new Set(offsets)].map((offset) => {
+  const calendarShortExpiryOffset = normalizeCallCalendarShortExpirationDays(
+    inputs.shortExpirationDays,
+    inputs.currentDte,
+  );
+  const offsets = [
+    ...new Set([
+      ...sampledOffsets,
+      ...(isCallCalendar ? [calendarShortExpiryOffset] : []),
+    ]),
+  ].sort((first, second) => first - second);
+  const points = offsets.map((offset) => {
     const dte = Math.max(inputs.currentDte - offset, 0);
     return calculateDebitSpreadScenario(inputs, fixedPrice, dte);
   });
@@ -1500,12 +1585,25 @@ export default function DebitSpreadScenarioVisualizer({
       priceTickSize: safeHeatmapPriceTickSize,
       minPrice: safeHeatmapMinPrice,
       maxPrice: safeHeatmapMaxPrice,
-      dteBuckets: buildEvenDteBuckets(inputs.currentDte, heatmapDteSteps),
+      dteBuckets: buildEvenDteBuckets(
+        inputs.currentDte,
+        heatmapDteSteps,
+        isCallCalendar
+          ? [
+              inputs.currentDte -
+                normalizeCallCalendarShortExpirationDays(
+                  inputs.shortExpirationDays,
+                  inputs.currentDte,
+                ),
+            ]
+          : [],
+      ),
     }),
     [
       heatmapIvPct,
       heatmapDteSteps,
       inputs,
+      isCallCalendar,
       safeHeatmapMaxPrice,
       safeHeatmapMinPrice,
       safeHeatmapPriceTickSize,

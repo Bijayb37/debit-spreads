@@ -154,10 +154,10 @@ export function calculateDebitSpreadScenario(
   const shortDte = isCallCalendar ? Math.max(shortInitialDte - elapsedDays, 0) : safeDte;
   const hasCalendarShortSettled = isCallCalendar && elapsedDays >= shortInitialDte;
   const calendarShortPrice = Math.max(inputs.calendarShortPrice ?? underlyingPrice, 1);
-  const calendarLongPrice =
-    hasCalendarShortSettled && elapsedDays === shortInitialDte
-      ? calendarShortPrice
-      : underlyingPrice;
+  const isCalendarShortExpiry = isCallCalendar && elapsedDays === shortInitialDte;
+  const calendarShortSettlementPrice = isCalendarShortExpiry
+    ? underlyingPrice
+    : calendarShortPrice;
   const entryCost = inputs.entryDebit * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
   const maxProfit =
     isLongCall || isCallCalendar
@@ -187,9 +187,9 @@ export function calculateDebitSpreadScenario(
           dividendYield,
         })
     : safeDte === 0
-      ? Math.max(calendarLongPrice - inputs.longStrike, 0)
+      ? Math.max(underlyingPrice - inputs.longStrike, 0)
       : blackScholesCall({
-          spot: calendarLongPrice,
+          spot: underlyingPrice,
           strike: inputs.longStrike,
           timeYears,
           volatility,
@@ -202,7 +202,7 @@ export function calculateDebitSpreadScenario(
       ? 0
     : isCallCalendar
       ? hasCalendarShortSettled
-        ? Math.max(calendarShortPrice - inputs.longStrike, 0)
+        ? Math.max(calendarShortSettlementPrice - inputs.longStrike, 0)
         : blackScholesCall({
             spot: underlyingPrice,
             strike: inputs.longStrike,

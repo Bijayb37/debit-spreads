@@ -143,9 +143,18 @@ export function normalizePutRatioShortCount(value: number | undefined): number {
 }
 
 export function getDefaultCallCalendarShortExpirationDays(expirationDays: number): number {
-  const maxShortExpirationDays = Math.max(0, Math.round(expirationDays) - 1);
+  const safeExpirationDays = Math.max(0, Math.round(expirationDays));
+  const maxShortExpirationDays = Math.max(0, safeExpirationDays - 1);
 
-  return Math.min(30, maxShortExpirationDays);
+  if (maxShortExpirationDays === 0) {
+    return 0;
+  }
+
+  return Math.min(
+    30,
+    maxShortExpirationDays,
+    Math.max(1, Math.round(safeExpirationDays / 2)),
+  );
 }
 
 export function normalizeCallCalendarShortExpirationDays(
@@ -936,8 +945,18 @@ export function createScenarioSnapshot({
   };
 }
 
-function buildOffsets(maxDays: number, highlightOffset: number, samples = 8): number[] {
-  const offsets = new Set([0, maxDays, clamp(highlightOffset, 0, maxDays)]);
+function buildOffsets(
+  maxDays: number,
+  highlightOffset: number,
+  samples = 8,
+  requiredOffsets: number[] = [],
+): number[] {
+  const offsets = new Set([
+    0,
+    maxDays,
+    clamp(highlightOffset, 0, maxDays),
+    ...requiredOffsets.map((offset) => clamp(offset, 0, maxDays)),
+  ]);
 
   for (let index = 0; index < samples; index += 1) {
     offsets.add(Math.round((maxDays * index) / Math.max(samples - 1, 1)));
@@ -978,6 +997,7 @@ export function buildTimelineRows(inputs: StrategyInputs): TimelineRow[] {
     snapshot.expirationDays,
     snapshot.selectedOffsetDays,
     8,
+    isCallCalendar ? [snapshot.shortExpirationDays] : [],
   ).map((offset) => {
     const timeYears = Math.max((snapshot.expirationDays - offset) / YEAR_DAYS, 0);
     const shortTimeYears = Math.max(
