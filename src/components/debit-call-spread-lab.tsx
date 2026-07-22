@@ -7681,7 +7681,7 @@ export default function DebitCallSpreadLab({
     setRatePct(nextRatePct);
     setRatePctDraft(compactNumber(nextRatePct));
     setCustomDraft({
-      label: comparison.label,
+      label: "",
       strategy: comparison.strategy,
       symbol: nextSymbol,
       todayIso: comparison.todayIso,
@@ -8037,7 +8037,10 @@ export default function DebitCallSpreadLab({
     setEditingComparisonId(null);
 
     setCapital(nextComparisonBase.capital);
-    setCustomDraft(nextComparisonBase);
+    setCustomDraft({
+      ...nextComparisonBase,
+      label: "",
+    });
     setIsCustomComparisonEditorOpen(false);
     setIsSetupFormVisible(false);
     setIsStrategyShelfOpen(true);
@@ -8124,7 +8127,7 @@ export default function DebitCallSpreadLab({
 
     setCapital(nextCapital);
     setCustomDraft({
-      label: nextComparison.label,
+      label: "",
       strategy: nextComparison.strategy,
       symbol: nextComparison.symbol,
       todayIso: nextComparison.todayIso,
