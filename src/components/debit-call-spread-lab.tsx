@@ -1156,7 +1156,9 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
   const customComparisonsToken = parts[comparisonPanelIndex + 1];
   const graphComparisonToken = parts[comparisonPanelIndex + 2];
   const workflowTabToken = parts[comparisonPanelIndex + 3];
-  const scenarioPrice = Math.max(1, Math.round(parseShareNumber(scenarioPriceToken, 145)));
+  const scenarioPrice = normalizePriceValue(
+    parseShareNumber(scenarioPriceToken, 145),
+  );
 
   return {
     strategy,
@@ -1176,13 +1178,10 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     allowFractionalContracts: fractionalToken === "1",
     expirationDays,
     scenarioPrice,
-    calendarShortPrice: Math.max(
-      1,
-      Math.round(
-        hasCalendarShortPriceToken
-          ? decodedCalendarShortPrice ?? scenarioPrice
-          : scenarioPrice,
-      ),
+    calendarShortPrice: normalizePriceValue(
+      hasCalendarShortPriceToken
+        ? decodedCalendarShortPrice ?? scenarioPrice
+        : scenarioPrice,
     ),
     scenarioOffsetDays: clamp(
       Math.round(parseShareNumber(scenarioOffsetDaysToken, Math.round(expirationDays / 2))),
@@ -6793,21 +6792,21 @@ export default function DebitCallSpreadLab({
     scenarioPriceSliderMin,
     getSliderMax(spot, scenarioPrice, calendarShortPrice, longStrike, upperStrike),
   );
-  const safeScenarioPrice = Math.round(
+  const safeScenarioPrice = normalizePriceValue(
     clamp(scenarioPrice, scenarioPriceSliderMin, scenarioPriceSliderMax),
   );
-  const safeCalendarShortPrice = Math.round(
+  const safeCalendarShortPrice = normalizePriceValue(
     clamp(calendarShortPrice, scenarioPriceSliderMin, scenarioPriceSliderMax),
   );
   const scenarioPriceInputValue =
     Number.isFinite(scenarioPrice) &&
     (scenarioPrice < scenarioPriceSliderMin || scenarioPrice > scenarioPriceSliderMax)
-      ? Math.round(scenarioPrice)
+      ? normalizePriceValue(scenarioPrice)
       : safeScenarioPrice;
   const calendarShortPriceInputValue =
     Number.isFinite(calendarShortPrice) &&
     (calendarShortPrice < scenarioPriceSliderMin || calendarShortPrice > scenarioPriceSliderMax)
-      ? Math.round(calendarShortPrice)
+      ? normalizePriceValue(calendarShortPrice)
       : safeCalendarShortPrice;
   const displayedCalendarShortPriceInputValue =
     calendarShortPriceDraft ?? String(calendarShortPriceInputValue);
@@ -7490,7 +7489,7 @@ export default function DebitCallSpreadLab({
 
     if (nextValue.trim() && Number.isFinite(parsedValue)) {
       revealScenarioComparisons();
-      const nextPrice = Math.round(parsedValue);
+      const nextPrice = normalizePriceValue(parsedValue);
 
       setScenarioPrice(nextPrice);
       if (
@@ -7509,7 +7508,7 @@ export default function DebitCallSpreadLab({
 
     if (nextValue.trim() && Number.isFinite(parsedValue)) {
       revealScenarioComparisons();
-      const nextPrice = Math.round(parsedValue);
+      const nextPrice = normalizePriceValue(parsedValue);
 
       setCalendarShortPrice(nextPrice);
       if (
@@ -7524,7 +7523,7 @@ export default function DebitCallSpreadLab({
   const commitScenarioPriceDraft = (nextValue: string) => {
     const parsedValue = Number(nextValue);
     const committedValue = Number.isFinite(parsedValue)
-      ? Math.round(parsedValue)
+      ? normalizePriceValue(parsedValue)
       : effectiveScenarioPrice;
 
     updateScenarioPrice(committedValue);
@@ -7533,7 +7532,7 @@ export default function DebitCallSpreadLab({
   const commitCalendarShortPriceDraft = (nextValue: string) => {
     const parsedValue = Number(nextValue);
     const committedValue = Number.isFinite(parsedValue)
-      ? Math.round(parsedValue)
+      ? normalizePriceValue(parsedValue)
       : safeCalendarShortPrice;
 
     updateCalendarShortPrice(committedValue);
@@ -9474,7 +9473,7 @@ export default function DebitCallSpreadLab({
                 value={displayedScenarioPriceInputValue}
                 min={scenarioPriceSliderMin}
                 max={scenarioPriceSliderMax}
-                step={1}
+                step={0.01}
                 aria-label={
                   shouldShowCalendarShortPrice
                     ? "Valuation stock price"
@@ -9502,7 +9501,7 @@ export default function DebitCallSpreadLab({
           type="range"
           min={scenarioPriceSliderMin}
           max={scenarioPriceSliderMax}
-          step={1}
+          step={0.01}
           value={effectiveScenarioPrice}
           aria-label={
             shouldShowCalendarShortPrice
@@ -9550,7 +9549,7 @@ export default function DebitCallSpreadLab({
                   value={displayedCalendarShortPriceInputValue}
                   min={scenarioPriceSliderMin}
                   max={scenarioPriceSliderMax}
-                  step={1}
+                  step={0.01}
                   aria-label="Short expiry stock price"
                   onFocus={() =>
                     setCalendarShortPriceDraft(String(calendarShortPriceInputValue))
@@ -9574,7 +9573,7 @@ export default function DebitCallSpreadLab({
             type="range"
             min={scenarioPriceSliderMin}
             max={scenarioPriceSliderMax}
-            step={1}
+            step={0.01}
             value={safeCalendarShortPrice}
             aria-label="Short expiry stock price"
             onChange={(event) => updateCalendarShortPrice(Number(event.target.value))}
@@ -9684,14 +9683,14 @@ export default function DebitCallSpreadLab({
   const marketScenarioSummary = (
     shouldShowCalendarShortPrice
       ? [
-          `${formatCurrency(safeCalendarShortPrice)} short expiry`,
-          `${formatCurrency(effectiveScenarioPrice)} valuation`,
+          `${formatPriceCurrency(safeCalendarShortPrice)} short expiry`,
+          `${formatPriceCurrency(effectiveScenarioPrice)} valuation`,
           formatLongDate(marketScenarioDateIso),
           `${marketScenarioDte} DTE`,
           `${compactNumber(futureVolatilityPct)}% IV`,
         ]
       : [
-          `${formatCurrency(effectiveScenarioPrice)} stock`,
+          `${formatPriceCurrency(effectiveScenarioPrice)} stock`,
           formatLongDate(marketScenarioDateIso),
           `${marketScenarioDte} DTE`,
           `${compactNumber(futureVolatilityPct)}% IV`,
@@ -10184,7 +10183,7 @@ export default function DebitCallSpreadLab({
                               At your scenario
                               </p>
                               <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
-                                {formatCurrency(effectiveScenarioPrice)} · {formatLongDate(visualizedSnapshot.selectedDateIso)}
+                                {formatPriceCurrency(effectiveScenarioPrice)} · {formatLongDate(visualizedSnapshot.selectedDateIso)}
                               </p>
                             </div>
                             <p
@@ -10341,7 +10340,7 @@ export default function DebitCallSpreadLab({
                     {canModel && activeDisplayGraphView === "decay" ? (
                     <TimeDecayChart
                       title={`${visualizedStrategyCopy.unitTitle} value over time`}
-                      subtitle={`At a fixed underlying price of ${formatCurrency(
+                      subtitle={`At a fixed underlying price of ${formatPriceCurrency(
                         effectiveScenarioPrice,
                       )} and ${futureVolatilityPct}% IV. Hover to read the ${visualizedStrategyCopy.unitName}'s value and P/L on any date.`}
                       points={decayPoints}
@@ -10350,7 +10349,7 @@ export default function DebitCallSpreadLab({
                       selectedPositionValue={visualizedSnapshot.scenarioPositionValue}
                       selectedPnl={visualizedSnapshot.pnl}
                       totalCost={visualizedSnapshot.totalCost}
-                      scenarioPriceLabel={formatCurrency(effectiveScenarioPrice)}
+                      scenarioPriceLabel={formatPriceCurrency(effectiveScenarioPrice)}
                     />
                 ) : null}
 
