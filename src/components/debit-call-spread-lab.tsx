@@ -3139,8 +3139,10 @@ function DecisionOutcomeCards({
                 : "Uncapped";
         const metrics = [
             {
-              label: "DTE",
-              value: getDteDisplayLabel(card),
+              label: "DTE · Initial price",
+              value: `${getDteDisplayLabel(card)} · ${
+                card.spot !== undefined ? formatPriceCurrency(card.spot) : "Current"
+              }`,
               valueClassName: "text-slate-950",
             },
           {
@@ -3156,6 +3158,14 @@ function DecisionOutcomeCards({
           {
             label: "Initial cost",
             value: formatCurrency(card.snapshot.totalCost),
+            valueClassName: "text-slate-950",
+          },
+          {
+            label: "IV",
+            value:
+              card.volatilityPct !== undefined
+                ? `${compactNumber(card.volatilityPct)}%`
+                : "Current",
             valueClassName: "text-slate-950",
           },
         ];
