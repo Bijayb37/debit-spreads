@@ -153,6 +153,11 @@ type NumberSliderFieldProps = {
     label: string;
     value: number;
   }>;
+  toggleAction?: {
+    label: string;
+    pressed: boolean;
+    onClick: () => void;
+  };
   className?: string;
   headerClassName?: string;
   sliderClassName?: string;
@@ -474,6 +479,7 @@ const DEFAULT_DECISION_COMPARISON_VIEW: DecisionComparisonView = "cards";
 const DEFAULT_SCENARIO_GRAPH_VIEW: ScenarioGraphView = "decay";
 const COLOR_SCHEME_STORAGE_KEY = "callculator-color-scheme";
 const MONEY_DISPLAY_UNIT_STORAGE_KEY = "callculator-money-display-unit";
+const INITIAL_IV_MODE_STORAGE_KEY = "callculator-use-initial-iv";
 const WORKSPACE_STATE_STORAGE_KEY = "callculator-workspace-state";
 const SAVED_STRATEGIES_STORAGE_KEY = "callculator-saved-strategies";
 const ORDERED_CUSTOM_COMPARISONS_PREFIX = "o2:";
@@ -2346,6 +2352,7 @@ function isGeneratedCustomComparisonLabel(
 function applyComparisonToInputs(
   candidate: ComparisonCandidate,
   inputs: StrategyInputs,
+  useInitialIv = false,
 ): StrategyInputs {
   const lockedTodayIso = candidate.todayIso ?? inputs.todayIso;
   const lockedExpirationDays = clamp(Math.round(candidate.expirationDays), 1, 1095);
@@ -2369,7 +2376,9 @@ function applyComparisonToInputs(
       lockedExpirationDays,
     ),
     volatilityPct: candidate.volatilityPct ?? inputs.volatilityPct,
-    futureVolatilityPct: inputs.futureVolatilityPct,
+    futureVolatilityPct: useInitialIv
+      ? candidate.volatilityPct ?? inputs.volatilityPct
+      : inputs.futureVolatilityPct,
     capital: candidate.capital,
     expiryIso: addDaysToIso(lockedTodayIso, lockedExpirationDays),
     allowFractionalContracts: candidate.allowFractionalContracts,
@@ -2388,8 +2397,14 @@ function applyComparisonToInputs(
 function buildComparisonCard(
   candidate: ComparisonCandidate,
   inputs: StrategyInputs,
+  useInitialIv = false,
 ): ComparisonCardData | null {
-  const candidateSnapshot = createScenarioSnapshot(applyComparisonToInputs(candidate, inputs));
+  const candidateInputs = applyComparisonToInputs(
+    candidate,
+    inputs,
+    useInitialIv,
+  );
+  const candidateSnapshot = createScenarioSnapshot(candidateInputs);
 
   if (candidateSnapshot.unitCost <= 0) {
     return null;
@@ -2404,6 +2419,7 @@ function buildComparisonCard(
 
   return {
     ...candidate,
+    futureVolatilityPct: candidateInputs.futureVolatilityPct,
     snapshot: candidateSnapshot,
     maxProfitAtExpiry: candidateMaxProfit,
     maxReturnAtExpiry:
@@ -4525,6 +4541,7 @@ function NumberSliderField({
   displayScale,
   displaySuffix = "",
   quickActions = [],
+  toggleAction,
   className,
   headerClassName,
   sliderClassName,
@@ -4723,6 +4740,21 @@ function NumberSliderField({
             </button>
           ))}
         </div>
+      ) : null}
+      {toggleAction ? (
+        <button
+          type="button"
+          aria-pressed={toggleAction.pressed}
+          onClick={toggleAction.onClick}
+          className={cn(
+            "mt-2 w-full rounded-md border px-2 py-1.5 text-xs font-medium shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+            toggleAction.pressed
+              ? "border-[var(--accent)] bg-[var(--accent)] text-white"
+              : "border-slate-300 bg-white text-slate-700 hover:border-[var(--accent)] hover:text-[var(--accent)]",
+          )}
+        >
+          {toggleAction.label}
+        </button>
       ) : null}
     </div>
   );
@@ -6701,6 +6733,8 @@ export default function DebitCallSpreadLab({
   const [spot, setSpot] = useState(100);
   const [volatilityPct, setVolatilityPct] = useState(50);
   const [futureVolatilityPct, setFutureVolatilityPct] = useState(50);
+  const [useInitialIvForStrategies, setUseInitialIvForStrategies] =
+    useState(false);
   const [longStrike, setLongStrike] = useState(100);
   const [shortStrike, setShortStrike] = useState(() => getNearCallShortStrike(100));
   const [putRatioShortCount, setPutRatioShortCount] = useState(2);
@@ -6941,6 +6975,9 @@ export default function DebitCallSpreadLab({
           window.localStorage.getItem(MONEY_DISPLAY_UNIT_STORAGE_KEY),
         ),
       );
+      setUseInitialIvForStrategies(
+        window.localStorage.getItem(INITIAL_IV_MODE_STORAGE_KEY) === "1",
+      );
     });
 
     return () => {
@@ -6959,7 +6996,11 @@ export default function DebitCallSpreadLab({
 
     window.localStorage.setItem(COLOR_SCHEME_STORAGE_KEY, colorScheme);
     window.localStorage.setItem(MONEY_DISPLAY_UNIT_STORAGE_KEY, moneyDisplayUnit);
-  }, [colorScheme, moneyDisplayUnit]);
+    window.localStorage.setItem(
+      INITIAL_IV_MODE_STORAGE_KEY,
+      useInitialIvForStrategies ? "1" : "0",
+    );
+  }, [colorScheme, moneyDisplayUnit, useInitialIvForStrategies]);
 
   useEffect(() => {
     let isActive = true;
@@ -8557,7 +8598,11 @@ export default function DebitCallSpreadLab({
     ];
 
     return candidates.flatMap((candidate) => {
-      const card = buildComparisonCard(candidate, inputs);
+      const card = buildComparisonCard(
+        candidate,
+        inputs,
+        useInitialIvForStrategies,
+      );
       return card ? [card] : [];
     });
   }, [
@@ -8572,6 +8617,7 @@ export default function DebitCallSpreadLab({
       shortStrike,
     spot,
     strategy,
+    useInitialIvForStrategies,
   ]);
   const customComparisonCards = useMemo<ComparisonCardData[]>(() => {
     return customComparisons.flatMap((comparison) => {
@@ -8581,10 +8627,11 @@ export default function DebitCallSpreadLab({
           note: "",
         },
         inputs,
+        useInitialIvForStrategies,
       );
       return card ? [card] : [];
     });
-  }, [customComparisons, inputs]);
+  }, [customComparisons, inputs, useInitialIvForStrategies]);
   const hasSavedComparisonCards = customComparisonCards.length > 0;
   const effectiveComparisonPanelMode: ComparisonPanelMode =
     comparisonPanelMode === "hidden"
@@ -8621,7 +8668,11 @@ export default function DebitCallSpreadLab({
       id: `${effectiveComparisonPanelMode === "custom" ? "custom" : "preset"}:${card.id}`,
       label: card.label,
       detail: `${getComparisonStrikeLabel(card)} · ${formatPercent(card.snapshot.roi)}`,
-      inputs: applyComparisonToInputs(card, inputs),
+      inputs: applyComparisonToInputs(
+        card,
+        inputs,
+        useInitialIvForStrategies,
+      ),
       snapshot: card.snapshot,
     }));
 
@@ -8647,6 +8698,7 @@ export default function DebitCallSpreadLab({
       shortStrike,
     snapshot,
     strategy,
+    useInitialIvForStrategies,
     visibleComparisonCards,
   ]);
   const selectedGraphComparison =
@@ -9676,7 +9728,7 @@ export default function DebitCallSpreadLab({
 
       <NumberSliderField
         label="Future IV"
-        help="Used to estimate each position value on the selected future date."
+        help="Used to estimate each position value on the selected future date unless initial IV mode is on."
         min={0}
         max={300}
         step={0.1}
@@ -9687,9 +9739,18 @@ export default function DebitCallSpreadLab({
         className="p-2.5 sm:p-3"
         headerClassName="min-h-9 grid grid-cols-[minmax(0,1fr)_6.25rem] items-start gap-2 sm:grid-cols-[minmax(0,1fr)_6.25rem] sm:items-start"
         sliderClassName="mt-2.5"
+        toggleAction={{
+          label: "Use each strategy's initial IV",
+          pressed: useInitialIvForStrategies,
+          onClick: () =>
+            setUseInitialIvForStrategies((currentValue) => !currentValue),
+        }}
       />
     </div>
   );
+  const marketScenarioIvSummary = useInitialIvForStrategies
+    ? "Initial IVs"
+    : `${compactNumber(futureVolatilityPct)}% IV`;
   const marketScenarioSummary = (
     shouldShowCalendarShortPrice
       ? [
@@ -9697,13 +9758,13 @@ export default function DebitCallSpreadLab({
           `${formatPriceCurrency(effectiveScenarioPrice)} valuation`,
           formatLongDate(marketScenarioDateIso),
           `${marketScenarioDte} DTE`,
-          `${compactNumber(futureVolatilityPct)}% IV`,
+          marketScenarioIvSummary,
         ]
       : [
           `${formatPriceCurrency(effectiveScenarioPrice)} stock`,
           formatLongDate(marketScenarioDateIso),
           `${marketScenarioDte} DTE`,
-          `${compactNumber(futureVolatilityPct)}% IV`,
+          marketScenarioIvSummary,
         ]
   ).join(" · ");
   const marketScenarioCard = (
@@ -10352,7 +10413,7 @@ export default function DebitCallSpreadLab({
                       title={`${visualizedStrategyCopy.unitTitle} value over time`}
                       subtitle={`At a fixed underlying price of ${formatPriceCurrency(
                         effectiveScenarioPrice,
-                      )} and ${futureVolatilityPct}% IV. Hover to read the ${visualizedStrategyCopy.unitName}'s value and P/L on any date.`}
+                      )} and ${visualizedInputs.futureVolatilityPct}% IV. Hover to read the ${visualizedStrategyCopy.unitName}'s value and P/L on any date.`}
                       points={decayPoints}
                       expirationDays={visualizedSnapshot.expirationDays}
                       selectedOffsetDays={visualizedSnapshot.selectedOffsetDays}
