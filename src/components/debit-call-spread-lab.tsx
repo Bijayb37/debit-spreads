@@ -6834,13 +6834,21 @@ export default function DebitCallSpreadLab({
   const scenarioPriceSliderMin = Math.max(1, Math.floor(Math.min(spot, lowerStrike) * 0.7));
   const scenarioPriceSliderMax = Math.max(
     scenarioPriceSliderMin,
-    getSliderMax(spot, scenarioPrice, calendarShortPrice, longStrike, upperStrike),
+    getSliderMax(spot, scenarioPrice, longStrike, upperStrike),
+  );
+  const calendarShortPriceSliderMax = Math.max(
+    scenarioPriceSliderMin,
+    getSliderMax(spot, calendarShortPrice, longStrike, upperStrike),
   );
   const safeScenarioPrice = normalizePriceValue(
     clamp(scenarioPrice, scenarioPriceSliderMin, scenarioPriceSliderMax),
   );
   const safeCalendarShortPrice = normalizePriceValue(
-    clamp(calendarShortPrice, scenarioPriceSliderMin, scenarioPriceSliderMax),
+    clamp(
+      calendarShortPrice,
+      scenarioPriceSliderMin,
+      calendarShortPriceSliderMax,
+    ),
   );
   const scenarioPriceInputValue =
     Number.isFinite(scenarioPrice) &&
@@ -6849,7 +6857,8 @@ export default function DebitCallSpreadLab({
       : safeScenarioPrice;
   const calendarShortPriceInputValue =
     Number.isFinite(calendarShortPrice) &&
-    (calendarShortPrice < scenarioPriceSliderMin || calendarShortPrice > scenarioPriceSliderMax)
+    (calendarShortPrice < scenarioPriceSliderMin ||
+      calendarShortPrice > calendarShortPriceSliderMax)
       ? normalizePriceValue(calendarShortPrice)
       : safeCalendarShortPrice;
   const displayedCalendarShortPriceInputValue =
@@ -6857,14 +6866,12 @@ export default function DebitCallSpreadLab({
   const currentPriceSliderMax = getSliderMax(
     spot,
     safeScenarioPrice,
-    safeCalendarShortPrice,
     longStrike,
     upperStrike,
   );
   const baseStrikeSliderMax = getSliderMax(
     spot,
     safeScenarioPrice,
-    safeCalendarShortPrice,
     longStrike,
     upperStrike,
   );
@@ -7448,7 +7455,7 @@ export default function DebitCallSpreadLab({
     const nextPrice = clamp(
       nextValue,
       scenarioPriceSliderMin,
-      scenarioPriceSliderMax,
+      calendarShortPriceSliderMax,
     );
 
     setCalendarShortPrice(nextPrice);
@@ -8369,7 +8376,7 @@ export default function DebitCallSpreadLab({
       calendarShortPrice: clamp(
         calendarShortPrice,
         scenarioPriceSliderMin,
-        scenarioPriceSliderMax,
+        calendarShortPriceSliderMax,
       ),
       scenarioOffsetDays: clamp(
         scenarioOffsetDays,
@@ -8383,6 +8390,7 @@ export default function DebitCallSpreadLab({
       allowFractionalContracts,
       capital,
       calendarShortPrice,
+      calendarShortPriceSliderMax,
       expiryIso,
       futureVolatilityPct,
       longStrike,
@@ -9610,7 +9618,7 @@ export default function DebitCallSpreadLab({
                   type="number"
                   value={displayedCalendarShortPriceInputValue}
                   min={scenarioPriceSliderMin}
-                  max={scenarioPriceSliderMax}
+                  max={calendarShortPriceSliderMax}
                   step={0.01}
                   aria-label="Short expiry stock price"
                   onFocus={() =>
@@ -9634,7 +9642,7 @@ export default function DebitCallSpreadLab({
           <input
             type="range"
             min={scenarioPriceSliderMin}
-            max={scenarioPriceSliderMax}
+            max={calendarShortPriceSliderMax}
             step={0.01}
             value={safeCalendarShortPrice}
             aria-label="Short expiry stock price"
@@ -9645,7 +9653,7 @@ export default function DebitCallSpreadLab({
             style={getRangeTrackStyle(
               safeCalendarShortPrice,
               scenarioPriceSliderMin,
-              scenarioPriceSliderMax,
+              calendarShortPriceSliderMax,
             )}
             className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
           />
@@ -9654,7 +9662,7 @@ export default function DebitCallSpreadLab({
             <span className="min-w-0 truncate whitespace-nowrap text-center text-slate-600">
               {formatLongDate(calendarShortExpiryDateIso)}
             </span>
-            <span className="whitespace-nowrap text-right">{formatCurrency(scenarioPriceSliderMax)}</span>
+            <span className="whitespace-nowrap text-right">{formatCurrency(calendarShortPriceSliderMax)}</span>
           </div>
         </div>
       ) : null}
