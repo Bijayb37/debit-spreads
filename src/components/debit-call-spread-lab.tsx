@@ -9668,7 +9668,7 @@ export default function DebitCallSpreadLab({
         label="Future IV"
         help="Used to estimate each position value on the selected future date."
         min={0}
-        max={150}
+        max={300}
         step={0.1}
         value={futureVolatilityPct}
         onChange={updateFutureScenarioVolatilityPct}
