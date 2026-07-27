@@ -13,6 +13,7 @@ import {
   CONTRACT_MULTIPLIER,
   addDaysToIso,
   blackScholesCall,
+  blackScholesGreeks,
   blackScholesPut,
   buildPriceCurve,
   buildPriceLadderRows,
@@ -31,6 +32,7 @@ import {
 } from "@/lib/debit-call-spread";
 import type {
   OptionStrategy,
+  OptionGreeks,
   PriceCurvePoint,
   PriceLadderRow,
   ScenarioSnapshot,
@@ -248,6 +250,13 @@ type ComparisonCardData = ComparisonCandidate & {
   maxProfitAtExpiry: number | null;
   maxReturnAtExpiry: number | null;
   maxLossAtExpiry: number | null;
+};
+
+type StrategyGreekRow = {
+  label: string;
+  greeks: OptionGreeks;
+  marketValue: number;
+  isNet?: boolean;
 };
 
 type CustomComparisonConfig = {
@@ -2297,6 +2306,135 @@ function getEntryLegPricingDetails(card: ComparisonCardData): Array<{
   ];
 }
 
+function scaleGreeks(greeks: OptionGreeks, scale: number): OptionGreeks {
+  return {
+    delta: greeks.delta * scale,
+    gamma: greeks.gamma * scale,
+    theta: greeks.theta * scale,
+    vega: greeks.vega * scale,
+    rho: greeks.rho * scale,
+  };
+}
+
+function addGreeks(first: OptionGreeks, second: OptionGreeks): OptionGreeks {
+  return {
+    delta: first.delta + second.delta,
+    gamma: first.gamma + second.gamma,
+    theta: first.theta + second.theta,
+    vega: first.vega + second.vega,
+    rho: first.rho + second.rho,
+  };
+}
+
+function getScenarioGreekRows(card: ComparisonCardData): StrategyGreekRow[] {
+  const volatility = Math.max(card.futureVolatilityPct ?? 0, 0) / 100;
+  const rate = (card.ratePct ?? 0) / 100;
+  const dividendYield = (card.dividendYieldPct ?? 0) / 100;
+  const isPut = card.strategy === "bear-put" || isPutDownsideStrategy(card.strategy);
+  const optionType = isPut ? "put" : "call";
+  const optionName = isPut ? "put" : "call";
+  const priceOption = isPut ? blackScholesPut : blackScholesCall;
+  const longOptionValue = priceOption({
+    spot: card.snapshot.scenarioPrice,
+    strike: card.longStrike,
+    timeYears: card.snapshot.timeAtScenarioYears,
+    volatility,
+    rate,
+    dividendYield,
+  });
+  const longGreeks = scaleGreeks(
+    blackScholesGreeks({
+      optionType,
+      spot: card.snapshot.scenarioPrice,
+      strike: card.longStrike,
+      timeYears: card.snapshot.timeAtScenarioYears,
+      volatility,
+      rate,
+      dividendYield,
+    }),
+    CONTRACT_MULTIPLIER,
+  );
+
+  if (!isDebitSpreadStrategy(card.strategy)) {
+    return [
+      {
+        label: `Long ${formatStrikeCurrency(card.longStrike)} ${optionName}`,
+        greeks: longGreeks,
+        marketValue: longOptionValue * CONTRACT_MULTIPLIER,
+      },
+    ];
+  }
+
+  const isCallCalendar = card.strategy === "call-calendar";
+  const shortStrike = isCallCalendar ? card.longStrike : card.shortStrike;
+  const shortCount = isRatioSpreadStrategy(card.strategy)
+    ? normalizePutRatioShortCount(card.ratioShortCount)
+    : 1;
+  const shortTimeYears = isCallCalendar
+    ? card.snapshot.shortTimeAtScenarioYears
+    : card.snapshot.timeAtScenarioYears;
+  const shortOptionValue = priceOption({
+    spot: card.snapshot.scenarioPrice,
+    strike: shortStrike,
+    timeYears: shortTimeYears,
+    volatility,
+    rate,
+    dividendYield,
+  });
+  const shortGreeks = scaleGreeks(
+    blackScholesGreeks({
+      optionType,
+      spot: card.snapshot.scenarioPrice,
+      strike: shortStrike,
+      timeYears: shortTimeYears,
+      volatility,
+      rate,
+      dividendYield,
+    }),
+    -shortCount * CONTRACT_MULTIPLIER,
+  );
+
+  return [
+    {
+      label: `Long ${formatStrikeCurrency(card.longStrike)} ${optionName}`,
+      greeks: longGreeks,
+      marketValue: longOptionValue * CONTRACT_MULTIPLIER,
+    },
+    {
+      label: isCallCalendar && card.snapshot.shortTimeAtScenarioYears === 0
+        ? `Short ${formatStrikeCurrency(shortStrike)} call settled`
+        : `Short ${formatStrikeCurrency(shortStrike)} ${optionName}${
+            shortCount > 1 ? ` x${shortCount}` : ""
+          }`,
+      greeks: shortGreeks,
+      marketValue: shortOptionValue * shortCount * CONTRACT_MULTIPLIER,
+    },
+    {
+      label: "Net strategy",
+      greeks: addGreeks(longGreeks, shortGreeks),
+      marketValue: Math.abs(card.snapshot.scenarioUnitValue * CONTRACT_MULTIPLIER),
+      isNet: true,
+    },
+  ];
+}
+
+function formatSignedGreekPercent(value: number, digits: number): string {
+  const normalizedValue = Math.abs(value) < 0.5 * 10 ** -digits ? 0 : value;
+  return `${normalizedValue > 0 ? "+" : ""}${normalizedValue.toFixed(digits)}%`;
+}
+
+function formatGreekValuePercent(
+  value: number,
+  marketValue: number,
+  digits = 2,
+): string {
+  if (marketValue <= 0) {
+    return formatSignedGreekPercent(0, digits);
+  }
+
+  return formatSignedGreekPercent((value / marketValue) * 100, digits);
+}
+
 function getCustomComparisonLabel(
   draft: Pick<
     CustomComparisonDraft,
@@ -3397,6 +3535,7 @@ function DetailedDecisionOutcomeCards({
           { title: "Risk", details: riskDetails },
           { title: "Pricing", details: pricingDetails },
         ];
+        const greekRows = getScenarioGreekRows(card);
 
         return (
           <article
@@ -3483,6 +3622,83 @@ function DetailedDecisionOutcomeCards({
                   </dl>
                 </section>
               ))}
+              <section className="min-w-0 sm:col-span-2">
+                <h4 className="text-[10px] font-semibold uppercase text-slate-500">
+                  Greeks (%)
+                </h4>
+                <div className="mt-2 grid min-w-0 gap-2">
+                  {greekRows.map((row) => {
+                    const metrics = [
+                      {
+                        label: "Delta",
+                        value: formatSignedGreekPercent(row.greeks.delta, 2),
+                      },
+                      {
+                        label: "Gamma",
+                        value: formatSignedGreekPercent(row.greeks.gamma, 3),
+                      },
+                      {
+                        label: "Theta/day",
+                        value: formatGreekValuePercent(
+                          row.greeks.theta,
+                          row.marketValue,
+                        ),
+                      },
+                      {
+                        label: "Vega/1%",
+                        value: formatGreekValuePercent(
+                          row.greeks.vega,
+                          row.marketValue,
+                        ),
+                      },
+                      {
+                        label: "Rho/1%",
+                        value: formatGreekValuePercent(
+                          row.greeks.rho,
+                          row.marketValue,
+                        ),
+                      },
+                    ];
+
+                    return (
+                      <div
+                        key={row.label}
+                        className={cn(
+                          "min-w-0",
+                          row.isNet && "border-t border-slate-200 pt-2",
+                        )}
+                      >
+                        <p
+                          className={cn(
+                            "truncate text-[11px] font-medium text-slate-500",
+                            row.isNet && "font-semibold text-slate-700",
+                          )}
+                        >
+                          {row.label}
+                        </p>
+                        <dl className="mt-1 grid min-w-0 grid-cols-5 gap-x-2">
+                          {metrics.map((metric) => (
+                            <div key={metric.label} className="min-w-0">
+                              <dt className="truncate text-[9px] font-medium text-slate-400">
+                                {metric.label}
+                              </dt>
+                              <dd
+                                className={cn(
+                                  "mt-0.5 truncate font-mono text-[11px] font-semibold text-slate-950 tabular-nums",
+                                  row.isNet && "text-[var(--accent-strong)]",
+                                )}
+                                title={metric.value}
+                              >
+                                {metric.value}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
           </article>
         );

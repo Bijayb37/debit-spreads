@@ -24,6 +24,18 @@ type BlackScholesCallInput = {
   dividendYield: number;
 };
 
+export type OptionGreeks = {
+  delta: number;
+  gamma: number;
+  theta: number;
+  vega: number;
+  rho: number;
+};
+
+type BlackScholesGreeksInput = BlackScholesCallInput & {
+  optionType: "call" | "put";
+};
+
 type PriceDebitCallSpreadInput = Omit<BlackScholesCallInput, "strike"> & {
   longStrike: number;
   shortStrike: number;
@@ -60,6 +72,7 @@ export type ScenarioSnapshot = {
   expirationDays: number;
   selectedOffsetDays: number;
   selectedDateIso: string;
+  scenarioPrice: number;
   timeNowYears: number;
   timeAtScenarioYears: number;
   shortExpirationDays: number;
@@ -220,6 +233,131 @@ function normalCdf(input: number): number {
             t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
 
   return input >= 0 ? estimate : 1 - estimate;
+}
+
+function normalPdf(input: number): number {
+  return Math.exp((-input * input) / 2) / Math.sqrt(2 * Math.PI);
+}
+
+export function blackScholesGreeks({
+  optionType,
+  spot,
+  strike,
+  timeYears,
+  volatility,
+  rate,
+  dividendYield,
+}: BlackScholesGreeksInput): OptionGreeks {
+  const safeSpot = Math.max(spot, 0.0001);
+  const safeStrike = Math.max(strike, 0.0001);
+  const safeTime = Math.max(timeYears, 0);
+  const safeVolatility = Math.max(volatility, 0);
+  const zeroGreeks: OptionGreeks = {
+    delta: 0,
+    gamma: 0,
+    theta: 0,
+    vega: 0,
+    rho: 0,
+  };
+
+  if (safeTime === 0) {
+    return zeroGreeks;
+  }
+
+  const discountedSpot = safeSpot * Math.exp(-dividendYield * safeTime);
+  const discountedStrike = safeStrike * Math.exp(-rate * safeTime);
+
+  if (safeVolatility === 0) {
+    const callIsInTheMoney = discountedSpot > discountedStrike;
+    const putIsInTheMoney = discountedStrike > discountedSpot;
+
+    if (optionType === "call" && callIsInTheMoney) {
+      return {
+        delta: Math.exp(-dividendYield * safeTime),
+        gamma: 0,
+        theta:
+          (dividendYield * discountedSpot - rate * discountedStrike) /
+          YEAR_DAYS,
+        vega: 0,
+        rho: (safeStrike * safeTime * Math.exp(-rate * safeTime)) / 100,
+      };
+    }
+
+    if (optionType === "put" && putIsInTheMoney) {
+      return {
+        delta: -Math.exp(-dividendYield * safeTime),
+        gamma: 0,
+        theta:
+          (rate * discountedStrike - dividendYield * discountedSpot) /
+          YEAR_DAYS,
+        vega: 0,
+        rho: (-safeStrike * safeTime * Math.exp(-rate * safeTime)) / 100,
+      };
+    }
+
+    return zeroGreeks;
+  }
+
+  const rootTime = Math.sqrt(safeTime);
+  const d1 =
+    (Math.log(safeSpot / safeStrike) +
+      (rate - dividendYield + 0.5 * safeVolatility * safeVolatility) * safeTime) /
+    (safeVolatility * rootTime);
+  const d2 = d1 - safeVolatility * rootTime;
+  const discountedSpotFactor = Math.exp(-dividendYield * safeTime);
+  const discountedStrikeFactor = Math.exp(-rate * safeTime);
+  const density = normalPdf(d1);
+  const gamma =
+    (discountedSpotFactor * density) /
+    (safeSpot * safeVolatility * rootTime);
+  const vega =
+    (safeSpot * discountedSpotFactor * density * rootTime) /
+    100;
+  const commonTheta =
+    -(safeSpot * discountedSpotFactor * density * safeVolatility) /
+    (2 * rootTime);
+
+  if (optionType === "call") {
+    return {
+      delta: discountedSpotFactor * normalCdf(d1),
+      gamma,
+      theta:
+        (commonTheta -
+          rate * safeStrike * discountedStrikeFactor * normalCdf(d2) +
+          dividendYield *
+            safeSpot *
+            discountedSpotFactor *
+            normalCdf(d1)) /
+        YEAR_DAYS,
+      vega,
+      rho:
+        (safeStrike *
+          safeTime *
+          discountedStrikeFactor *
+          normalCdf(d2)) /
+        100,
+    };
+  }
+
+  return {
+    delta: discountedSpotFactor * (normalCdf(d1) - 1),
+    gamma,
+    theta:
+      (commonTheta +
+        rate * safeStrike * discountedStrikeFactor * normalCdf(-d2) -
+        dividendYield *
+          safeSpot *
+          discountedSpotFactor *
+          normalCdf(-d1)) /
+      YEAR_DAYS,
+    vega,
+    rho:
+      (-safeStrike *
+        safeTime *
+        discountedStrikeFactor *
+        normalCdf(-d2)) /
+      100,
+  };
 }
 
 export function blackScholesCall({
@@ -918,6 +1056,7 @@ export function createScenarioSnapshot({
     expirationDays,
     selectedOffsetDays,
     selectedDateIso,
+    scenarioPrice,
     timeNowYears,
     timeAtScenarioYears,
     shortExpirationDays: normalizedShortExpirationDays,
