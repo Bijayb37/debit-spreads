@@ -9,6 +9,7 @@ import type {
 } from "react";
 import DebitSpreadScenarioVisualizer from "@/components/debit-spread-scenario-visualizer";
 import { cn } from "@/lib/cn";
+import { calculateIvEquivalentStrategy } from "@/lib/iv-comparison";
 import {
   CONTRACT_MULTIPLIER,
   addDaysToIso,
@@ -39,6 +40,10 @@ import type {
   StrategyInputs,
   TimelineRow,
 } from "@/lib/debit-call-spread";
+import type {
+  IvComparisonInstrument,
+  IvComparisonMatchMetric,
+} from "@/lib/iv-comparison";
 
 type SectionCardProps = {
   title: string;
@@ -219,7 +224,12 @@ type TimelineTableRow = TimelineRow & { id: string };
 type PriceTableRow = PriceLadderRow & { id: string };
 
 type ComparisonPanelMode = "hidden" | "presets" | "custom";
-type WorkflowTab = "setup" | "decision" | "heatmap" | "analysis";
+type WorkflowTab =
+  | "setup"
+  | "decision"
+  | "heatmap"
+  | "analysis"
+  | "understanding-iv";
 type DecisionComparisonView = "cards" | "detailed-cards" | "table" | "matrix";
 
 type ComparisonCandidate = {
@@ -498,11 +508,22 @@ const PRICE_DECIMAL_DIGITS = 4;
 const CAPITAL_DECIMAL_DIGITS = 2;
 const STRIKE_DECIMAL_DIGITS = 4;
 const STRIKE_MIN_GAP = 0.01;
-const WORKFLOW_TABS: Array<{ value: WorkflowTab; label: string; step: string }> = [
-  { value: "setup", label: "Setup", step: "1" },
-  { value: "decision", label: "Compare", step: "2" },
-  { value: "heatmap", label: "Heat map", step: "3" },
-  { value: "analysis", label: "Analyze", step: "4" },
+const WORKFLOW_TABS: Array<{
+  value: WorkflowTab;
+  label: string;
+  shortLabel: string;
+  step: string;
+}> = [
+  { value: "setup", label: "Setup", shortLabel: "Setup", step: "1" },
+  { value: "decision", label: "Compare", shortLabel: "Compare", step: "2" },
+  { value: "heatmap", label: "Heat map", shortLabel: "Heat", step: "3" },
+  { value: "analysis", label: "Analyze", shortLabel: "Analyze", step: "4" },
+  {
+    value: "understanding-iv",
+    label: "Understanding IV",
+    shortLabel: "IV",
+    step: "5",
+  },
 ];
 
 const COLOR_SCHEME_OPTIONS: Array<{
@@ -600,6 +621,7 @@ function encodeWorkflowTab(tab: WorkflowTab): string {
   if (tab === "decision") return "d";
   if (tab === "heatmap") return "h";
   if (tab === "analysis") return "a";
+  if (tab === "understanding-iv") return "i";
   return "s";
 }
 
@@ -609,6 +631,7 @@ function decodeWorkflowTab(value: string | undefined): WorkflowTab {
   if (value === "d") return "decision";
   if (value === "h") return "heatmap";
   if (value === "a") return "analysis";
+  if (value === "i") return "understanding-iv";
   return DEFAULT_WORKFLOW_TAB;
 }
 
@@ -1739,7 +1762,7 @@ function WorkflowTabs({
 }) {
   return (
     <div
-      className="grid min-w-0 grid-cols-4 rounded-lg border border-slate-200 bg-slate-100 p-1 shadow-sm"
+      className="grid min-w-0 grid-cols-5 rounded-lg border border-slate-200 bg-slate-100 p-1 shadow-sm"
       aria-label="Workflow"
     >
       {WORKFLOW_TABS.map((tab) => {
@@ -1759,7 +1782,7 @@ function WorkflowTabs({
           >
             <span
               className={cn(
-                "flex size-5 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-semibold tabular-nums",
+                "hidden size-5 shrink-0 items-center justify-center rounded-full font-mono text-[10px] font-semibold tabular-nums sm:flex",
                 isActive
                   ? "bg-[var(--accent)] text-white"
                   : "bg-slate-200 text-slate-600 group-hover:bg-slate-300",
@@ -1768,7 +1791,8 @@ function WorkflowTabs({
             >
               {tab.step}
             </span>
-            <span className="truncate">{tab.label}</span>
+            <span className="truncate sm:hidden">{tab.shortLabel}</span>
+            <span className="hidden truncate sm:inline">{tab.label}</span>
           </button>
         );
       })}
@@ -2433,6 +2457,483 @@ function formatGreekValuePercent(
   }
 
   return formatSignedGreekPercent((value / marketValue) * 100, digits);
+}
+
+function formatSignedMoveCurrency(value: number): string {
+  const normalizedValue = Math.abs(value) < 0.005 ? 0 : value;
+  return `${normalizedValue > 0 ? "+" : ""}${formatCurrencyWithCents(
+    normalizedValue,
+  )}`;
+}
+
+function formatExpectedMove(
+  expectedMoveDollar: number,
+  expectedMovePct: number,
+): string {
+  return `+/- ${formatCurrencyWithCents(expectedMoveDollar)} · ${roundTo(
+    expectedMovePct,
+    2,
+  )}%`;
+}
+
+function formatReturnMatch(matchDifferencePoints: number): string {
+  if (Math.abs(matchDifferencePoints) < 0.05) {
+    return "Exact match";
+  }
+
+  return "Closest available";
+}
+
+type IvAlternativeStrategy = {
+  instrument: IvComparisonInstrument;
+  longStrike: number;
+  shortStrike: number;
+  expirationDays: number;
+  volatilityPct: number;
+  scenarioPrice: number;
+  scenarioOffsetDays: number;
+};
+
+function IvEquivalentChoiceColumn({
+  title,
+  value,
+  baselineValue,
+  change,
+  returnPct,
+  targetMetricPct,
+  matchMetric,
+  matchDifferencePoints,
+  maximumReturnPct,
+  onCreateStrategy,
+}: {
+  title: string;
+  value: string;
+  baselineValue: string;
+  change: string;
+  returnPct: number;
+  targetMetricPct: number;
+  matchMetric: IvComparisonMatchMetric;
+  matchDifferencePoints: number;
+  maximumReturnPct: number | null;
+  onCreateStrategy: () => void;
+}) {
+  const isExactMatch = Math.abs(matchDifferencePoints) < 0.05;
+  const matchedMetricPct =
+    matchMetric === "maximum-return"
+      ? maximumReturnPct ?? 0
+      : returnPct;
+  const matchMetricLabel =
+    matchMetric === "maximum-return"
+      ? "max return"
+      : "return at the expected move";
+
+  return (
+    <section className="min-w-0 p-3 sm:p-4">
+      <div className="flex min-w-0 items-baseline justify-between gap-3">
+        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">
+          {title}
+        </h3>
+        <span className="text-right font-mono text-[11px] font-semibold text-[var(--accent-strong)] tabular-nums">
+          {formatReturnMatch(matchDifferencePoints)}
+        </span>
+      </div>
+      <p className="mt-3 break-words font-mono text-xl font-semibold text-slate-950 tabular-nums">
+        {value}
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        Instead of <span className="font-mono font-semibold text-slate-700">{baselineValue}</span>
+      </p>
+      <div className="mt-3 border-t border-slate-200 pt-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium text-slate-500">Change</p>
+            <p className="mt-1 break-words font-mono text-sm font-semibold text-[var(--accent-strong)] tabular-nums">
+              {change}
+            </p>
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium text-slate-500">
+              Max return
+            </p>
+            <p className="mt-1 font-mono text-sm font-semibold text-slate-950 tabular-nums">
+              {maximumReturnPct === null
+                ? "Unlimited"
+                : formatSignedGreekPercent(maximumReturnPct, 1)}
+            </p>
+          </div>
+        </div>
+        <p className="mt-1 text-[11px] text-slate-500">
+          {isExactMatch
+            ? `Matches the selected strategy's ${formatSignedGreekPercent(
+                targetMetricPct,
+                1,
+              )} ${matchMetricLabel}`
+            : `${formatSignedGreekPercent(
+                matchedMetricPct,
+                1,
+              )} ${matchMetricLabel} versus ${formatSignedGreekPercent(
+                targetMetricPct,
+                1,
+              )} target`}
+        </p>
+      </div>
+      <button
+        type="button"
+        aria-label={`Create ${title.toLowerCase()} strategy`}
+        onClick={onCreateStrategy}
+        className="mt-3 w-full rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+      >
+        Create this strategy
+      </button>
+    </section>
+  );
+}
+
+function UnderstandingIvTool({
+  symbol,
+  spot,
+  currentIvPct,
+  expirationDays,
+  longStrike,
+  shortStrike,
+  ratePct,
+  defaultInstrument,
+  onCreateStrategy,
+}: {
+  symbol: string;
+  spot: number;
+  currentIvPct: number;
+  expirationDays: number;
+  longStrike: number;
+  shortStrike: number;
+  ratePct: number;
+  defaultInstrument: IvComparisonInstrument;
+  onCreateStrategy: (strategy: IvAlternativeStrategy) => void;
+}) {
+  const [instrument, setInstrument] =
+    useState<IvComparisonInstrument>(defaultInstrument);
+  const [comparisonIvPct, setComparisonIvPct] = useState(() =>
+    clamp(currentIvPct + 25, 0, 300),
+  );
+  const result = calculateIvEquivalentStrategy({
+    instrument,
+    spot,
+    longStrike,
+    shortStrike,
+    entryDte: expirationDays,
+    baselineIvPct: currentIvPct,
+    comparisonIvPct,
+    ratePct,
+    dividendYieldPct: 0,
+  });
+  const structureLabel =
+    instrument === "long-call"
+      ? `${formatStrikeCurrency(longStrike)} long call`
+      : `${formatStrikeCurrency(longStrike)} / ${formatStrikeCurrency(
+          shortStrike,
+        )} debit call spread`;
+  const equivalentStrikeLabel =
+    instrument === "long-call"
+      ? `${formatStrikeCurrency(
+          roundTo(result.equivalentStrike.longStrike, 2),
+        )} long call`
+      : `${formatStrikeCurrency(
+          roundTo(result.equivalentStrike.longStrike, 2),
+        )} / ${formatStrikeCurrency(
+          roundTo(result.equivalentStrike.shortStrike, 2),
+        )} call spread`;
+  const equivalentStrikeWidth =
+    result.equivalentStrike.shortStrike -
+    result.equivalentStrike.longStrike;
+  const strikeChangeLabel =
+    instrument === "debit-call-spread"
+      ? `${formatSignedMoveCurrency(
+          result.equivalentStrike.strikeShiftDollar,
+        )} long · ${formatStrikeCurrency(
+          roundTo(equivalentStrikeWidth, 2),
+        )} wide`
+      : result.equivalentStrike.strikeShiftDollar < 0.005
+        ? "No farther strike match"
+        : `${formatSignedMoveCurrency(
+            result.equivalentStrike.strikeShiftDollar,
+          )} · ${formatSignedGreekPercent(
+            result.equivalentStrike.strikeShiftPct,
+            2,
+          )} of stock`;
+  const equivalentDteWidth =
+    result.equivalentDte.shortStrike - result.equivalentDte.longStrike;
+  const dteChangeLabel =
+    result.equivalentDte.daysLess > 0
+      ? `${result.equivalentDte.daysLess} fewer days${
+          instrument === "debit-call-spread"
+            ? ` · ${formatStrikeCurrency(
+                roundTo(equivalentDteWidth, 2),
+              )} wide`
+            : ""
+        }`
+      : "No shorter DTE match";
+
+  return (
+    <div className="min-w-0 space-y-3">
+      <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <header className="border-b border-slate-200 px-3 py-3 sm:px-4">
+          <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase text-[var(--accent-strong)]">
+                Understanding IV
+              </p>
+              <h2 className="mt-1 font-[family:var(--font-space-grotesk)] text-xl font-semibold text-slate-950">
+                Higher IV: farther OTM or less time
+              </h2>
+            </div>
+            <p className="font-mono text-xs text-slate-600 tabular-nums">
+              {symbol.trim() || "Stock"} {formatPriceCurrency(spot)} ·{" "}
+              {compactNumber(currentIvPct)}% entry IV · {expirationDays} DTE
+            </p>
+          </div>
+        </header>
+
+        <div className="grid min-w-0 gap-3 p-3 sm:p-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
+          <fieldset className="min-w-0">
+            <legend className="text-sm font-medium text-slate-900">
+              Position
+            </legend>
+            <div
+              className="mt-2 grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1"
+              aria-label="IV comparison position"
+            >
+              {([
+                { value: "long-call", label: "Long call" },
+                {
+                  value: "debit-call-spread",
+                  label: "Debit spread",
+                },
+              ] as Array<{
+                value: IvComparisonInstrument;
+                label: string;
+              }>).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={instrument === option.value}
+                  onClick={() => setInstrument(option.value)}
+                  className={cn(
+                    "min-w-0 rounded-md px-2 py-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                    instrument === option.value
+                      ? "bg-white text-slate-950 shadow-sm"
+                      : "text-slate-600 hover:text-slate-950",
+                  )}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <dl className="mt-3 grid min-w-0 grid-cols-2 gap-3 border-t border-slate-200 pt-3">
+              <div className="min-w-0">
+                <dt className="text-[11px] font-medium text-slate-500">
+                  Structure
+                </dt>
+                <dd className="mt-1 break-words font-mono text-xs font-semibold text-slate-950">
+                  {structureLabel}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-medium text-slate-500">
+                  Max return
+                </dt>
+                <dd className="mt-1 font-mono text-sm font-semibold text-[var(--accent-strong)] tabular-nums">
+                  {result.maximumReturnPct === null
+                    ? "Unlimited"
+                    : formatSignedGreekPercent(
+                        result.maximumReturnPct,
+                        1,
+                      )}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-medium text-slate-500">
+                  Return at expected move
+                </dt>
+                <dd className="mt-1 font-mono text-xs font-semibold text-slate-950 tabular-nums">
+                  {formatSignedGreekPercent(
+                    result.baseline.returnPct,
+                    1,
+                  )}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-medium text-slate-500">
+                  {compactNumber(currentIvPct)}% expected move
+                </dt>
+                <dd className="mt-1 font-mono text-xs font-semibold text-slate-950 tabular-nums">
+                  {formatExpectedMove(
+                    result.baselineExpectedMoveDollar,
+                    result.baselineExpectedMovePct,
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </fieldset>
+
+          <div className="min-w-0 space-y-3">
+            <NumberSliderField
+              label="New IV"
+              help="The IV for the farther-OTM and shorter-DTE alternatives."
+              min={0}
+              max={300}
+              step={1}
+              value={comparisonIvPct}
+              onChange={(value) =>
+                setComparisonIvPct(clamp(value, 0, 300))
+              }
+              suffix="%"
+              allowDecimals
+              quickActions={[
+                { label: "50%", value: 50 },
+                { label: "75%", value: 75 },
+                { label: "100%", value: 100 },
+                { label: "150%", value: 150 },
+              ]}
+            />
+            <dl className="grid min-w-0 grid-cols-2 gap-3 border-t border-slate-200 pt-3">
+              <div className="min-w-0">
+                <dt className="text-[11px] font-medium text-slate-500">
+                  Expected move
+                </dt>
+                <dd className="mt-1 font-mono text-sm font-semibold text-slate-950 tabular-nums">
+                  {formatExpectedMove(
+                    result.comparisonExpectedMoveDollar,
+                    result.comparisonExpectedMovePct,
+                  )}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-[11px] font-medium text-slate-500">
+                  Expected stock price
+                </dt>
+                <dd className="mt-1 font-mono text-sm font-semibold text-slate-950 tabular-nums">
+                  {formatCurrencyWithCents(result.comparisonScenarioPrice)}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+        <p className="border-t border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-500 sm:px-4">
+          {result.matchMetric === "maximum-return"
+            ? "The alternatives below match the selected spread's max return. Expected move is shown for context."
+            : "Long calls have unlimited max return, so alternatives match the return at the expected move."}
+        </p>
+      </section>
+
+      <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+        <header className="flex min-w-0 flex-col gap-1 border-b border-slate-200 bg-slate-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+          <div className="min-w-0">
+            <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">
+              At {compactNumber(comparisonIvPct)}% IV, choose one
+            </h2>
+            <p className="mt-0.5 text-xs text-slate-500">
+              {result.matchMetric === "maximum-return"
+                ? `Both target the selected strategy's ${formatSignedGreekPercent(
+                    result.targetMetricPct,
+                    1,
+                  )} max return.`
+                : `Both target the selected strategy's ${formatSignedGreekPercent(
+                    result.targetMetricPct,
+                    1,
+                  )} return at the expected move.`}
+            </p>
+          </div>
+          <p className="font-mono text-xs font-semibold text-[var(--accent-strong)] tabular-nums">
+            Current IV {compactNumber(currentIvPct)}%
+          </p>
+        </header>
+        <div className="grid min-w-0 divide-y divide-slate-200 md:grid-cols-2 md:divide-x md:divide-y-0">
+          <IvEquivalentChoiceColumn
+            title="Farther OTM"
+            value={equivalentStrikeLabel}
+            baselineValue={structureLabel}
+            change={strikeChangeLabel}
+            returnPct={result.equivalentStrike.returnPct}
+            targetMetricPct={result.targetMetricPct}
+            matchMetric={result.matchMetric}
+            matchDifferencePoints={
+              result.equivalentStrike.matchDifferencePoints
+            }
+            maximumReturnPct={
+              result.equivalentStrike.maximumReturnPct
+            }
+            onCreateStrategy={() =>
+              onCreateStrategy({
+                instrument,
+                longStrike: roundTo(
+                  result.equivalentStrike.longStrike,
+                  2,
+                ),
+                shortStrike: roundTo(
+                  result.equivalentStrike.shortStrike,
+                  2,
+                ),
+                expirationDays,
+                volatilityPct: comparisonIvPct,
+                scenarioPrice:
+                  result.matchMetric === "maximum-return"
+                    ? result.equivalentStrike.shortStrike
+                    : result.comparisonScenarioPrice,
+                scenarioOffsetDays:
+                  result.matchMetric === "maximum-return"
+                    ? expirationDays
+                    : result.elapsedDays,
+              })
+            }
+          />
+          <IvEquivalentChoiceColumn
+            title="Less time"
+            value={
+              instrument === "debit-call-spread"
+                ? `${result.equivalentDte.entryDte} DTE · ${formatStrikeCurrency(
+                    roundTo(result.equivalentDte.longStrike, 2),
+                  )} / ${formatStrikeCurrency(
+                    roundTo(result.equivalentDte.shortStrike, 2),
+                  )} call spread`
+                : `${result.equivalentDte.entryDte} DTE`
+            }
+            baselineValue={`${expirationDays} DTE`}
+            change={dteChangeLabel}
+            returnPct={result.equivalentDte.returnPct}
+            targetMetricPct={result.targetMetricPct}
+            matchMetric={result.matchMetric}
+            matchDifferencePoints={
+              result.equivalentDte.matchDifferencePoints
+            }
+            maximumReturnPct={result.equivalentDte.maximumReturnPct}
+            onCreateStrategy={() =>
+              onCreateStrategy({
+                instrument,
+                longStrike: roundTo(
+                  result.equivalentDte.longStrike,
+                  2,
+                ),
+                shortStrike: roundTo(
+                  result.equivalentDte.shortStrike,
+                  2,
+                ),
+                expirationDays: result.equivalentDte.entryDte,
+                volatilityPct: comparisonIvPct,
+                scenarioPrice:
+                  result.matchMetric === "maximum-return"
+                    ? result.equivalentDte.shortStrike
+                    : result.equivalentDte.scenarioPrice,
+                scenarioOffsetDays:
+                  result.matchMetric === "maximum-return"
+                    ? result.equivalentDte.entryDte
+                    : result.equivalentDte.elapsedDays,
+              })
+            }
+          />
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function getCustomComparisonLabel(
@@ -6988,6 +7489,9 @@ export default function DebitCallSpreadLab({
   >([]);
   const hasInitializedSavedStrategyDteSyncRef = useRef(false);
   const previousSavedStrategyDteKeyRef = useRef("");
+  const pendingScenarioOffsetAfterStrategyChangeRef = useRef<number | null>(
+    null,
+  );
   const [isStrategyShelfOpen, setIsStrategyShelfOpen] = useState(false);
   const [isCustomComparisonEditorOpen, setIsCustomComparisonEditorOpen] =
     useState(false);
@@ -7363,7 +7867,10 @@ export default function DebitCallSpreadLab({
 
     previousSavedStrategyDteKeyRef.current = savedStrategyDteKey;
     setValuationDteDraft(null);
-    setScenarioOffsetDays(0);
+    setScenarioOffsetDays(
+      pendingScenarioOffsetAfterStrategyChangeRef.current ?? 0,
+    );
+    pendingScenarioOffsetAfterStrategyChangeRef.current = null;
   }, [isUrlStateReady, savedStrategyDteKey]);
 
   useEffect(() => {
@@ -8427,6 +8934,124 @@ export default function DebitCallSpreadLab({
     setIsSetupFormVisible(false);
     setIsStrategyShelfOpen(true);
   };
+  const createIvAlternativeStrategy = (
+    alternative: IvAlternativeStrategy,
+  ) => {
+    const nextStrategy: OptionStrategy =
+      alternative.instrument === "long-call"
+        ? "long-call"
+        : "debit-call-spread";
+    const nextLongStrike = normalizeStrikeValue(alternative.longStrike);
+    const nextShortStrike = normalizeShortStrikeForStrategy(
+      nextStrategy,
+      nextLongStrike,
+      alternative.shortStrike,
+    );
+    const nextExpirationDays = clamp(
+      Math.round(alternative.expirationDays),
+      1,
+      1095,
+    );
+    const nextVolatilityPct = clamp(alternative.volatilityPct, 0, 300);
+    const nextScenarioPrice = normalizePriceValue(
+      alternative.scenarioPrice,
+    );
+    const nextScenarioOffsetDays = clamp(
+      Math.round(alternative.scenarioOffsetDays),
+      0,
+      nextExpirationDays,
+    );
+    const nextCapital = Math.max(1, normalizeCapitalValue(capital));
+    const nextSymbol = normalizeSymbol(symbol);
+    const nextShortExpirationDays =
+      normalizeCallCalendarShortExpirationDays(
+        shortExpirationDays,
+        nextExpirationDays,
+      );
+    const matchingComparison = customComparisons.find(
+      (comparison) =>
+        comparison.strategy === nextStrategy &&
+        comparison.longStrike === nextLongStrike &&
+        comparison.shortStrike === nextShortStrike &&
+        comparison.capital === nextCapital &&
+        comparison.expirationDays === nextExpirationDays &&
+        comparison.allowFractionalContracts === allowFractionalContracts &&
+        comparison.symbol === nextSymbol &&
+        comparison.todayIso === todayIso &&
+        comparison.spot === spot &&
+        comparison.volatilityPct === nextVolatilityPct &&
+        comparison.futureVolatilityPct === nextVolatilityPct &&
+        comparison.ratePct === ratePct &&
+        comparison.dividendYieldPct === 0,
+    );
+    let selectedComparison = matchingComparison;
+    let nextComparisons = customComparisons;
+
+    if (!selectedComparison) {
+      customComparisonIdCounter.current += 1;
+      const nextId = `custom-${customComparisonIdCounter.current}-${customComparisons.length}`;
+      selectedComparison = {
+        id: nextId,
+        label: getCustomComparisonLabel({
+          label: "",
+          strategy: nextStrategy,
+          longStrike: nextLongStrike,
+          shortStrike: nextShortStrike,
+          ratioShortCount: putRatioShortCount,
+          shortExpirationDays: nextShortExpirationDays,
+          expirationDays: nextExpirationDays,
+        }),
+        strategy: nextStrategy,
+        longStrike: nextLongStrike,
+        shortStrike: nextShortStrike,
+        ratioShortCount: normalizePutRatioShortCount(putRatioShortCount),
+        shortExpirationDays: nextShortExpirationDays,
+        capital: nextCapital,
+        expirationDays: nextExpirationDays,
+        allowFractionalContracts,
+        symbol: nextSymbol,
+        todayIso,
+        spot,
+        volatilityPct: nextVolatilityPct,
+        futureVolatilityPct: nextVolatilityPct,
+        scenarioPrice: nextScenarioPrice,
+        scenarioOffsetDays: nextScenarioOffsetDays,
+        ratePct,
+        dividendYieldPct: 0,
+      };
+      nextComparisons = [selectedComparison, ...customComparisons];
+      pendingScenarioOffsetAfterStrategyChangeRef.current =
+        nextScenarioOffsetDays;
+      setCustomComparisons(nextComparisons);
+    }
+
+    setStrategy(nextStrategy);
+    setLongStrike(nextLongStrike);
+    setShortStrike(nextShortStrike);
+    setExpirationDays(nextExpirationDays);
+    setShortExpirationDays(nextShortExpirationDays);
+    setVolatilityPct(nextVolatilityPct);
+    setFutureVolatilityPct(nextVolatilityPct);
+    setScenarioPrice(nextScenarioPrice);
+    setScenarioPriceDraft(null);
+    setCapital(nextCapital);
+    setCustomDraft({
+      ...selectedComparison,
+      label: "",
+      scenarioPrice: nextScenarioPrice,
+      scenarioOffsetDays: nextScenarioOffsetDays,
+    });
+    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays, true);
+    setScenarioOffsetDays(nextScenarioOffsetDays);
+    setValuationDteDraft(null);
+    setComparisonPanelMode("custom");
+    setGraphComparisonId(`custom:${selectedComparison.id}`);
+    setEditingComparisonId(null);
+    setIsCustomComparisonEditorOpen(false);
+    setIsSetupFormVisible(false);
+    setIsStrategyShelfOpen(true);
+    setActiveWorkflowTab("decision");
+  };
   const removeCustomComparison = (id: string) => {
     const removedComparison = customComparisons.find((comparison) => comparison.id === id);
     const nextComparisons = customComparisons.filter((comparison) => comparison.id !== id);
@@ -9338,6 +9963,13 @@ export default function DebitCallSpreadLab({
   const isAnalysisVisible =
     workflowLayout === "guided" || isTabbedAnalysis || isTabbedHeatMap;
   const showTabbedSetupContext = workflowLayout === "tabbed";
+  const ivToolShortStrike =
+    shortStrike > longStrike
+      ? shortStrike
+      : roundTo(
+          longStrike + Math.max(1, spot * 0.05),
+          STRIKE_DECIMAL_DIGITS,
+        );
   const stepHeader = (number: string, title: string, hint: string) => (
     <header className="flex min-w-0 items-start gap-3">
       <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-slate-950 font-mono text-xs font-semibold text-white tabular-nums">
@@ -10341,6 +10973,25 @@ export default function DebitCallSpreadLab({
                   </div>
                 )}
               </div>
+            ) : null}
+
+            {workflowLayout === "tabbed" &&
+            activeWorkflowTab === "understanding-iv" ? (
+              <UnderstandingIvTool
+                symbol={symbol}
+                spot={spot}
+                currentIvPct={volatilityPct}
+                expirationDays={expirationDays}
+                longStrike={longStrike}
+                shortStrike={ivToolShortStrike}
+                ratePct={ratePct}
+                defaultInstrument={
+                  strategy === "long-call"
+                    ? "long-call"
+                    : "debit-call-spread"
+                }
+                onCreateStrategy={createIvAlternativeStrategy}
+              />
             ) : null}
 
             {workflowLayout === "guided" ? (
