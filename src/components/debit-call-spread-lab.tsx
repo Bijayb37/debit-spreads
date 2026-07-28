@@ -2486,10 +2486,16 @@ function formatReturnMatch(matchDifferencePoints: number): string {
 
 type IvAlternativeStrategy = {
   instrument: IvComparisonInstrument;
+  symbol: string;
+  todayIso: string;
+  spot: number;
   longStrike: number;
   shortStrike: number;
   expirationDays: number;
   volatilityPct: number;
+  capital: number;
+  allowFractionalContracts: boolean;
+  ratePct: number;
   scenarioPrice: number;
   scenarioOffsetDays: number;
 };
@@ -2597,6 +2603,9 @@ function UnderstandingIvTool({
   longStrike,
   shortStrike,
   ratePct,
+  todayIso,
+  capital,
+  allowFractionalContracts,
   defaultInstrument,
   onCreateStrategy,
 }: {
@@ -2607,6 +2616,9 @@ function UnderstandingIvTool({
   longStrike: number;
   shortStrike: number;
   ratePct: number;
+  todayIso: string;
+  capital: number;
+  allowFractionalContracts: boolean;
   defaultInstrument: IvComparisonInstrument;
   onCreateStrategy: (strategy: IvAlternativeStrategy) => void;
 }) {
@@ -2865,6 +2877,9 @@ function UnderstandingIvTool({
             onCreateStrategy={() =>
               onCreateStrategy({
                 instrument,
+                symbol,
+                todayIso,
+                spot,
                 longStrike: roundTo(
                   result.equivalentStrike.longStrike,
                   2,
@@ -2875,6 +2890,9 @@ function UnderstandingIvTool({
                 ),
                 expirationDays,
                 volatilityPct: comparisonIvPct,
+                capital,
+                allowFractionalContracts,
+                ratePct,
                 scenarioPrice:
                   result.matchMetric === "maximum-return"
                     ? result.equivalentStrike.shortStrike
@@ -2909,6 +2927,9 @@ function UnderstandingIvTool({
             onCreateStrategy={() =>
               onCreateStrategy({
                 instrument,
+                symbol,
+                todayIso,
+                spot,
                 longStrike: roundTo(
                   result.equivalentDte.longStrike,
                   2,
@@ -2919,6 +2940,9 @@ function UnderstandingIvTool({
                 ),
                 expirationDays: result.equivalentDte.entryDte,
                 volatilityPct: comparisonIvPct,
+                capital,
+                allowFractionalContracts,
+                ratePct,
                 scenarioPrice:
                   result.matchMetric === "maximum-return"
                     ? result.equivalentDte.shortStrike
@@ -8961,8 +8985,16 @@ export default function DebitCallSpreadLab({
       0,
       nextExpirationDays,
     );
-    const nextCapital = Math.max(1, normalizeCapitalValue(capital));
-    const nextSymbol = normalizeSymbol(symbol);
+    const nextCapital = Math.max(
+      1,
+      normalizeCapitalValue(alternative.capital),
+    );
+    const nextSymbol = normalizeSymbol(alternative.symbol);
+    const nextSpot = normalizePriceValue(alternative.spot);
+    const nextTodayIso = alternative.todayIso;
+    const nextRatePct = clamp(alternative.ratePct, 0, 15);
+    const nextAllowFractionalContracts =
+      alternative.allowFractionalContracts;
     const nextShortExpirationDays =
       normalizeCallCalendarShortExpirationDays(
         shortExpirationDays,
@@ -8975,13 +9007,14 @@ export default function DebitCallSpreadLab({
         comparison.shortStrike === nextShortStrike &&
         comparison.capital === nextCapital &&
         comparison.expirationDays === nextExpirationDays &&
-        comparison.allowFractionalContracts === allowFractionalContracts &&
+        comparison.allowFractionalContracts ===
+          nextAllowFractionalContracts &&
         comparison.symbol === nextSymbol &&
-        comparison.todayIso === todayIso &&
-        comparison.spot === spot &&
+        comparison.todayIso === nextTodayIso &&
+        comparison.spot === nextSpot &&
         comparison.volatilityPct === nextVolatilityPct &&
         comparison.futureVolatilityPct === nextVolatilityPct &&
-        comparison.ratePct === ratePct &&
+        comparison.ratePct === nextRatePct &&
         comparison.dividendYieldPct === 0,
     );
     let selectedComparison = matchingComparison;
@@ -9008,15 +9041,15 @@ export default function DebitCallSpreadLab({
         shortExpirationDays: nextShortExpirationDays,
         capital: nextCapital,
         expirationDays: nextExpirationDays,
-        allowFractionalContracts,
+        allowFractionalContracts: nextAllowFractionalContracts,
         symbol: nextSymbol,
-        todayIso,
-        spot,
+        todayIso: nextTodayIso,
+        spot: nextSpot,
         volatilityPct: nextVolatilityPct,
         futureVolatilityPct: nextVolatilityPct,
         scenarioPrice: nextScenarioPrice,
         scenarioOffsetDays: nextScenarioOffsetDays,
-        ratePct,
+        ratePct: nextRatePct,
         dividendYieldPct: 0,
       };
       nextComparisons = [selectedComparison, ...customComparisons];
@@ -9032,6 +9065,11 @@ export default function DebitCallSpreadLab({
     setShortExpirationDays(nextShortExpirationDays);
     setVolatilityPct(nextVolatilityPct);
     setFutureVolatilityPct(nextVolatilityPct);
+    setSymbol(nextSymbol);
+    setSpot(nextSpot);
+    setAllowFractionalContracts(nextAllowFractionalContracts);
+    setRatePct(nextRatePct);
+    setRatePctDraft(compactNumber(nextRatePct));
     setScenarioPrice(nextScenarioPrice);
     setScenarioPriceDraft(null);
     setCapital(nextCapital);
@@ -9963,11 +10001,16 @@ export default function DebitCallSpreadLab({
   const isAnalysisVisible =
     workflowLayout === "guided" || isTabbedAnalysis || isTabbedHeatMap;
   const showTabbedSetupContext = workflowLayout === "tabbed";
+  const ivToolInstrument: IvComparisonInstrument =
+    visualizedInputs.strategy === "long-call"
+      ? "long-call"
+      : "debit-call-spread";
+  const ivToolLongStrike = visualizedInputs.longStrike;
   const ivToolShortStrike =
-    shortStrike > longStrike
-      ? shortStrike
+    visualizedInputs.shortStrike > ivToolLongStrike
+      ? visualizedInputs.shortStrike
       : roundTo(
-          longStrike + Math.max(1, spot * 0.05),
+          ivToolLongStrike + Math.max(1, visualizedInputs.spot * 0.05),
           STRIKE_DECIMAL_DIGITS,
         );
   const stepHeader = (number: string, title: string, hint: string) => (
@@ -10978,18 +11021,20 @@ export default function DebitCallSpreadLab({
             {workflowLayout === "tabbed" &&
             activeWorkflowTab === "understanding-iv" ? (
               <UnderstandingIvTool
-                symbol={symbol}
-                spot={spot}
-                currentIvPct={volatilityPct}
-                expirationDays={expirationDays}
-                longStrike={longStrike}
+                key={selectedGraphComparison.id}
+                symbol={selectedSavedStrategyCard?.symbol ?? symbol}
+                spot={visualizedInputs.spot}
+                currentIvPct={visualizedInputs.volatilityPct}
+                expirationDays={visualizedSnapshot.expirationDays}
+                longStrike={ivToolLongStrike}
                 shortStrike={ivToolShortStrike}
-                ratePct={ratePct}
-                defaultInstrument={
-                  strategy === "long-call"
-                    ? "long-call"
-                    : "debit-call-spread"
+                ratePct={visualizedInputs.ratePct}
+                todayIso={visualizedInputs.todayIso}
+                capital={visualizedInputs.capital}
+                allowFractionalContracts={
+                  visualizedInputs.allowFractionalContracts
                 }
+                defaultInstrument={ivToolInstrument}
                 onCreateStrategy={createIvAlternativeStrategy}
               />
             ) : null}
