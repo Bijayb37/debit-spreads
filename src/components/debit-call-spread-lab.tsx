@@ -7749,15 +7749,8 @@ export default function DebitCallSpreadLab({
     calendarReferenceTodayIso,
     calendarReferenceShortExpirationDays,
   );
-  const isValuationAtCalendarShortExpiry =
-    shouldShowCalendarShortPrice &&
-    safeScenarioOffsetDays === calendarReferenceShortExpirationDays;
-  const effectiveScenarioPrice = isValuationAtCalendarShortExpiry
-    ? safeCalendarShortPrice
-    : safeScenarioPrice;
-  const effectiveScenarioPriceInputValue = isValuationAtCalendarShortExpiry
-    ? calendarShortPriceInputValue
-    : scenarioPriceInputValue;
+  const effectiveScenarioPrice = safeScenarioPrice;
+  const effectiveScenarioPriceInputValue = scenarioPriceInputValue;
   const displayedScenarioPriceInputValue =
     scenarioPriceDraft ?? String(effectiveScenarioPriceInputValue);
 
@@ -7959,34 +7952,6 @@ export default function DebitCallSpreadLab({
     );
     pendingScenarioOffsetAfterStrategyChangeRef.current = null;
   }, [isUrlStateReady, savedStrategyDteKey]);
-
-  useEffect(() => {
-    if (
-      !isUrlStateReady ||
-      !isValuationAtCalendarShortExpiry ||
-      safeScenarioPrice === safeCalendarShortPrice
-    ) {
-      return;
-    }
-
-    let isActive = true;
-
-    queueMicrotask(() => {
-      if (isActive) {
-        setScenarioPrice(safeCalendarShortPrice);
-        setScenarioPriceDraft(null);
-      }
-    });
-
-    return () => {
-      isActive = false;
-    };
-  }, [
-    isUrlStateReady,
-    isValuationAtCalendarShortExpiry,
-    safeCalendarShortPrice,
-    safeScenarioPrice,
-  ]);
 
   useEffect(() => {
     if (!isUrlStateReady) {
@@ -8251,13 +8216,6 @@ export default function DebitCallSpreadLab({
     );
 
     setScenarioPrice(nextPrice);
-    if (
-      shouldShowCalendarShortPrice &&
-      safeScenarioOffsetDays === calendarReferenceShortExpirationDays
-    ) {
-      setCalendarShortPrice(nextPrice);
-      setCalendarShortPriceDraft(null);
-    }
   };
   const updateCalendarShortPrice = (nextValue: number) => {
     revealScenarioComparisons();
@@ -8268,13 +8226,6 @@ export default function DebitCallSpreadLab({
     );
 
     setCalendarShortPrice(nextPrice);
-    if (
-      shouldShowCalendarShortPrice &&
-      safeScenarioOffsetDays === calendarReferenceShortExpirationDays
-    ) {
-      setScenarioPrice(nextPrice);
-      setScenarioPriceDraft(null);
-    }
   };
   const updateScenarioOffsetDays = (nextValue: number) => {
     revealScenarioComparisons();
@@ -8282,13 +8233,6 @@ export default function DebitCallSpreadLab({
 
     setValuationDteDraft(null);
     setScenarioOffsetDays(nextOffsetDays);
-    if (
-      shouldShowCalendarShortPrice &&
-      nextOffsetDays === calendarReferenceShortExpirationDays
-    ) {
-      setScenarioPrice(safeCalendarShortPrice);
-      setScenarioPriceDraft(null);
-    }
   };
   const updateValuationDte = (nextValue: number) => {
     revealScenarioComparisons();
@@ -8296,13 +8240,6 @@ export default function DebitCallSpreadLab({
     const nextOffsetDays = marketScenarioMaxOffsetDays - nextDte;
 
     setScenarioOffsetDays(nextOffsetDays);
-    if (
-      shouldShowCalendarShortPrice &&
-      nextOffsetDays === calendarReferenceShortExpirationDays
-    ) {
-      setScenarioPrice(safeCalendarShortPrice);
-      setScenarioPriceDraft(null);
-    }
   };
   const updateValuationDteDraft = (nextValue: string) => {
     const parsedValue = Number(nextValue);
@@ -8359,13 +8296,6 @@ export default function DebitCallSpreadLab({
       const nextPrice = normalizePriceValue(parsedValue);
 
       setScenarioPrice(nextPrice);
-      if (
-        shouldShowCalendarShortPrice &&
-        safeScenarioOffsetDays === calendarReferenceShortExpirationDays
-      ) {
-        setCalendarShortPrice(nextPrice);
-        setCalendarShortPriceDraft(null);
-      }
     }
   };
   const updateCalendarShortPriceDraft = (nextValue: string) => {
@@ -8378,13 +8308,6 @@ export default function DebitCallSpreadLab({
       const nextPrice = normalizePriceValue(parsedValue);
 
       setCalendarShortPrice(nextPrice);
-      if (
-        shouldShowCalendarShortPrice &&
-        safeScenarioOffsetDays === calendarReferenceShortExpirationDays
-      ) {
-        setScenarioPrice(nextPrice);
-        setScenarioPriceDraft(null);
-      }
     }
   };
   const commitScenarioPriceDraft = (nextValue: string) => {
