@@ -499,6 +499,8 @@ const DEFAULT_SCENARIO_GRAPH_VIEW: ScenarioGraphView = "decay";
 const COLOR_SCHEME_STORAGE_KEY = "callculator-color-scheme";
 const MONEY_DISPLAY_UNIT_STORAGE_KEY = "callculator-money-display-unit";
 const INITIAL_IV_MODE_STORAGE_KEY = "callculator-use-initial-iv";
+const UPDATE_STRIKES_WITH_PRICE_STORAGE_KEY =
+  "callculator-update-strikes-with-price";
 const WORKSPACE_STATE_STORAGE_KEY = "callculator-workspace-state";
 const SAVED_STRATEGIES_STORAGE_KEY = "callculator-saved-strategies";
 const ORDERED_CUSTOM_COMPARISONS_PREFIX = "o2:";
@@ -1803,13 +1805,17 @@ function WorkflowTabs({
 function SettingsWidget({
   colorScheme,
   moneyDisplayUnit,
+  updateStrikesWithPrice,
   onColorSchemeChange,
   onMoneyDisplayUnitChange,
+  onUpdateStrikesWithPriceChange,
 }: {
   colorScheme: ColorScheme;
   moneyDisplayUnit: MoneyDisplayUnit;
+  updateStrikesWithPrice: boolean;
   onColorSchemeChange: (scheme: ColorScheme) => void;
   onMoneyDisplayUnitChange: (unit: MoneyDisplayUnit) => void;
+  onUpdateStrikesWithPriceChange: (enabled: boolean) => void;
 }) {
   return (
     <details className="relative z-50 h-full">
@@ -1896,6 +1902,49 @@ function SettingsWidget({
                 </button>
               );
             })}
+          </div>
+        </div>
+        <div className="mt-3 border-t border-slate-200 pt-3">
+          <p className="text-xs font-semibold uppercase text-slate-500">
+            When price changes
+          </p>
+          <div
+            className="mt-2 grid grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-1"
+            role="radiogroup"
+            aria-label="Strike behavior"
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={updateStrikesWithPrice}
+              onPointerDown={() => onUpdateStrikesWithPriceChange(true)}
+              onMouseDown={() => onUpdateStrikesWithPriceChange(true)}
+              onClick={() => onUpdateStrikesWithPriceChange(true)}
+              className={cn(
+                "min-w-0 rounded px-2 py-1.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                updateStrikesWithPrice
+                  ? "bg-white text-slate-950 shadow-sm"
+                  : "text-slate-600 hover:text-slate-950",
+              )}
+            >
+              Update strikes
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!updateStrikesWithPrice}
+              onPointerDown={() => onUpdateStrikesWithPriceChange(false)}
+              onMouseDown={() => onUpdateStrikesWithPriceChange(false)}
+              onClick={() => onUpdateStrikesWithPriceChange(false)}
+              className={cn(
+                "min-w-0 rounded px-2 py-1.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                !updateStrikesWithPrice
+                  ? "bg-white text-slate-950 shadow-sm"
+                  : "text-slate-600 hover:text-slate-950",
+              )}
+            >
+              Keep strikes
+            </button>
           </div>
         </div>
       </div>
@@ -7531,6 +7580,7 @@ export default function DebitCallSpreadLab({
   const [colorScheme, setColorScheme] = useState<ColorScheme>("blue");
   const [moneyDisplayUnit, setMoneyDisplayUnit] =
     useState<MoneyDisplayUnit>("dollars");
+  const [updateStrikesWithPrice, setUpdateStrikesWithPrice] = useState(true);
   const [isCoreSetupOpen, setIsCoreSetupOpen] = useState(false);
   const [isSetupFormVisible, setIsSetupFormVisible] = useState(false);
   const [isMarketScenarioOpen, setIsMarketScenarioOpen] = useState(false);
@@ -7729,6 +7779,10 @@ export default function DebitCallSpreadLab({
       setUseInitialIvForStrategies(
         window.localStorage.getItem(INITIAL_IV_MODE_STORAGE_KEY) === "1",
       );
+      setUpdateStrikesWithPrice(
+        window.localStorage.getItem(UPDATE_STRIKES_WITH_PRICE_STORAGE_KEY) !==
+          "0",
+      );
     });
 
     return () => {
@@ -7751,7 +7805,16 @@ export default function DebitCallSpreadLab({
       INITIAL_IV_MODE_STORAGE_KEY,
       useInitialIvForStrategies ? "1" : "0",
     );
-  }, [colorScheme, moneyDisplayUnit, useInitialIvForStrategies]);
+    window.localStorage.setItem(
+      UPDATE_STRIKES_WITH_PRICE_STORAGE_KEY,
+      updateStrikesWithPrice ? "1" : "0",
+    );
+  }, [
+    colorScheme,
+    moneyDisplayUnit,
+    updateStrikesWithPrice,
+    useInitialIvForStrategies,
+  ]);
 
   useEffect(() => {
     let isActive = true;
@@ -8105,15 +8168,14 @@ export default function DebitCallSpreadLab({
       ratioShortCount: putRatioShortCount,
       ratePct,
     });
-    const isEditingSavedStrategy = Boolean(editingComparisonId);
 
     setSpot(nextSpot);
-    if (!isEditingSavedStrategy) {
+    if (updateStrikesWithPrice) {
       setLongStrike(nextDefaultStrikes.longStrike);
       setShortStrike(nextDefaultStrikes.shortStrike);
     }
     setCustomDraft((currentDraft) => {
-      if (isEditingSavedStrategy) {
+      if (!updateStrikesWithPrice) {
         return {
           ...currentDraft,
           spot: nextSpot,
@@ -10820,8 +10882,10 @@ export default function DebitCallSpreadLab({
                 <SettingsWidget
                   colorScheme={colorScheme}
                   moneyDisplayUnit={moneyDisplayUnit}
+                  updateStrikesWithPrice={updateStrikesWithPrice}
                   onColorSchemeChange={setColorScheme}
                   onMoneyDisplayUnitChange={setMoneyDisplayUnit}
+                  onUpdateStrikesWithPriceChange={setUpdateStrikesWithPrice}
                 />
               </div>
             </div>
