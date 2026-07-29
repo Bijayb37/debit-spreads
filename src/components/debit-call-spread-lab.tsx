@@ -231,6 +231,7 @@ type WorkflowTab =
   | "analysis"
   | "understanding-iv";
 type DecisionComparisonView = "cards" | "detailed-cards" | "table" | "matrix";
+type ValuationDateInputMode = "elapsed" | "remaining";
 
 type ComparisonCandidate = {
   id: string;
@@ -7548,6 +7549,8 @@ export default function DebitCallSpreadLab({
   const [valuationDteDraft, setValuationDteDraft] = useState<string | null>(
     null,
   );
+  const [valuationDateInputMode, setValuationDateInputMode] =
+    useState<ValuationDateInputMode>("elapsed");
   const [scenarioGraphView, setScenarioGraphView] =
     useState<ScenarioGraphView>(DEFAULT_SCENARIO_GRAPH_VIEW);
   const [scenarioOffsetDays, setScenarioOffsetDays] = useState(
@@ -7696,12 +7699,12 @@ export default function DebitCallSpreadLab({
     0,
     marketScenarioMaxOffsetDays - safeScenarioOffsetDays,
   );
-  const valuationDteInputValue = Math.max(
-    0,
-    Math.round(marketScenarioDte),
-  );
+  const valuationDateInputValue =
+    valuationDateInputMode === "elapsed"
+      ? Math.max(0, Math.round(safeScenarioOffsetDays))
+      : Math.max(0, Math.round(marketScenarioDte));
   const displayedValuationDteInputValue =
-    valuationDteDraft ?? String(valuationDteInputValue);
+    valuationDteDraft ?? String(valuationDateInputValue);
   const safeCalendarShortExpirationDays = normalizeCallCalendarShortExpirationDays(
     shortExpirationDays,
     expirationDays,
@@ -8236,8 +8239,15 @@ export default function DebitCallSpreadLab({
   };
   const updateValuationDte = (nextValue: number) => {
     revealScenarioComparisons();
-    const nextDte = clamp(Math.round(nextValue), 0, marketScenarioMaxOffsetDays);
-    const nextOffsetDays = marketScenarioMaxOffsetDays - nextDte;
+    const normalizedValue = clamp(
+      Math.round(nextValue),
+      0,
+      marketScenarioMaxOffsetDays,
+    );
+    const nextOffsetDays =
+      valuationDateInputMode === "elapsed"
+        ? normalizedValue
+        : marketScenarioMaxOffsetDays - normalizedValue;
 
     setScenarioOffsetDays(nextOffsetDays);
   };
@@ -8254,10 +8264,16 @@ export default function DebitCallSpreadLab({
     const parsedValue = Number(nextValue);
     const committedValue = Number.isFinite(parsedValue)
       ? Math.round(parsedValue)
-      : valuationDteInputValue;
+      : valuationDateInputValue;
 
     updateValuationDte(committedValue);
     setValuationDteDraft(null);
+  };
+  const updateValuationDateInputMode = (
+    nextMode: ValuationDateInputMode,
+  ) => {
+    setValuationDteDraft(null);
+    setValuationDateInputMode(nextMode);
   };
   const handleValuationDteKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.altKey || event.ctrlKey || event.metaKey) {
@@ -10560,9 +10576,13 @@ export default function DebitCallSpreadLab({
                 step={1}
                 value={displayedValuationDteInputValue}
                 disabled={marketScenarioMaxOffsetDays === 0}
-                aria-label="Valuation DTE"
+                aria-label={
+                  valuationDateInputMode === "elapsed"
+                    ? "Valuation days past"
+                    : "Valuation DTE remaining"
+                }
                 onFocus={() =>
-                  setValuationDteDraft(String(valuationDteInputValue))
+                  setValuationDteDraft(String(valuationDateInputValue))
                 }
                 onBlur={(event) =>
                   commitValuationDteDraft(event.currentTarget.value)
@@ -10577,13 +10597,47 @@ export default function DebitCallSpreadLab({
                 className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none disabled:text-slate-400 tabular-nums"
               />
               <span className="ml-1 shrink-0 text-xs font-medium text-slate-500">
-                DTE
+                {valuationDateInputMode === "elapsed" ? "days" : "DTE"}
               </span>
             </div>
             <div className="mt-1 truncate whitespace-nowrap text-right font-mono text-[11px] leading-tight text-slate-500 tabular-nums">
               {formatLongDate(marketScenarioDateIso)}
             </div>
           </div>
+        </div>
+        <div
+          className="mt-2 grid grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-1"
+          role="radiogroup"
+          aria-label="Valuation date input mode"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={valuationDateInputMode === "elapsed"}
+            onClick={() => updateValuationDateInputMode("elapsed")}
+            className={cn(
+              "min-w-0 rounded px-2 py-1 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+              valuationDateInputMode === "elapsed"
+                ? "bg-white text-slate-950 shadow-sm"
+                : "text-slate-600 hover:text-slate-950",
+            )}
+          >
+            Days past
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={valuationDateInputMode === "remaining"}
+            onClick={() => updateValuationDateInputMode("remaining")}
+            className={cn(
+              "min-w-0 rounded px-2 py-1 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+              valuationDateInputMode === "remaining"
+                ? "bg-white text-slate-950 shadow-sm"
+                : "text-slate-600 hover:text-slate-950",
+            )}
+          >
+            DTE remaining
+          </button>
         </div>
         <input
           type="range"
