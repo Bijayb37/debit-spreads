@@ -1447,6 +1447,10 @@ function getSliderMax(...values: number[]): number {
   return Math.ceil((Math.max(...values, 50) * 1.8) / 5) * 5;
 }
 
+function getScenarioPriceSliderMax(spot: number, currentValue: number): number {
+  return Math.ceil(Math.max(spot * 1.5, currentValue, 5) / 5) * 5;
+}
+
 function parseNumberInput(value: string): number {
   const nextValue = Number(value);
   return Number.isFinite(nextValue) ? Math.round(nextValue) : 0;
@@ -7675,14 +7679,14 @@ export default function DebitCallSpreadLab({
   const moneyDisplayUnitScale = getMoneyDisplayUnitScale(moneyDisplayUnit);
   const moneyDisplayUnitSuffix = getMoneyDisplayUnitSuffix(moneyDisplayUnit);
 
-  const scenarioPriceSliderMin = Math.max(1, Math.floor(Math.min(spot, lowerStrike) * 0.7));
+  const scenarioPriceSliderMin = Math.max(1, Math.floor(spot * 0.2));
   const scenarioPriceSliderMax = Math.max(
     scenarioPriceSliderMin,
-    getSliderMax(spot, scenarioPrice, longStrike, upperStrike),
+    getScenarioPriceSliderMax(spot, scenarioPrice),
   );
   const calendarShortPriceSliderMax = Math.max(
     scenarioPriceSliderMin,
-    getSliderMax(spot, calendarShortPrice, longStrike, upperStrike),
+    getScenarioPriceSliderMax(spot, calendarShortPrice),
   );
   const safeScenarioPrice = normalizePriceValue(
     clamp(scenarioPrice, scenarioPriceSliderMin, scenarioPriceSliderMax),
