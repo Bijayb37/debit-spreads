@@ -11,6 +11,7 @@ export type OptionStrategy =
   | "call-ratio-spread"
   | "call-calendar"
   | "debit-put-spread"
+  | "bull-put-spread"
   | "bear-put"
   | "put-ratio-spread"
   | "long-call";
@@ -530,6 +531,48 @@ export function priceDebitPutSpread({
   return clamp(longPut - shortPut, 0, width);
 }
 
+export function priceBullPutSpread({
+  spot,
+  longStrike,
+  shortStrike,
+  timeYears,
+  volatility,
+  rate,
+  dividendYield,
+}: PriceDebitCallSpreadInput): number {
+  const width = Math.max(shortStrike - longStrike, 0);
+
+  if (width === 0) {
+    return 0;
+  }
+
+  const longPut =
+    timeYears === 0
+      ? Math.max(longStrike - spot, 0)
+      : blackScholesPut({
+          spot,
+          strike: longStrike,
+          timeYears,
+          volatility,
+          rate,
+          dividendYield,
+        });
+  const shortPut =
+    timeYears === 0
+      ? Math.max(shortStrike - spot, 0)
+      : blackScholesPut({
+          spot,
+          strike: shortStrike,
+          timeYears,
+          volatility,
+          rate,
+          dividendYield,
+        });
+  const closingDebit = clamp(shortPut - longPut, 0, width);
+
+  return width - closingDebit;
+}
+
 export function pricePutRatioSpread({
   spot,
   longStrike,
@@ -826,6 +869,18 @@ function priceStrategy({
     });
   }
 
+  if (strategy === "bull-put-spread") {
+    return priceBullPutSpread({
+      spot,
+      longStrike,
+      shortStrike,
+      timeYears,
+      volatility,
+      rate,
+      dividendYield,
+    });
+  }
+
   return priceDebitCallSpread({
     spot,
     longStrike,
@@ -864,6 +919,17 @@ function intrinsicStrategyValue(
       0,
       width,
     );
+  }
+
+  if (strategy === "bull-put-spread") {
+    const width = Math.max(shortStrike - longStrike, 0);
+    const closingDebit = clamp(
+      Math.max(shortStrike - spot, 0) - Math.max(longStrike - spot, 0),
+      0,
+      width,
+    );
+
+    return width - closingDebit;
   }
 
   if (strategy === "put-ratio-spread") {

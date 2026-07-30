@@ -134,10 +134,12 @@ export function calculateDebitSpreadScenario(
   const isLongCall = inputs.strategy === "long-call";
   const isBearPut = inputs.strategy === "bear-put";
   const isPutSpread = inputs.strategy === "debit-put-spread";
+  const isBullPutSpread = inputs.strategy === "bull-put-spread";
   const isPutRatioSpread = inputs.strategy === "put-ratio-spread";
   const isCallRatioSpread = inputs.strategy === "call-ratio-spread";
   const isCallCalendar = inputs.strategy === "call-calendar";
-  const isPutPricedStrategy = isPutSpread || isPutRatioSpread || isBearPut;
+  const isPutPricedStrategy =
+    isPutSpread || isBullPutSpread || isPutRatioSpread || isBearPut;
   const ratioShortCount = normalizePutRatioShortCount(inputs.ratioShortCount);
   const spreadWidth = isLongCall || isBearPut || isCallCalendar
     ? 0
@@ -211,7 +213,7 @@ export function calculateDebitSpreadScenario(
             rate,
             dividendYield,
           })
-    : isPutSpread || isPutRatioSpread
+    : isPutSpread || isBullPutSpread || isPutRatioSpread
       ? safeDte === 0
         ? Math.max(inputs.shortStrike - underlyingPrice, 0)
         : blackScholesPut({
@@ -243,6 +245,8 @@ export function calculateDebitSpreadScenario(
           : Math.max(longCallValue - shortCallValue, 0)
       : isPutRatioSpread || isCallRatioSpread
         ? longCallValue - ratioShortCount * shortCallValue
+      : isBullPutSpread
+        ? spreadWidth - clamp(shortCallValue - longCallValue, 0, spreadWidth)
       : isPutSpread
         ? safeDte === 0
           ? clamp(Math.max(inputs.longStrike - underlyingPrice, 0), 0, spreadWidth)
@@ -292,6 +296,7 @@ export function buildDebitSpreadScenarioGrid(
   const isLongCall = inputs.strategy === "long-call";
   const isBearPut = inputs.strategy === "bear-put";
   const isPutSpread = inputs.strategy === "debit-put-spread";
+  const isBullPutSpread = inputs.strategy === "bull-put-spread";
   const isPutRatioSpread = inputs.strategy === "put-ratio-spread";
   const isCallRatioSpread = inputs.strategy === "call-ratio-spread";
   const isCallCalendar = inputs.strategy === "call-calendar";
@@ -347,6 +352,8 @@ export function buildDebitSpreadScenarioGrid(
           ? inputs.longStrike
         : isPutSpread || isPutRatioSpread || isBearPut
         ? inputs.longStrike - inputs.entryDebit
+        : isBullPutSpread
+          ? inputs.longStrike + inputs.entryDebit
         : inputs.longStrike + inputs.entryDebit,
       lowerExpiryBreakeven: isPutRatioSpread
         ? getPutRatioSpreadLowerBreakEvenAtExpiry(

@@ -395,6 +395,11 @@ const STRATEGY_OPTIONS: Array<{
     description: "Buy one put and sell a lower-strike put.",
   },
   {
+    value: "bull-put-spread",
+    label: "Bull put spread",
+    description: "Sell one put and buy a lower-strike put for defined risk.",
+  },
+  {
     value: "bear-put",
     label: "Bear put",
     description: "Buy one put for a bearish target.",
@@ -433,6 +438,18 @@ const STRATEGY_COPY: Record<OptionStrategy, StrategyCopy> = {
     modelAssumptions:
       "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. Both put legs share the same IV in each estimate.",
     capitalHelp: "The app buys as many full 1x1 put spreads as this amount allows.",
+  },
+  "bull-put-spread": {
+    unitName: "spread",
+    unitTitle: "Spread",
+    contractName: "1x1 bull put spread",
+    contractPlural: "full bull put spreads",
+    costMetricLabel: "Risk per spread today",
+    unitColumnLabel: "Risk / 1 bull put spread",
+    modelAssumptions:
+      "This uses a Black-Scholes estimate with current IV for today's opening credit, future IV for scenario values, and a flat risk-free rate. It models one short put and one lower-strike protective put.",
+    capitalHelp:
+      "The app sells as many full bull put spreads as this amount of maximum risk allows.",
   },
   "bear-put": {
     unitName: "put",
@@ -654,6 +671,7 @@ function encodeStrategyToken(strategy: OptionStrategy): string {
   if (strategy === "put-ratio-spread") return "r";
   if (strategy === "bear-put") return "b";
   if (strategy === "debit-put-spread") return "p";
+  if (strategy === "bull-put-spread") return "u";
   return "d";
 }
 
@@ -664,6 +682,7 @@ function decodeStrategyToken(value: string | undefined): OptionStrategy {
   if (value === "r") return "put-ratio-spread";
   if (value === "b") return "bear-put";
   if (value === "p") return "debit-put-spread";
+  if (value === "u") return "bull-put-spread";
   return "debit-call-spread";
 }
 
@@ -1511,6 +1530,14 @@ function isPutDownsideStrategy(strategy: OptionStrategy): boolean {
   );
 }
 
+function isPutOptionStrategy(strategy: OptionStrategy): boolean {
+  return (
+    strategy === "bear-put" ||
+    strategy === "bull-put-spread" ||
+    isPutDownsideStrategy(strategy)
+  );
+}
+
 function isRatioSpreadStrategy(strategy: OptionStrategy): boolean {
   return strategy === "put-ratio-spread" || strategy === "call-ratio-spread";
 }
@@ -1581,6 +1608,15 @@ function getDefaultStrikesForStrategy(
     return {
       longStrike: nextLongStrike,
       shortStrike: getCallRatioShortStrike(spotPrice, options),
+    };
+  }
+
+  if (strategy === "bull-put-spread") {
+    const nextShortStrike = getOtmPutStrike(spotPrice, 10);
+
+    return {
+      longStrike: Math.max(1, getOtmPutStrike(spotPrice, 15)),
+      shortStrike: nextShortStrike,
     };
   }
 
@@ -2225,6 +2261,7 @@ function getStrategyDisplayLabel(strategy: OptionStrategy): string {
   if (strategy === "put-ratio-spread") return "Put ratio spread";
   if (strategy === "bear-put") return "Bear put";
   if (strategy === "debit-put-spread") return "Debit put spread";
+  if (strategy === "bull-put-spread") return "Bull put spread";
   return "Debit call spread";
 }
 
@@ -2232,6 +2269,7 @@ function getUnitCostMetricLabel(strategy: OptionStrategy): string {
   if (strategy === "long-call") return "Call cost";
   if (strategy === "call-calendar") return "Calendar cost";
   if (strategy === "bear-put") return "Put cost";
+  if (strategy === "bull-put-spread") return "Risk per spread";
   if (isPutDownsideStrategy(strategy)) return "Put spread cost";
   return "Spread cost";
 }
@@ -2319,7 +2357,7 @@ function getEntryLegPricingDetails(card: ComparisonCardData): Array<{
     ];
   }
 
-  const isPutSpread = isPutDownsideStrategy(card.strategy);
+  const isPutSpread = isPutOptionStrategy(card.strategy);
   const longLegCost = isPutSpread
     ? blackScholesPut({
         spot: card.spot,
@@ -2404,7 +2442,7 @@ function getScenarioGreekRows(card: ComparisonCardData): StrategyGreekRow[] {
   const volatility = Math.max(card.futureVolatilityPct ?? 0, 0) / 100;
   const rate = (card.ratePct ?? 0) / 100;
   const dividendYield = (card.dividendYieldPct ?? 0) / 100;
-  const isPut = card.strategy === "bear-put" || isPutDownsideStrategy(card.strategy);
+  const isPut = isPutOptionStrategy(card.strategy);
   const optionType = isPut ? "put" : "call";
   const optionName = isPut ? "put" : "call";
   const priceOption = isPut ? blackScholesPut : blackScholesCall;
@@ -3046,6 +3084,8 @@ function getCustomComparisonLabel(
         ? `1/${normalizePutRatioShortCount(draft.ratioShortCount)} call ratio spread`
       : draft.strategy === "debit-put-spread"
         ? "put"
+        : draft.strategy === "bull-put-spread"
+          ? "bull put"
         : "call"
   }${isRatioSpreadStrategy(draft.strategy) ? "" : " spread"}`;
 }
@@ -3840,6 +3880,8 @@ function getOutcomeStrategyTitle(card: ComparisonCardData): string {
   return `${getComparisonStrikeLabel(card)} ${
     card.strategy === "debit-put-spread"
         ? "put"
+        : card.strategy === "bull-put-spread"
+          ? "bull put"
         : "call"
   }${isRatioSpreadStrategy(card.strategy) ? "" : " spread"}`;
 }
@@ -4808,7 +4850,7 @@ function CustomComparisonBoard({
   onUseQuickStart: (card: ComparisonCardData) => void;
 }) {
   const isSpreadDraft = isDebitSpreadStrategy(draft.strategy);
-  const isPutSpreadDraft = isPutDownsideStrategy(draft.strategy);
+  const isPutSpreadDraft = isPutOptionStrategy(draft.strategy);
   const isPutRatioSpreadDraft = draft.strategy === "put-ratio-spread";
   const isCallRatioSpreadDraft = draft.strategy === "call-ratio-spread";
   const isCallCalendarDraft = draft.strategy === "call-calendar";
@@ -5031,7 +5073,7 @@ function CustomComparisonBoard({
                   onDraftChange({
                     ...draft,
                     longStrike: nextLongStrike,
-                    shortStrike: isPutSpreadDraft
+                    shortStrike: isPutDownsideStrategy(draft.strategy)
                       ? draft.shortStrike
                       : normalizeShortStrikeForStrategy(
                           draft.strategy,
@@ -5062,7 +5104,7 @@ function CustomComparisonBoard({
                   onChange={(nextValue) =>
                     onDraftChange({
                       ...draft,
-                      shortStrike: isPutSpreadDraft
+                      shortStrike: isPutDownsideStrategy(draft.strategy)
                         ? normalizeStrikeValue(nextValue)
                         : normalizeShortStrikeForStrategy(
                             draft.strategy,
@@ -7615,13 +7657,18 @@ export default function DebitCallSpreadLab({
   const isCallRatioSpread = strategy === "call-ratio-spread";
   const isCallCalendar = strategy === "call-calendar";
   const isDebitPutSpread = strategy === "debit-put-spread";
+  const isBullPutSpread = strategy === "bull-put-spread";
   const isBearPut = strategy === "bear-put";
   const isPutRatioSpread = strategy === "put-ratio-spread";
   const isRatioSpread = isRatioSpreadStrategy(strategy);
   const isPutDownsideSpread = isPutDownsideStrategy(strategy);
+  const isPutSpread = isPutOptionStrategy(strategy);
   const isDebitSpread = isDebitSpreadStrategy(strategy);
   const strategyCopy = STRATEGY_COPY[strategy];
-  const upperStrike = isDebitCallSpread || isCallRatioSpread ? shortStrike : longStrike;
+  const upperStrike =
+    isDebitCallSpread || isCallRatioSpread || isBullPutSpread
+      ? shortStrike
+      : longStrike;
   const lowerStrike = isPutDownsideSpread ? shortStrike : longStrike;
 
   setActiveMoneyDisplayUnit(moneyDisplayUnit);
@@ -8731,9 +8778,12 @@ export default function DebitCallSpreadLab({
     customDraft.longStrike <= 0
       ? "Long strike has to be greater than zero."
       : (customDraft.strategy === "debit-call-spread" ||
-            customDraft.strategy === "call-ratio-spread") &&
+            customDraft.strategy === "call-ratio-spread" ||
+            customDraft.strategy === "bull-put-spread") &&
           customDraft.shortStrike <= customDraft.longStrike
-        ? "Short call strike has to be above the long call strike."
+        ? customDraft.strategy === "bull-put-spread"
+          ? "Short put strike has to be above the long put strike."
+          : "Short call strike has to be above the long call strike."
       : isPutDownsideStrategy(customDraft.strategy) && customDraft.shortStrike >= customDraft.longStrike
         ? "Short put strike has to be below the long put strike."
       : customDraft.capital <= 0
@@ -9218,6 +9268,11 @@ export default function DebitCallSpreadLab({
   if (isDebitPutSpread && shortStrike >= longStrike) {
     validationMessages.push("For a debit put spread, the short strike must be below the long strike.");
   }
+  if (isBullPutSpread && shortStrike <= longStrike) {
+    validationMessages.push(
+      "For a bull put spread, the short put strike must be above the long put strike.",
+    );
+  }
   if (isPutRatioSpread && shortStrike >= longStrike) {
     validationMessages.push("For a put ratio spread, the short strike must be below the long put strike.");
   }
@@ -9444,6 +9499,17 @@ export default function DebitCallSpreadLab({
         note: "Balanced put spread for a moderate downside target.",
         strategy: "debit-put-spread",
         longStrike: atmStrike,
+        shortStrike: getOtmPutStrike(spot, 10),
+        capital,
+        expirationDays,
+        allowFractionalContracts,
+      },
+      {
+        id: "bull-put-spread-10-otm",
+        label: "10% OTM bull put spread",
+        note: "Sell the 10% OTM put and buy a lower put for defined downside risk.",
+        strategy: "bull-put-spread",
+        longStrike: getOtmPutStrike(spot, 15),
         shortStrike: getOtmPutStrike(spot, 10),
         capital,
         expirationDays,
@@ -10144,6 +10210,8 @@ export default function DebitCallSpreadLab({
                 ? "Buy one put. Bearish, defined risk, profit increases as the stock falls."
             : strategy === "debit-put-spread"
               ? "Buy one put and sell a lower-strike put. Defined risk, capped downside profit."
+              : strategy === "bull-put-spread"
+                ? "Sell one put and buy a lower-strike put. Bullish, with defined risk and capped profit."
               : strategy === "put-ratio-spread"
                 ? `Buy one put and sell ${putRatioShortCount} lower-strike puts. Best at the short strike with extra downside risk.`
                 : "Buy a single call. Higher risk, uncapped upside.",
@@ -10163,7 +10231,7 @@ export default function DebitCallSpreadLab({
           </select>
         </label>
         <div
-            className="hidden min-w-0 grid-cols-7 gap-2 xl:grid"
+            className="hidden min-w-0 grid-cols-4 gap-2 xl:grid"
           role="group"
           aria-label="Option strategy"
         >
@@ -10240,7 +10308,7 @@ export default function DebitCallSpreadLab({
         ) : isDebitSpread ? (
             <>
             <NumberSliderField
-              label={isPutDownsideSpread ? "Long put (buy)" : "Long call (buy)"}
+              label={isPutSpread ? "Long put (buy)" : "Long call (buy)"}
               help="The strike you buy."
               min={5}
               max={longStrikeSliderMax}
@@ -10261,7 +10329,7 @@ export default function DebitCallSpreadLab({
                 );
               }}
               prefix="$"
-              quickActions={isPutDownsideSpread ? putStrikeActions : callStrikeActions}
+              quickActions={isPutSpread ? putStrikeActions : callStrikeActions}
             />
 
             <NumberSliderField
@@ -10270,7 +10338,7 @@ export default function DebitCallSpreadLab({
                   ? `Short puts (sell ${putRatioShortCount})`
                   : isCallRatioSpread
                     ? `Short calls (sell ${putRatioShortCount})`
-                  : isPutDownsideSpread
+                  : isPutSpread
                     ? "Short put (sell)"
                     : "Short call (sell)"
               }
@@ -10295,7 +10363,7 @@ export default function DebitCallSpreadLab({
               }
               prefix="$"
               quickActions={
-                isPutDownsideSpread ? shortPutStrikeOtmActions : shortStrikeOtmActions
+                isPutSpread ? shortPutStrikeOtmActions : shortStrikeOtmActions
               }
             />
             {isRatioSpread ? (
