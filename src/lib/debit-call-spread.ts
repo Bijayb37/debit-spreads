@@ -84,6 +84,8 @@ export type ScenarioSnapshot = {
   width: number;
   ratioShortCount: number;
   unitCost: number;
+  entryPremium: number;
+  reserveOffset: number;
   contracts: number;
   allowFractionalContracts: boolean;
   totalCost: number;
@@ -784,6 +786,26 @@ export function getCallRatioSpreadUpperBreakEvenAtExpiry(
   return upperBreakEven > shortStrike ? upperBreakEven : null;
 }
 
+export function getRatioCreditReserve(
+  strategy: OptionStrategy | undefined,
+  spot: number,
+  longStrike: number,
+  shortStrike: number,
+  entryPremium: number,
+  ratioShortCount?: number,
+): number {
+  if (entryPremium > 0) return 0;
+  const shortCount = normalizePutRatioShortCount(ratioShortCount);
+  if (strategy === "put-ratio-spread") {
+    return Math.max(shortCount * shortStrike - longStrike, 0);
+  }
+  if (strategy === "call-ratio-spread") {
+    // A notional sizing reserve, not broker margin or a limit on losses.
+    return (shortCount - 1) * Math.max(spot, shortStrike) + Math.max(shortStrike - longStrike, 0);
+  }
+  return 0;
+}
+
 function priceStrategy({
   strategy,
   spot,
@@ -1018,7 +1040,7 @@ export function createScenarioSnapshot({
       : isPutDownsideStrategy
         ? Math.max(longStrike - shortStrike, 0)
         : Math.max(shortStrike - longStrike, 0);
-  const unitCost = priceStrategy({
+  const entryPremium = priceStrategy({
     strategy,
     spot,
     longStrike,
@@ -1030,6 +1052,10 @@ export function createScenarioSnapshot({
     rate,
     dividendYield,
   });
+  const reserveOffset = getRatioCreditReserve(
+    strategy, spot, longStrike, shortStrike, entryPremium, normalizedRatioShortCount,
+  );
+  const unitCost = entryPremium + reserveOffset;
   const contracts =
     unitCost > 0
       ? allowFractionalContracts
@@ -1040,7 +1066,7 @@ export function createScenarioSnapshot({
     allowFractionalContracts && contracts > 0
       ? capital
       : contracts * unitCost * CONTRACT_MULTIPLIER;
-  const scenarioUnitValue = isCallCalendar
+  const scenarioUnitValue = reserveOffset + (isCallCalendar
     ? priceCallCalendarScenario({
         longValuationPrice: scenarioPrice,
         shortSettlementPrice: normalizedCalendarShortPrice,
@@ -1064,19 +1090,19 @@ export function createScenarioSnapshot({
         volatility: futureVolatility,
         rate,
         dividendYield,
-      });
+      }));
   const scenarioPositionValue =
     scenarioUnitValue * CONTRACT_MULTIPLIER * contracts;
   const pnl = scenarioPositionValue - totalCost;
   const roi = totalCost > 0 ? pnl / totalCost : 0;
   const maxValuePerUnit =
-    strategy === "long-call" || isCallCalendar ? null : isBearPut ? longStrike : width;
+    strategy === "long-call" || isCallCalendar ? null : isBearPut ? longStrike : width + reserveOffset;
   const maxProfitPerUnit =
     strategy === "long-call" || isCallCalendar
       ? null
       : isBearPut
         ? Math.max(longStrike - unitCost, 0)
-        : Math.max(width - unitCost, 0);
+        : Math.max(width - entryPremium, 0);
   const maxLossPerUnit =
     isCallRatioSpread
       ? null
@@ -1084,7 +1110,7 @@ export function createScenarioSnapshot({
       ? getPutRatioSpreadMaxLossPerUnit(
           longStrike,
           shortStrike,
-          unitCost,
+          entryPremium,
           normalizedRatioShortCount,
         )
       : unitCost;
@@ -1092,29 +1118,29 @@ export function createScenarioSnapshot({
     ? getCallRatioSpreadUpperBreakEvenAtExpiry(
         longStrike,
         shortStrike,
-        unitCost,
+        entryPremium,
         normalizedRatioShortCount,
       )
     : null;
-  const breakEvenAtExpiry = isBearPut
+  const putRatioLowerBreakEvenAtExpiry = isPutRatioSpread
+    ? getPutRatioSpreadLowerBreakEvenAtExpiry(longStrike, shortStrike, entryPremium, normalizedRatioShortCount)
+    : null;
+  const breakEvenAtExpiry = isPutRatioSpread && entryPremium <= 0
+    ? putRatioLowerBreakEvenAtExpiry ?? longStrike - entryPremium
+    : isBearPut
     ? longStrike - unitCost
     : isCallRatioSpread
-      ? callRatioUpperBreakEvenAtExpiry ?? longStrike + unitCost
+      ? callRatioUpperBreakEvenAtExpiry ?? longStrike + entryPremium
       : isCallCalendar
         ? longStrike
       : isPutDownsideStrategy
-        ? longStrike - unitCost
+        ? longStrike - entryPremium
         : longStrike + unitCost;
   const lowerBreakEvenAtExpiry =
-    isPutRatioSpread
-      ? getPutRatioSpreadLowerBreakEvenAtExpiry(
-          longStrike,
-          shortStrike,
-          unitCost,
-          normalizedRatioShortCount,
-        )
-      : callRatioUpperBreakEvenAtExpiry !== null
-        ? longStrike + unitCost
+    isPutRatioSpread && entryPremium > 0
+      ? putRatioLowerBreakEvenAtExpiry
+      : callRatioUpperBreakEvenAtExpiry !== null && entryPremium > 0
+        ? longStrike + entryPremium
       : null;
 
   return {
@@ -1133,6 +1159,8 @@ export function createScenarioSnapshot({
     width,
     ratioShortCount: normalizedRatioShortCount,
     unitCost,
+    entryPremium,
+    reserveOffset,
     contracts,
     allowFractionalContracts,
     totalCost,
@@ -1209,7 +1237,7 @@ export function buildTimelineRows(inputs: StrategyInputs): TimelineRow[] {
       (snapshot.shortExpirationDays - offset) / YEAR_DAYS,
       0,
     );
-    const unitValue = isCallCalendar
+    const unitValue = snapshot.reserveOffset + (isCallCalendar
       ? priceCallCalendarScenario({
           longValuationPrice: inputs.scenarioPrice,
           shortSettlementPrice: snapshot.calendarShortPrice,
@@ -1233,7 +1261,7 @@ export function buildTimelineRows(inputs: StrategyInputs): TimelineRow[] {
           volatility: futureVolatility,
           rate,
           dividendYield,
-        });
+        }));
     const positionValue = unitValue * CONTRACT_MULTIPLIER * snapshot.contracts;
     const pnl = positionValue - snapshot.totalCost;
     return {
@@ -1242,7 +1270,7 @@ export function buildTimelineRows(inputs: StrategyInputs): TimelineRow[] {
       daysRemaining: snapshot.expirationDays - offset,
       unitValue,
       positionValue,
-      intrinsicValue: intrinsicStrategyValue(
+      intrinsicValue: snapshot.reserveOffset + intrinsicStrategyValue(
         inputs.strategy,
         inputs.scenarioPrice,
         inputs.longStrike,
@@ -1301,7 +1329,7 @@ export function buildPriceLadderRows(inputs: StrategyInputs): PriceLadderRow[] {
         isCallCalendar && snapshot.selectedOffsetDays === snapshot.shortExpirationDays
           ? price
           : snapshot.calendarShortPrice;
-      const unitValue = isCallCalendar
+      const unitValue = snapshot.reserveOffset + (isCallCalendar
         ? priceCallCalendarScenario({
             longValuationPrice: price,
             shortSettlementPrice,
@@ -1325,14 +1353,14 @@ export function buildPriceLadderRows(inputs: StrategyInputs): PriceLadderRow[] {
             volatility: futureVolatility,
             rate,
             dividendYield,
-          });
+          }));
       const positionValue = unitValue * CONTRACT_MULTIPLIER * snapshot.contracts;
       const pnl = positionValue - snapshot.totalCost;
 
       return {
         price,
         unitValue,
-        intrinsicValue: intrinsicStrategyValue(
+        intrinsicValue: snapshot.reserveOffset + intrinsicStrategyValue(
           inputs.strategy,
           price,
           inputs.longStrike,
@@ -1390,7 +1418,7 @@ export function buildPriceCurve(inputs: StrategyInputs): PriceCurvePoint[] {
       isCallCalendar && snapshot.selectedOffsetDays === snapshot.shortExpirationDays
         ? price
         : snapshot.calendarShortPrice;
-    const selectedUnitValue = isCallCalendar
+    const selectedUnitValue = snapshot.reserveOffset + (isCallCalendar
       ? priceCallCalendarScenario({
           longValuationPrice: price,
           shortSettlementPrice: selectedShortSettlementPrice,
@@ -1414,8 +1442,8 @@ export function buildPriceCurve(inputs: StrategyInputs): PriceCurvePoint[] {
           volatility: futureVolatility,
           rate,
           dividendYield,
-        });
-    const expiryUnitValue = isCallCalendar
+        }));
+    const expiryUnitValue = snapshot.reserveOffset + (isCallCalendar
       ? priceCallCalendarScenario({
           longValuationPrice: price,
           shortSettlementPrice: snapshot.calendarShortPrice,
@@ -1439,7 +1467,7 @@ export function buildPriceCurve(inputs: StrategyInputs): PriceCurvePoint[] {
           volatility: futureVolatility,
           rate,
           dividendYield,
-        });
+        }));
 
     return {
       price,

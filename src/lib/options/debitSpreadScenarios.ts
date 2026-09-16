@@ -4,6 +4,7 @@ import {
   blackScholesPut,
   clamp,
   getCallRatioSpreadUpperBreakEvenAtExpiry,
+  getRatioCreditReserve,
   normalizeCallCalendarShortExpirationDays,
   getPutRatioSpreadLowerBreakEvenAtExpiry,
   getPutRatioSpreadMaxLossPerUnit,
@@ -160,7 +161,11 @@ export function calculateDebitSpreadScenario(
   const calendarShortSettlementPrice = isCalendarShortExpiry
     ? underlyingPrice
     : calendarShortPrice;
-  const entryCost = inputs.entryDebit * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
+  const reserveOffset = getRatioCreditReserve(
+    inputs.strategy, inputs.currentPrice, inputs.longStrike, inputs.shortStrike,
+    inputs.entryDebit, inputs.ratioShortCount,
+  );
+  const entryCost = (inputs.entryDebit + reserveOffset) * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
   const maxProfit =
     isLongCall || isCallCalendar
       ? null
@@ -234,7 +239,7 @@ export function calculateDebitSpreadScenario(
             rate,
             dividendYield,
           });
-  const spreadValue =
+  const spreadValue = reserveOffset + (
     isLongCall
       ? longCallValue
       : isBearPut
@@ -253,7 +258,7 @@ export function calculateDebitSpreadScenario(
           : clamp(longCallValue - shortCallValue, 0, spreadWidth)
         : safeDte === 0
           ? clamp(Math.max(underlyingPrice - inputs.longStrike, 0), 0, spreadWidth)
-          : clamp(longCallValue - shortCallValue, 0, spreadWidth);
+          : clamp(longCallValue - shortCallValue, 0, spreadWidth));
   const positionValue = spreadValue * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
   const profitLoss = positionValue - entryCost;
 
@@ -306,13 +311,22 @@ export function buildDebitSpreadScenarioGrid(
     : isPutSpread || isPutRatioSpread
       ? Math.max(inputs.longStrike - inputs.shortStrike, 0)
       : Math.max(inputs.shortStrike - inputs.longStrike, 0);
-  const entryCost = inputs.entryDebit * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
+  const reserveOffset = getRatioCreditReserve(
+    inputs.strategy, inputs.currentPrice, inputs.longStrike, inputs.shortStrike,
+    inputs.entryDebit, inputs.ratioShortCount,
+  );
+  const entryCost = (inputs.entryDebit + reserveOffset) * CONTRACT_MULTIPLIER * inputs.numberOfSpreads;
   const callRatioUpperBreakeven = isCallRatioSpread
     ? getCallRatioSpreadUpperBreakEvenAtExpiry(
         inputs.longStrike,
         inputs.shortStrike,
         inputs.entryDebit,
         ratioShortCount,
+      )
+    : null;
+  const putRatioLowerBreakeven = isPutRatioSpread
+    ? getPutRatioSpreadLowerBreakEvenAtExpiry(
+        inputs.longStrike, inputs.shortStrike, inputs.entryDebit, ratioShortCount,
       )
     : null;
 
@@ -346,7 +360,9 @@ export function buildDebitSpreadScenarioGrid(
         : isCallCalendar
           ? entryCost
         : entryCost,
-      expiryBreakeven: isCallRatioSpread
+      expiryBreakeven: isPutRatioSpread && inputs.entryDebit <= 0
+        ? putRatioLowerBreakeven ?? inputs.longStrike - inputs.entryDebit
+        : isCallRatioSpread
         ? callRatioUpperBreakeven ?? inputs.longStrike + inputs.entryDebit
         : isCallCalendar
           ? inputs.longStrike
@@ -355,14 +371,9 @@ export function buildDebitSpreadScenarioGrid(
         : isBullPutSpread
           ? inputs.longStrike + inputs.entryDebit
         : inputs.longStrike + inputs.entryDebit,
-      lowerExpiryBreakeven: isPutRatioSpread
-        ? getPutRatioSpreadLowerBreakEvenAtExpiry(
-            inputs.longStrike,
-            inputs.shortStrike,
-            inputs.entryDebit,
-            ratioShortCount,
-          )
-        : callRatioUpperBreakeven !== null
+      lowerExpiryBreakeven: isPutRatioSpread && inputs.entryDebit > 0
+        ? putRatioLowerBreakeven
+        : callRatioUpperBreakeven !== null && inputs.entryDebit > 0
           ? inputs.longStrike + inputs.entryDebit
         : null,
       currentSpreadValue: currentPoint.spreadValue,

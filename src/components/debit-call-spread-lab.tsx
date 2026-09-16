@@ -471,7 +471,7 @@ const STRATEGY_COPY: Record<OptionStrategy, StrategyCopy> = {
     unitColumnLabel: "Ratio / 1 spread",
     modelAssumptions:
       "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. It models one long call and the selected number of short calls at the higher strike.",
-    capitalHelp: "The app sizes the call ratio spread by its estimated entry debit. Upside risk can be uncapped above the upper break-even.",
+    capitalHelp: "Debit entries use their purchase cost. Credit entries use a notional reserve: uncovered calls times the higher of spot or short strike, plus spread width, less credit. This is not broker margin or a loss limit; losses are uncapped.",
   },
   "call-calendar": {
     unitName: "calendar",
@@ -493,7 +493,7 @@ const STRATEGY_COPY: Record<OptionStrategy, StrategyCopy> = {
     unitColumnLabel: "Ratio / 1 spread",
     modelAssumptions:
       "This uses a Black-Scholes estimate with current IV for today's entry cost, future IV for scenario values, and a flat risk-free rate. It models one long put and the selected number of short puts at the lower strike.",
-    capitalHelp: "The app sizes the put ratio spread by its estimated entry debit. The downside risk can be larger than that debit.",
+    capitalHelp: "Debit entries use their purchase cost. Credit entries use maximum loss as the capital reserve. Return is measured against the capital used for sizing.",
   },
   "long-call": {
     unitName: "call",
@@ -2269,7 +2269,8 @@ function getStrategyDisplayLabel(strategy: OptionStrategy): string {
   return "Debit call spread";
 }
 
-function getUnitCostMetricLabel(strategy: OptionStrategy): string {
+function getUnitCostMetricLabel(strategy: OptionStrategy, snapshot?: ScenarioSnapshot): string {
+  if (snapshot && snapshot.reserveOffset > 0) return "Reserve / spread";
   if (strategy === "long-call") return "Call cost";
   if (strategy === "call-calendar") return "Calendar cost";
   if (strategy === "bear-put") return "Put cost";
@@ -2279,15 +2280,26 @@ function getUnitCostMetricLabel(strategy: OptionStrategy): string {
 }
 
 function getNonPositiveEntryDebitMessage(strategy: OptionStrategy): string {
-  if (strategy === "call-ratio-spread") {
-    return "This call ratio spread prices as a net credit. Move the short calls higher, lower the long call, or reduce the ratio before saving.";
-  }
-
-  if (strategy === "put-ratio-spread") {
-    return "This put ratio spread prices as a net credit. Move the short puts lower, raise the long put, or reduce the ratio before saving.";
-  }
+  if (isRatioSpreadStrategy(strategy)) return "This setup has no positive sizing reserve. Adjust the strikes or DTE before saving.";
 
   return "This setup has no entry debit. Adjust the strikes or DTE before saving.";
+}
+
+function RatioCreditSummary({ snapshot }: { snapshot: ScenarioSnapshot }) {
+  if (snapshot.reserveOffset <= 0) return null;
+  const credit = Math.max(-snapshot.entryPremium, 0) * CONTRACT_MULTIPLIER;
+  return (
+    <p className="mt-2 text-sm text-slate-600">
+      Credit / spread: <strong>{formatCurrencyWithCents(credit)}</strong>
+      {" · "}Total credit: <strong>{formatCurrencyWithCents(credit * snapshot.contracts)}</strong>
+      {" · "}Reserve / spread: <strong>{formatCurrencyWithCents(snapshot.unitCost * CONTRACT_MULTIPLIER)}</strong>.
+      {" "}{snapshot.strategy === "call-ratio-spread"
+        ? "Sizing uses uncovered-call notional plus spread width, less credit. This is not broker margin; losses are uncapped."
+        : "Sizing uses maximum loss as the reserve."}
+      {" "}Return is measured against the reserve; position value includes it.
+      {snapshot.contracts === 0 ? " Capital is below the reserve for one spread. Increase capital or enable fractional sizing." : ""}
+    </p>
+  );
 }
 
 function getBreakEvenLabel(snapshot: ScenarioSnapshot): string {
@@ -2528,7 +2540,7 @@ function getScenarioGreekRows(card: ComparisonCardData): StrategyGreekRow[] {
     {
       label: "Net strategy",
       greeks: addGreeks(longGreeks, shortGreeks),
-      marketValue: Math.abs(card.snapshot.scenarioUnitValue * CONTRACT_MULTIPLIER),
+      marketValue: Math.abs((card.snapshot.scenarioUnitValue - card.snapshot.reserveOffset) * CONTRACT_MULTIPLIER),
       isNet: true,
     },
   ];
@@ -3337,12 +3349,15 @@ function ComparisonCardGrid({
           },
             { label: "DTE", value: getDteDisplayLabel(card) },
           {
-            label: getUnitCostMetricLabel(card.strategy),
+            label: getUnitCostMetricLabel(card.strategy, card.snapshot),
             value: formatCurrencyWithCents(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
           },
           { label: "Max at expiry", value: maxAtExpiryLabel },
           { label: "Contracts", value: formatQuantity(card.snapshot.contracts) },
         ];
+        if (card.snapshot.reserveOffset > 0) {
+          details.push({ label: "Credit / spread", value: formatCurrencyWithCents(-card.snapshot.entryPremium * CONTRACT_MULTIPLIER) });
+        }
 
         return (
           <article
@@ -3580,7 +3595,7 @@ function CompactStrategyList({
         <span className="text-right">Return</span>
         <span className="text-right">B/E</span>
         <span className="text-right">DTE</span>
-        <span className="text-right">Cost basis</span>
+        <span className="text-right">Cost / reserve</span>
         <span className="text-right">Actions</span>
       </div>
       <div className="divide-y divide-slate-200">
@@ -3703,7 +3718,7 @@ function CompactStrategyList({
                 </div>
                 <div className="min-w-0 col-span-2 md:col-span-1 md:text-right">
                   <p className="text-[10px] font-semibold uppercase text-slate-500 md:hidden">
-                    Cost basis
+                    {card.snapshot.reserveOffset > 0 ? "Capital reserved" : "Cost basis"}
                   </p>
                   <p className="truncate font-mono font-semibold text-slate-950 tabular-nums">
                     {formatCurrency(card.snapshot.totalCost)}
@@ -3913,6 +3928,11 @@ function DecisionOutcomeCards({
                 ? formatPercent(card.maxReturnAtExpiry)
                 : "Uncapped";
         const metrics = [
+          ...(card.snapshot.reserveOffset > 0 ? [{
+            label: "Credit / spread",
+            value: formatCurrencyWithCents(-card.snapshot.entryPremium * CONTRACT_MULTIPLIER),
+            valueClassName: "text-emerald-700",
+          }] : []),
             {
               label: "DTE · Initial price",
               value: `${getDteDisplayLabel(card)} · ${
@@ -3926,12 +3946,12 @@ function DecisionOutcomeCards({
             valueClassName: "text-slate-950",
           },
           {
-            label: getUnitCostMetricLabel(card.strategy),
+            label: getUnitCostMetricLabel(card.strategy, card.snapshot),
             value: formatCurrencyWithCents(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
             valueClassName: "text-slate-950",
           },
           {
-            label: "Initial cost",
+            label: card.snapshot.reserveOffset > 0 ? "Capital reserved" : "Initial cost",
             value: formatCurrency(card.snapshot.totalCost),
             valueClassName: "text-slate-950",
           },
@@ -4109,9 +4129,13 @@ function DetailedDecisionOutcomeCards({
           },
         ];
         const riskDetails = [
-          { label: "Entry cost", value: formatCurrency(totalCost) },
+          { label: card.snapshot.reserveOffset > 0 ? "Capital reserved" : "Entry cost", value: formatCurrency(totalCost) },
+          ...(card.snapshot.reserveOffset > 0 ? [{
+            label: "Opening credit",
+            value: formatCurrencyWithCents(-card.snapshot.entryPremium * CONTRACT_MULTIPLIER * card.snapshot.contracts),
+          }] : []),
           {
-            label: getUnitCostMetricLabel(card.strategy),
+            label: getUnitCostMetricLabel(card.strategy, card.snapshot),
             value: formatCurrencyWithCents(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
           },
           { label: "Contracts", value: formatQuantity(card.snapshot.contracts) },
@@ -4221,6 +4245,11 @@ function DetailedDecisionOutcomeCards({
             </div>
 
             <div className="pointer-events-none grid min-w-0 gap-3 p-3 sm:grid-cols-2">
+              {card.snapshot.reserveOffset > 0 ? (
+                <div className="min-w-0 sm:col-span-2">
+                  <RatioCreditSummary snapshot={card.snapshot} />
+                </div>
+              ) : null}
               {groups.map((group) => (
                 <section key={group.title} className="min-w-0">
                   <h4 className="text-[10px] font-semibold uppercase text-slate-500">
@@ -4249,7 +4278,7 @@ function DetailedDecisionOutcomeCards({
                 </h4>
                 <div className="mt-2 grid min-w-0 gap-2">
                   {greekRows.map((row) => {
-                    const metrics = [
+        const metrics = [
                       {
                         label: "Delta",
                         value: formatSignedGreekPercent(row.greeks.delta, 2),
@@ -4794,6 +4823,7 @@ function CustomComparisonBoard({
   cards,
   draft,
   draftError,
+  draftSnapshot,
   embedded = false,
   isEditorOpen,
   setupForm,
@@ -4825,6 +4855,7 @@ function CustomComparisonBoard({
   cards: ComparisonCardData[];
   draft: CustomComparisonDraft;
   draftError: string | null;
+  draftSnapshot: ScenarioSnapshot;
   embedded?: boolean;
   isEditorOpen: boolean;
   setupForm?: ReactNode;
@@ -5196,6 +5227,7 @@ function CustomComparisonBoard({
             </div>
           </div>
 
+          <RatioCreditSummary snapshot={draftSnapshot} />
           {draftError ? (
             <p className="mt-2 text-sm font-medium text-rose-700">{draftError}</p>
           ) : null}
@@ -9729,7 +9761,7 @@ export default function DebitCallSpreadLab({
       calendarShortPrice: visualizedInputs.calendarShortPrice,
         currentDte: visualizedSnapshot.expirationDays,
       numberOfSpreads: visualizedSnapshot.contracts,
-      entryDebit: visualizedSnapshot.unitCost,
+      entryDebit: visualizedSnapshot.entryPremium,
       impliedVolatilityPct: visualizedInputs.futureVolatilityPct,
       riskFreeRatePct: visualizedInputs.ratePct,
       dividendYieldPct: visualizedInputs.dividendYieldPct,
@@ -10459,6 +10491,7 @@ export default function DebitCallSpreadLab({
           </div>
         </div>
 
+        <RatioCreditSummary snapshot={snapshot} />
         <div className="grid min-w-0 gap-2 border-t border-slate-100 pt-3">
           <button
             type="button"
@@ -10975,6 +11008,7 @@ export default function DebitCallSpreadLab({
                     cards={customComparisonCards}
                     draft={customDraft}
                     draftError={customDraftError}
+                    draftSnapshot={customDraftSnapshot}
                     embedded
                     editingComparisonId={editingComparisonId}
                     isEditorOpen={isCustomComparisonEditorOpen}
@@ -11019,6 +11053,7 @@ export default function DebitCallSpreadLab({
                   cards={customComparisonCards}
                   draft={customDraft}
                   draftError={customDraftError}
+                  draftSnapshot={customDraftSnapshot}
                   editingComparisonId={editingComparisonId}
                   isEditorOpen={isCustomComparisonEditorOpen}
                   quickStartCards={isCustomComparisonEditorOpen ? comparisonCards : []}
@@ -11181,7 +11216,7 @@ export default function DebitCallSpreadLab({
                         {visualizedSnapshot.expirationDays} DTE
                       </span>
                       <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-slate-700 tabular-nums">
-                        Cost {formatCurrency(visualizedSnapshot.totalCost)}
+                        {visualizedSnapshot.reserveOffset > 0 ? "Reserve" : "Cost"} {formatCurrency(visualizedSnapshot.totalCost)}
                       </span>
                       <span
                         className={cn(
@@ -11415,7 +11450,7 @@ export default function DebitCallSpreadLab({
                                 </span>
                               </span>
                               <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
-                                Cost {formatCurrency(visualizedSnapshot.totalCost)}
+                                {visualizedSnapshot.reserveOffset > 0 ? "Reserve" : "Cost"} {formatCurrency(visualizedSnapshot.totalCost)}
                               </span>
                           </div>
                         </div>
