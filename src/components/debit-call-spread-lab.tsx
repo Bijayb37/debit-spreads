@@ -8033,11 +8033,12 @@ export default function DebitCallSpreadLab({
 
     previousSavedStrategyDteKeyRef.current = savedStrategyDteKey;
     setValuationDteDraft(null);
-    setScenarioOffsetDays(
-      pendingScenarioOffsetAfterStrategyChangeRef.current ?? 0,
+    const requestedOffset = pendingScenarioOffsetAfterStrategyChangeRef.current;
+    setScenarioOffsetDays((currentDays) =>
+      clamp(requestedOffset ?? currentDays, 0, marketScenarioMaxOffsetDays),
     );
     pendingScenarioOffsetAfterStrategyChangeRef.current = null;
-  }, [isUrlStateReady, savedStrategyDteKey]);
+  }, [isUrlStateReady, marketScenarioMaxOffsetDays, savedStrategyDteKey]);
 
   useEffect(() => {
     if (!isUrlStateReady) {
@@ -8260,7 +8261,6 @@ export default function DebitCallSpreadLab({
   const syncMarketScenarioDteRange = (
     comparisons: CustomComparisonConfig[],
     nextExpirationDays = expirationDays,
-    shouldUseMaxDte = false,
   ) => {
     const nextScenarioMaxOffsetDays = getMarketScenarioMaxDte(
       comparisons,
@@ -8269,7 +8269,7 @@ export default function DebitCallSpreadLab({
 
     setValuationDteDraft(null);
     setScenarioOffsetDays((currentDays) =>
-      shouldUseMaxDte ? 0 : clamp(currentDays, 0, nextScenarioMaxOffsetDays),
+      clamp(currentDays, 0, nextScenarioMaxOffsetDays),
     );
   };
   const updateExpirationDays = (nextValue: number) => {
@@ -8923,7 +8923,7 @@ export default function DebitCallSpreadLab({
       setCalendarShortPrice(effectiveScenarioPrice);
       setCalendarShortPriceDraft(null);
     }
-    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays, true);
+    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays);
     setGraphComparisonId(`custom:${nextId}`);
     setEditingComparisonId(null);
 
@@ -9038,7 +9038,7 @@ export default function DebitCallSpreadLab({
       dividendYieldPct: nextComparison.dividendYieldPct,
     });
     setCustomComparisons(nextComparisons);
-    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays, true);
+    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays);
     setComparisonPanelMode("custom");
     setGraphComparisonId(`custom:${nextId}`);
     setIsCustomComparisonEditorOpen(false);
@@ -9166,7 +9166,7 @@ export default function DebitCallSpreadLab({
       scenarioPrice: nextScenarioPrice,
       scenarioOffsetDays: nextScenarioOffsetDays,
     });
-    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays, true);
+    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays);
     setScenarioOffsetDays(nextScenarioOffsetDays);
     setValuationDteDraft(null);
     setComparisonPanelMode("custom");
@@ -9207,7 +9207,7 @@ export default function DebitCallSpreadLab({
         ),
       }));
     }
-    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays, true);
+    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays);
     setEditingComparisonId((currentId) => (currentId === id ? null : currentId));
     setGraphComparisonId((currentId) =>
       currentId === `custom:${id}` ? "editor" : currentId,
