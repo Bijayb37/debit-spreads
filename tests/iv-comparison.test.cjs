@@ -66,3 +66,16 @@ test('an unmatched strike search keeps the entered strikes', () => {
   assert.equal(result.equivalentStrike.longStrike, 100.5);
   assert.equal(result.equivalentStrike.shortStrike, 103.5);
 });
+
+test('the less-time suggestion keeps the strikes and a realistic expiry', () => {
+  for (const instrument of ['debit-call-spread', 'long-call']) {
+    const input = { ...base, instrument };
+    const baseline = iv.calculateIvEquivalentStrategy({ ...input, comparisonIvPct: input.baselineIvPct });
+    const result = iv.calculateIvEquivalentStrategy(input);
+    const match = result.equivalentDte;
+    assert.equal(match.longStrike, input.longStrike);
+    assert.equal(match.shortStrike, input.shortStrike);
+    assert.ok(match.entryDte > 7 && match.entryDte < input.entryDte, `entryDte ${match.entryDte}`);
+    assert.ok(Math.abs(match.entryUnitCost - baseline.baseline.entryUnitCost) / baseline.baseline.entryUnitCost < 0.05);
+  }
+});

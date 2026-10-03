@@ -529,6 +529,7 @@ function findEquivalentDte({
   dividendYield,
   matchMetric,
   targetMetricPct,
+  targetEntryUnitCost,
 }: StrategyTerms & {
   instrument: IvComparisonInstrument;
   spot: number;
@@ -537,8 +538,12 @@ function findEquivalentDte({
   dividendYield: number;
   matchMetric: IvComparisonMatchMetric;
   targetMetricPct: number;
+  targetEntryUnitCost: number;
 }): IvEquivalentStrategyResult["equivalentDte"] {
+  // Less time offsets higher IV when the same strikes cost the same to
+  // enter, so pick the expiry whose entry cost is closest to the original.
   let bestResult: IvEquivalentStrategyResult["equivalentDte"] | null = null;
+  let bestCostDifference = Number.POSITIVE_INFINITY;
 
   for (
     let candidateDte = 1;
@@ -576,12 +581,11 @@ function findEquivalentDte({
         getMatchMetricValue(result, matchMetric) - targetMetricPct,
     };
 
-    if (
-      bestResult === null ||
-      Math.abs(candidate.matchDifferencePoints) <
-        Math.abs(bestResult.matchDifferencePoints)
-    ) {
+    const costDifference = Math.abs(result.entryUnitCost - targetEntryUnitCost);
+
+    if (costDifference < bestCostDifference) {
       bestResult = candidate;
+      bestCostDifference = costDifference;
     }
   }
 
@@ -617,100 +621,6 @@ function findEquivalentDte({
     matchDifferencePoints:
       getMatchMetricValue(fallbackResult, matchMetric) - targetMetricPct,
   };
-}
-
-function findEquivalentDebitSpreadDte({
-  spot,
-  longStrike,
-  shortStrike,
-  entryDte,
-  volatility,
-  rate,
-  dividendYield,
-  targetMaximumReturnPct,
-  targetExpectedMoveReturnPct,
-}: StrategyTerms & {
-  spot: number;
-  volatility: number;
-  rate: number;
-  dividendYield: number;
-  targetMaximumReturnPct: number;
-  targetExpectedMoveReturnPct: number;
-}): IvEquivalentStrategyResult["equivalentDte"] {
-  const initialWidth = Math.max(shortStrike - longStrike, 0.01);
-  const maximumCandidateDte = Math.max(entryDte - 1, 1);
-  let bestResult:
-    | (IvEquivalentStrategyResult["equivalentDte"] & {
-        expectedMoveDifferencePoints: number;
-      })
-    | null = null;
-
-  for (
-    let candidateDte = 1;
-    candidateDte <= maximumCandidateDte;
-    candidateDte += 1
-  ) {
-    const candidateElapsedDays = candidateDte / 2;
-    const candidateScenarioPrice =
-      spot +
-      spot *
-        volatility *
-        Math.sqrt(candidateElapsedDays / YEAR_DAYS);
-    const widthMatch = solveDebitSpreadWidthForMaxReturn({
-      spot,
-      scenarioPrice: candidateScenarioPrice,
-      longStrike,
-      initialWidth,
-      entryDte: candidateDte,
-      elapsedDays: candidateElapsedDays,
-      volatility,
-      rate,
-      dividendYield,
-      targetMaximumReturnPct,
-    });
-
-    if (!widthMatch) {
-      continue;
-    }
-
-    const candidate = {
-      ...widthMatch,
-      longStrike,
-      shortStrike: widthMatch.shortStrike,
-      entryDte: candidateDte,
-      valuationDte: candidateDte - candidateElapsedDays,
-      elapsedDays: candidateElapsedDays,
-      scenarioPrice: candidateScenarioPrice,
-      daysLess: entryDte - candidateDte,
-      expectedMoveDifferencePoints:
-        widthMatch.returnPct - targetExpectedMoveReturnPct,
-    };
-
-    if (
-      !bestResult ||
-      Math.abs(candidate.expectedMoveDifferencePoints) <
-        Math.abs(bestResult.expectedMoveDifferencePoints)
-    ) {
-      bestResult = candidate;
-    }
-  }
-
-  if (bestResult) {
-    return bestResult;
-  }
-
-  return findEquivalentDte({
-    instrument: "debit-call-spread",
-    spot,
-    longStrike,
-    shortStrike,
-    entryDte,
-    volatility,
-    rate,
-    dividendYield,
-    matchMetric: "maximum-return",
-    targetMetricPct: targetMaximumReturnPct,
-  });
 }
 
 // Typical listed strike spacing, so suggested strikes are ones a chain offers.
@@ -860,21 +770,13 @@ export function calculateIvEquivalentStrategy({
           matchMetric,
           targetMetricPct,
         });
-  const solvedDte =
-    instrument === "debit-call-spread"
-      ? findEquivalentDebitSpreadDte({
-          ...commonInputs,
-          volatility: comparisonVolatility,
-          targetMaximumReturnPct: targetMetricPct,
-          targetExpectedMoveReturnPct: baseline.returnPct,
-        })
-      : findEquivalentDte({
-          ...commonInputs,
-          volatility: comparisonVolatility,
-          matchMetric,
-          targetMetricPct,
-        });
-
+  const equivalentDte = findEquivalentDte({
+    ...commonInputs,
+    volatility: comparisonVolatility,
+    matchMetric,
+    targetMetricPct,
+    targetEntryUnitCost: baseline.entryUnitCost,
+  });
   const strikeIncrement = getListedStrikeIncrement(safeSpot);
   const isUnmovedStrike = solvedStrike.strikeShiftDollar < 0.005;
   const isUnchangedStrikeWidth =
@@ -911,40 +813,6 @@ export function calculateIvEquivalentStrategy({
             };
           }),
         );
-  const isUnchangedDteShortStrike =
-    Math.abs(solvedDte.shortStrike - safeShortStrike) < 0.005;
-  const equivalentDte =
-    instrument === "long-call" || isUnchangedDteShortStrike
-      ? solvedDte
-      : pickClosestMatch(
-          getListedStrikePairs({
-            instrument,
-            longStrike: solvedDte.longStrike,
-            shortStrike: solvedDte.shortStrike,
-            minimumLongStrike: safeLongStrike,
-            increment: strikeIncrement,
-            keepLongStrike: true,
-          }).map((strikes) => {
-            const listedResult = calculateStrategyReturn({
-              ...commonInputs,
-              ...strikes,
-              entryDte: solvedDte.entryDte,
-              elapsedDays: solvedDte.elapsedDays,
-              scenarioPrice: solvedDte.scenarioPrice,
-              volatility: comparisonVolatility,
-            });
-
-            return {
-              ...solvedDte,
-              ...listedResult,
-              ...strikes,
-              matchDifferencePoints:
-                getMatchMetricValue(listedResult, matchMetric) -
-                targetMetricPct,
-            };
-          }),
-        );
-
   return {
     matchMetric,
     targetMetricPct,
