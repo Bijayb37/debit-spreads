@@ -93,7 +93,7 @@ export function ActiveSetupStrip({
         aria-label={isOpen ? "Close setup and strategies" : "Open setup and strategies"}
         title={isOpen ? "Close setup and strategies" : "Open setup and strategies"}
         onClick={isOpen ? onToggle : onOpen}
-        className="grid w-full min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-2 bg-transparent px-2 py-1 text-left text-sm text-ink-secondary transition-colors hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-accent sm:px-2.5"
+        className="grid w-full min-w-0 cursor-pointer grid-cols-[auto_minmax(0,1fr)] items-center gap-2 bg-transparent px-2 py-1.5 text-left text-sm text-ink-secondary transition-colors md:py-1 hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-accent sm:px-2.5"
       >
         <span
           aria-hidden
@@ -114,12 +114,13 @@ export function ActiveSetupStrip({
             <path d={isOpen ? "M5 12l5-5 5 5" : "M5 8l5 5 5-5"} />
           </svg>
         </span>
-        <span className="grid min-w-0 gap-1.5 md:grid-cols-2">
-          <span className="grid min-w-0 gap-0.5 rounded-md border border-line bg-surface-muted px-2 py-1">
-            <span className="text-nano font-semibold uppercase tracking-wide text-ink-muted">
+        {/* One line on phones; two labelled boxes from md up. */}
+        <span className="flex min-w-0 items-baseline gap-3 md:grid md:grid-cols-2 md:gap-1.5">
+          <span className="min-w-0 shrink-0 md:grid md:shrink md:gap-0.5 md:rounded-md md:border md:border-line md:bg-surface-muted md:px-2 md:py-1">
+            <span className="hidden text-nano font-semibold uppercase tracking-wide text-ink-muted md:block">
               Setup
             </span>
-            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="flex min-w-0 items-baseline gap-x-2 gap-y-0.5 whitespace-nowrap md:flex-wrap md:whitespace-normal">
               <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-ink">
                 {symbol.trim() || "Underlying"}
               </span>
@@ -131,11 +132,11 @@ export function ActiveSetupStrip({
               </span>
             </span>
           </span>
-          <span className="grid min-w-0 gap-0.5 rounded-md border border-line bg-surface-muted px-2 py-1">
-            <span className="text-nano font-semibold uppercase tracking-wide text-ink-muted">
+          <span className="min-w-0 overflow-hidden border-l border-line pl-3 md:grid md:gap-0.5 md:rounded-md md:border md:bg-surface-muted md:px-2 md:py-1">
+            <span className="hidden text-nano font-semibold uppercase tracking-wide text-ink-muted md:block">
               Strategy
             </span>
-            <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <span className="flex min-w-0 items-baseline gap-x-2 gap-y-0.5 whitespace-nowrap md:flex-wrap md:whitespace-normal">
               {hasSavedStrategies ? (
                 <>
                   <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-ink">
@@ -147,7 +148,7 @@ export function ActiveSetupStrip({
                     <span className="shrink-0 rounded-full border border-line bg-surface px-1.5 py-0.5 font-mono text-micro font-semibold leading-none tabular-nums text-ink-soft">
                       {displayDteLabel}
                     </span>
-                  <span className="shrink-0 rounded-full border border-line bg-surface px-1.5 py-0.5 font-mono text-micro font-semibold leading-none tabular-nums text-ink-soft shadow-sm">
+                  <span className="hidden shrink-0 rounded-full border border-line bg-surface px-1.5 py-0.5 font-mono text-micro font-semibold leading-none tabular-nums text-ink-soft shadow-sm md:inline">
                     {savedStrategyLabel}
                   </span>
                 </>
@@ -156,7 +157,7 @@ export function ActiveSetupStrip({
                   <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-ink">
                     No saved strategy
                   </span>
-                  <span className="min-w-0 truncate text-caption font-medium text-ink-secondary">
+                  <span className="hidden min-w-0 truncate text-caption font-medium text-ink-secondary md:inline">
                     Create one in setup
                   </span>
                 </>

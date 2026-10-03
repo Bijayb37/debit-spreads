@@ -223,7 +223,7 @@ export const WORKFLOW_TABS: Array<{
   {
     value: "understanding-iv",
     label: "IV guide",
-    shortLabel: "IV guide",
+    shortLabel: "IV",
   },
 ];
 

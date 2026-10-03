@@ -3298,11 +3298,11 @@ export default function DebitCallSpreadLab({
                 isTopBarVisible
                   ? "translate-y-0 opacity-100"
                   : "pointer-events-none -translate-y-[calc(100%+0.75rem)] opacity-0",
-                "grid-cols-1 rounded-xl border border-line bg-surface/95 p-1.5 shadow-lg shadow-slate-900/10 backdrop-blur md:grid-cols-[minmax(0,1fr)_auto]",
+                "grid-cols-[minmax(0,1fr)_auto] rounded-xl border border-line bg-surface/95 p-1 shadow-lg shadow-slate-900/10 backdrop-blur sm:p-1.5",
               )}
             >
               <WorkflowTabs activeTab={activeWorkflowTab} onChange={changeWorkflowTab} />
-              <div className="flex min-w-0 items-stretch justify-end gap-2">
+              <div className="flex min-w-0 items-stretch justify-end gap-1 sm:gap-2">
 
                 <SettingsWidget
                   colorScheme={colorScheme}
