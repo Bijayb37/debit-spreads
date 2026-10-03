@@ -25,7 +25,7 @@ export function SectionCard({
   return (
     <section
       className={cn(
-        "min-w-0 rounded-lg border border-line bg-surface p-3 shadow-sm",
+        "min-w-0 rounded-panel border border-line bg-surface p-panel shadow-sm sm:p-panel-lg",
         className,
       )}
     >

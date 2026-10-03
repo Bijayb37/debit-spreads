@@ -151,7 +151,7 @@ export function NumberSliderField({
   };
 
   return (
-    <div className={cn("min-w-0 rounded-lg border border-line bg-surface-muted p-2.5 shadow-sm", className)}>
+    <div className={cn("min-w-0 rounded-panel bg-surface-muted p-panel", className)}>
       <div
         className={cn(
           "grid grid-cols-[minmax(0,1fr)_5.75rem] items-start gap-2",

@@ -89,10 +89,10 @@
   --color-accent-border: var(--accent-border);
   --color-accent-ring: var(--accent-ring);
 
-  /* Small text sizes below Tailwind's text-xs (12px) */
-  --text-caption: 11px;
-  --text-micro: 10px;
-  --text-nano: 9px;
+  /* Small text roles. Nothing in the UI goes below 12px except chart ticks. */
+  --text-caption: 0.75rem;
+  --text-micro: 0.75rem;
+  --text-nano: 0.6875rem;
 
   /* Spacing and radius roles, on Tailwind's 4px scale */
   --spacing-control: 0.5rem;

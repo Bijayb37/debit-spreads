@@ -2522,13 +2522,13 @@ export default function DebitCallSpreadLab({
   const setupInputControls = (
     <div
       className={cn(
-        "grid min-w-0 gap-3",
+        "grid min-w-0 gap-section",
         "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]",
       )}
     >
-      <section className="min-w-0 space-y-3 rounded-lg border border-line bg-surface p-4 shadow-sm">
+      <section className="min-w-0 space-y-3">
         {stepHeader("1", "Stock setup", "Set the underlying assumptions.")}
-        <label className="flex min-w-0 items-center gap-3 rounded-md border border-line bg-surface-muted px-3 py-2 shadow-sm">
+        <label className="flex min-w-0 items-center gap-3 rounded-panel bg-surface-muted px-panel py-2">
           <span className="shrink-0 text-caption font-medium uppercase tracking-wide text-ink-muted">
             Ticker
           </span>
@@ -2580,7 +2580,7 @@ export default function DebitCallSpreadLab({
           }))}
         />
 
-        <details className="group rounded-md border border-line bg-surface-muted shadow-sm">
+        <details className="group rounded-panel bg-surface-muted">
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium text-ink-soft">
             <span>Advanced pricing</span>
             <span className="text-xs text-ink-muted transition-transform group-open:rotate-180">
@@ -2621,7 +2621,7 @@ export default function DebitCallSpreadLab({
         </details>
       </section>
 
-      <section className="min-w-0 space-y-3 rounded-lg border border-line bg-surface p-4 shadow-sm">
+      <section className="min-w-0 space-y-3 border-t border-line pt-section lg:border-l lg:border-t-0 lg:pl-section lg:pt-0">
         {stepHeader(
           "2",
           "Pick a strategy",
@@ -2680,7 +2680,7 @@ export default function DebitCallSpreadLab({
         {isDebitSpread && (
           isPutDownsideSpread ? shortStrike < longStrike : shortStrike > longStrike
         ) ? (
-          <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink-secondary">
+          <p className="rounded-panel bg-surface-muted px-panel py-2 text-xs text-ink-secondary">
             <span className="font-semibold text-slate-900">
               {formatStrikeCurrency(Math.abs(shortStrike - longStrike))} wide
             </span>{" "}
@@ -2850,7 +2850,7 @@ export default function DebitCallSpreadLab({
         />
 
         <div
-          className="flex min-w-0 flex-col gap-3 rounded-md border border-line bg-surface-muted px-3 py-2 shadow-sm min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between"
+          className="flex min-w-0 flex-col gap-3 rounded-panel bg-surface-muted px-panel py-2 min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between"
           role="group"
           aria-label="Position sizing"
         >
