@@ -8,6 +8,7 @@ import type {
   ReactNode,
 } from "react";
 import DebitSpreadScenarioVisualizer from "@/components/debit-spread-scenario-visualizer";
+import AiHelp from "@/components/ai-help";
 import { cn } from "@/lib/cn";
 import { calculateIvEquivalentStrategy } from "@/lib/iv-comparison";
 import {
@@ -16,7 +17,6 @@ import {
   blackScholesCall,
   blackScholesGreeks,
   blackScholesPut,
-  buildPriceCurve,
   buildPriceLadderRows,
   buildTimelineRows,
   clamp,
@@ -34,7 +34,6 @@ import {
 import type {
   OptionStrategy,
   OptionGreeks,
-  PriceCurvePoint,
   PriceLadderRow,
   ScenarioSnapshot,
   StrategyInputs,
@@ -53,15 +52,6 @@ type SectionCardProps = {
   eyebrowClassName?: string;
   hideHeader?: boolean;
   action?: ReactNode;
-};
-
-type MetricTone = "default" | "positive" | "negative" | "accent";
-
-type MetricCardProps = {
-  label: string;
-  value: string;
-  tone?: MetricTone;
-  helper?: string;
 };
 
 type InfoIconProps = {
@@ -96,53 +86,6 @@ type TimeDecayChartProps = {
   scenarioPriceLabel: string;
 };
 
-type OverlayCurve = {
-  id: string;
-  label: string;
-  offsetDays: number;
-  isExpiry: boolean;
-  points: Array<{ price: number; pnl: number }>;
-};
-
-type MultiDateOverlayChartProps = {
-  title: string;
-  subtitle: string;
-  curves: OverlayCurve[];
-  selectedPrice: number;
-  selectedOffsetDays: number;
-  breakEvenPrice: number;
-  spotPrice: number;
-  priceMarkers: PriceMarker[];
-  totalCost: number;
-};
-
-type PnlCurvePoint = {
-  price: number;
-  selectedDatePnl: number;
-  expiryPnl: number;
-};
-
-type PriceMarker = {
-  value: number;
-  label: string;
-};
-
-type PnlScenarioChartProps = {
-  title: string;
-  subtitle: string;
-  points: PnlCurvePoint[];
-  selectedPrice: number;
-  selectedPnl: number;
-  breakEvenPrice: number;
-  spotPrice: number;
-  priceMarkers: PriceMarker[];
-  maxProfit: number | null;
-  maxLoss: number;
-  totalCost: number;
-  showExpiryCurve: boolean;
-  scenarioDateLabel: string;
-};
-
 type NumberSliderFieldProps = {
   label: string;
   help: string;
@@ -168,30 +111,6 @@ type NumberSliderFieldProps = {
   className?: string;
   headerClassName?: string;
   sliderClassName?: string;
-};
-
-type ScenarioValueMapProps = {
-  unitName: string;
-  minPrice: number;
-  maxPrice: number;
-  selectedPrice: number;
-  selectedOffsetDays: number;
-  selectedValue: number;
-  selectedPnl: number;
-  selectedRoi: number;
-  currentSpot: number;
-  expirationDays: number;
-  todayIso: string;
-  scenarioDateLabel: string;
-  breakEvenPrice: number;
-  totalCost: number;
-  maxProfit: number | null;
-  getScenarioTooltipPoint: (price: number, offsetDays: number) => {
-    dateLabel: string;
-    positionValue: number;
-    pnl: number;
-    roi: number;
-  };
 };
 
 type TableColumn<Row> = {
@@ -270,27 +189,7 @@ type StrategyGreekRow = {
   isNet?: boolean;
 };
 
-type CustomComparisonConfig = {
-  id: string;
-  label: string;
-  strategy: OptionStrategy;
-  symbol?: string;
-  todayIso?: string;
-  spot?: number;
-  longStrike: number;
-  shortStrike: number;
-  ratioShortCount?: number;
-  shortExpirationDays?: number;
-  volatilityPct?: number;
-  futureVolatilityPct?: number;
-  capital: number;
-  expirationDays: number;
-  allowFractionalContracts: boolean;
-  scenarioPrice?: number;
-  scenarioOffsetDays?: number;
-  ratePct?: number;
-  dividendYieldPct?: number;
-};
+type CustomComparisonConfig = Omit<ComparisonCandidate, "note">;
 
 type CustomComparisonDraft = Omit<CustomComparisonConfig, "id">;
 
@@ -1376,59 +1275,6 @@ function formatCompactCurrency(value: number): string {
   return `${sign}$${absValue}`;
 }
 
-function getStockPriceTickStep(
-  minPrice: number,
-  maxPrice: number,
-  referencePrice: number,
-): number {
-  const rangeStep = Math.max(maxPrice - minPrice, 1) / 5;
-  const priceStep = Math.max(Math.abs(referencePrice) * 0.05, 1);
-  const rawStep = Math.max(rangeStep, priceStep);
-  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
-  const normalizedStep = rawStep / magnitude;
-  const niceMultiplier =
-    normalizedStep <= 1
-      ? 1
-      : normalizedStep <= 2
-        ? 2
-        : normalizedStep <= 2.5
-          ? 2.5
-          : normalizedStep <= 5
-            ? 5
-            : 10;
-
-  return Math.max(1, niceMultiplier * magnitude);
-}
-
-function buildStockPriceAxisTicks(
-  minPrice: number,
-  maxPrice: number,
-  referencePrice: number,
-): number[] {
-  const safeMin = Math.max(0, Math.floor(Math.min(minPrice, maxPrice)));
-  const safeMax = Math.max(safeMin + 1, Math.ceil(Math.max(minPrice, maxPrice)));
-  const step = getStockPriceTickStep(safeMin, safeMax, referencePrice);
-  const firstTick = Math.ceil(safeMin / step) * step;
-  const ticks: number[] = [];
-  const seenLabels = new Set<string>();
-
-  for (
-    let tick = firstTick;
-    tick <= safeMax + step * 0.001;
-    tick += step
-  ) {
-    const roundedTick = Math.round(tick);
-    const label = formatCurrency(roundedTick);
-
-    if (!seenLabels.has(label)) {
-      ticks.push(roundedTick);
-      seenLabels.add(label);
-    }
-  }
-
-  return ticks;
-}
-
 function formatPercent(value: number): string {
   const roundedValue = Math.round(value * 100);
   const safeValue = Object.is(roundedValue, -0) ? 0 : roundedValue;
@@ -1672,14 +1518,6 @@ function normalizeSymbol(value: string): string {
   return value.trim().toUpperCase();
 }
 
-function SidebarGroupLabel({ children }: { children: ReactNode }) {
-  return (
-    <h3 className="flex items-baseline justify-between gap-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-      {children}
-    </h3>
-  );
-}
-
 function SectionCard({
   title,
   eyebrow,
@@ -1717,81 +1555,6 @@ function SectionCard({
         </div>
       ) : null}
       {children}
-    </section>
-  );
-}
-
-function MetricCard({ label, value, tone = "default", helper }: MetricCardProps) {
-  return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm sm:p-4">
-      <p className="text-sm text-slate-600">{label}</p>
-      <p
-        className={cn(
-          "mt-2 font-mono text-2xl font-semibold tabular-nums",
-          tone === "positive" && "text-emerald-700",
-          tone === "negative" && "text-rose-700",
-          tone === "accent" && "text-[var(--accent)]",
-          tone === "default" && "text-slate-950",
-        )}
-      >
-        {value}
-      </p>
-      {helper ? <p className="mt-1 text-sm text-slate-500 text-pretty">{helper}</p> : null}
-    </div>
-  );
-}
-
-function WorkflowStep({
-  step,
-  title,
-  description,
-  children,
-}: {
-  step: string;
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="mb-3 flex min-w-0 items-start gap-3">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-950 font-mono text-sm font-semibold text-white tabular-nums">
-          {step}
-        </span>
-        <div className="min-w-0">
-          <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950 text-balance">
-            {title}
-          </h2>
-          <p className="mt-0.5 text-sm text-slate-500 text-pretty">{description}</p>
-        </div>
-      </div>
-      <div className="min-w-0 space-y-3">{children}</div>
-    </section>
-  );
-}
-
-function WorkflowStepIntro({
-  step,
-  title,
-  description,
-}: {
-  step: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <section className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="flex min-w-0 items-start gap-3">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-slate-950 font-mono text-sm font-semibold text-white tabular-nums">
-          {step}
-        </span>
-        <div className="min-w-0">
-          <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-slate-950 text-balance">
-            {title}
-          </h2>
-          <p className="mt-0.5 text-sm text-slate-500 text-pretty">{description}</p>
-        </div>
-      </div>
     </section>
   );
 }
@@ -1993,36 +1756,6 @@ function SettingsWidget({
   );
 }
 
-function StrategyShelfToggle({
-  count,
-  isOpen,
-  onClick,
-}: {
-  count: number;
-  isOpen: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-expanded={isOpen}
-      aria-controls="strategy-shelf"
-      onClick={onClick}
-      className={cn(
-        "flex min-w-0 items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
-        isOpen
-          ? "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950"
-          : "border-slate-300 bg-white text-slate-700 hover:border-[var(--accent)] hover:text-slate-950",
-      )}
-    >
-      <span className="truncate">Strategies</span>
-      <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 font-mono text-xs text-slate-600 tabular-nums">
-        {count}
-      </span>
-    </button>
-  );
-}
-
 function ActiveSetupStrip({
   symbol,
   spot,
@@ -2179,38 +1912,6 @@ function ActiveSetupStrip({
           ) : null}
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function SetupSummaryStrip({
-  symbol,
-  spot,
-  volatilityPct,
-}: {
-  symbol: string;
-  spot: number;
-  volatilityPct: number;
-}) {
-  const items = [
-    ["Ticker", symbol.trim() || "Underlying"],
-    ["Current price", formatPriceCurrency(spot)],
-    ["Current IV", `${compactNumber(volatilityPct)}%`],
-  ];
-
-  return (
-    <div className="grid min-w-0 gap-2 sm:grid-cols-3">
-      {items.map(([label, value]) => (
-        <div
-          key={label}
-          className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
-        >
-          <p className="text-[11px] font-semibold uppercase text-slate-500">{label}</p>
-          <p className="mt-1 truncate font-mono text-sm font-semibold text-slate-950 tabular-nums">
-            {value}
-          </p>
-        </div>
-      ))}
     </div>
   );
 }
@@ -3812,41 +3513,6 @@ function CompactStrategyList({
   );
 }
 
-function OptionComparisonBoard({
-  cards,
-  selectedCardId,
-  scenarioDateLabel,
-  scenarioPrice,
-  symbol,
-}: {
-  cards: ComparisonCardData[];
-  selectedCardId?: string | null;
-  scenarioDateLabel: string;
-  scenarioPrice: number;
-  symbol: string;
-}) {
-  return (
-    <SectionCard
-      title="Compare strategies"
-      eyebrow={`${symbol.trim() || "Underlying"} alternatives at ${formatCurrency(
-        scenarioPrice,
-      )} on ${scenarioDateLabel}`}
-      action={
-        <div className="flex min-w-0 flex-wrap justify-end gap-2">
-          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
-            Saved order
-          </div>
-        </div>
-      }
-    >
-      <ComparisonCardGrid
-        cards={cards}
-        selectedCardId={selectedCardId}
-      />
-    </SectionCard>
-  );
-}
-
 function getMaxProfitAtExpiryLabel(card: ComparisonCardData): string {
   if (card.strategy === "call-calendar") {
     return "Open";
@@ -4476,75 +4142,6 @@ function DecisionOutcomeMatrix({
         </article>
       ))}
     </div>
-  );
-}
-
-function DecisionMethodCard({
-  label,
-  helper,
-  card,
-  value,
-  selectedCardId,
-  onAnalyzeCard,
-}: {
-  label: string;
-  helper: string;
-  card: ComparisonCardData;
-  value: string;
-  selectedCardId?: string | null;
-  onAnalyzeCard?: ComparisonCardAction;
-}) {
-  const isSelected = card.id === selectedCardId;
-
-  return (
-    <article
-      className={cn(
-        "min-w-0 rounded-lg border bg-white p-3 shadow-sm",
-        isSelected ? "border-slate-950 ring-1 ring-slate-300" : "border-slate-200",
-      )}
-    >
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase text-slate-500">{label}</p>
-          <h3 className="mt-1 truncate font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">
-            {card.label}
-          </h3>
-        </div>
-        <p className="shrink-0 font-mono text-sm font-semibold text-slate-950 tabular-nums">
-          {value}
-        </p>
-      </div>
-      <p className="mt-2 text-xs leading-5 text-slate-500 text-pretty">{helper}</p>
-      <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded-md bg-slate-50 px-2.5 py-2">
-          <p className="text-slate-500">P/L</p>
-          <p
-            className={cn(
-              "mt-0.5 font-mono font-semibold tabular-nums",
-              card.snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
-            )}
-          >
-            {card.snapshot.pnl >= 0 ? "+" : ""}
-            {formatCurrency(card.snapshot.pnl)}
-          </p>
-        </div>
-        <div className="rounded-md bg-slate-50 px-2.5 py-2">
-          <p className="text-slate-500">Cost</p>
-          <p className="mt-0.5 font-mono font-semibold text-slate-950 tabular-nums">
-            {formatCurrency(card.snapshot.totalCost)}
-          </p>
-        </div>
-      </div>
-      {onAnalyzeCard ? (
-        <button
-          type="button"
-          onClick={() => onAnalyzeCard(card)}
-          className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
-        >
-          {isSelected ? "Selected" : "Select"}
-        </button>
-      ) : null}
-    </article>
   );
 }
 
@@ -5629,598 +5226,6 @@ function NumberSliderField({
   );
 }
 
-function PnlScenarioChart({
-  title,
-  subtitle,
-  points,
-  selectedPrice,
-  selectedPnl,
-  breakEvenPrice,
-  spotPrice,
-  priceMarkers,
-  maxProfit,
-  maxLoss,
-  totalCost,
-  showExpiryCurve,
-  scenarioDateLabel,
-}: PnlScenarioChartProps) {
-  const profitClipId = useId();
-  const lossClipId = useId();
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const [hoverPrice, setHoverPrice] = useState<number | null>(null);
-
-  const width = 820;
-  const height = 360;
-  const padding = { top: 28, right: 96, bottom: 58, left: 84 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-
-  if (points.length < 2) {
-    return null;
-  }
-
-  const allPrices = [selectedPrice, breakEvenPrice, spotPrice, ...points.map((p) => p.price)];
-  const minPrice = Math.min(...allPrices);
-  const maxPrice = Math.max(...allPrices, minPrice + 1);
-
-  const pnlValues = [
-    selectedPnl,
-    maxLoss,
-    ...(maxProfit !== null ? [maxProfit] : []),
-    ...points.flatMap((p) =>
-      showExpiryCurve ? [p.selectedDatePnl, p.expiryPnl] : [p.selectedDatePnl],
-    ),
-  ];
-  const rawMin = Math.min(...pnlValues);
-  const rawMax = Math.max(...pnlValues);
-  const span = Math.max(rawMax - rawMin, 1);
-  const yMin = rawMin - span * 0.08;
-  const yMax = rawMax + span * 0.08;
-
-  const x = (price: number) =>
-    padding.left +
-    ((clamp(price, minPrice, maxPrice) - minPrice) /
-      Math.max(maxPrice - minPrice, 1)) *
-      chartWidth;
-  const y = (value: number) =>
-    padding.top +
-    ((yMax - clamp(value, yMin, yMax)) / Math.max(yMax - yMin, 1)) * chartHeight;
-
-  const niceTick = (raw: number) => {
-    const abs = Math.abs(raw);
-    if (abs >= 1000) {
-      return Math.round(raw / 1000) * 1000;
-    }
-    if (abs >= 100) {
-      return Math.round(raw / 100) * 100;
-    }
-    return Math.round(raw);
-  };
-  const yTickCandidates = [
-    { value: 0, priority: 0 },
-    { value: niceTick(rawMax), priority: 1 },
-    { value: niceTick(rawMin), priority: 1 },
-    { value: niceTick(yMin + (yMax - yMin) * 0.5), priority: 2 },
-    { value: niceTick(yMin + (yMax - yMin) * 0.1), priority: 3 },
-    { value: niceTick(yMin + (yMax - yMin) * 0.9), priority: 3 },
-  ].filter((tick) => tick.value >= yMin && tick.value <= yMax);
-
-  const selectedYTicks: number[] = [];
-  const selectedYTickLabels = new Set<string>();
-  const minYTickGap = 24;
-
-  for (const candidate of yTickCandidates.sort((a, b) => a.priority - b.priority)) {
-    const labelKey = `${formatCompactCurrency(candidate.value)}|${formatCompactCurrency(
-      candidate.value + totalCost,
-    )}`;
-    const candidateY = y(candidate.value);
-    const overlapsExistingTick = selectedYTicks.some(
-      (tick) => Math.abs(y(tick) - candidateY) < minYTickGap,
-    );
-
-    if (selectedYTickLabels.has(labelKey) || overlapsExistingTick) {
-      continue;
-    }
-
-    selectedYTicks.push(candidate.value);
-    selectedYTickLabels.add(labelKey);
-  }
-
-  const yTickValues = selectedYTicks.sort((a, b) => a - b);
-
-  const priceAxisTicks = buildStockPriceAxisTicks(minPrice, maxPrice, spotPrice);
-  const strikeMarkers = priceMarkers
-    .filter(
-      (marker) =>
-        marker.label !== "Spot" &&
-        marker.value >= minPrice &&
-        marker.value <= maxPrice,
-    )
-    .sort((a, b) => a.value - b.value);
-
-  const buildPath = (key: "selectedDatePnl" | "expiryPnl") =>
-    points
-      .map((point, index) => `${index === 0 ? "M" : "L"} ${x(point.price)} ${y(point[key])}`)
-      .join(" ");
-
-  const selectedPath = buildPath("selectedDatePnl");
-  const expiryPath = buildPath("expiryPnl");
-
-  const zeroY = y(0);
-
-  const selectedX = x(selectedPrice);
-  const selectedY = y(selectedPnl);
-  const breakEvenX = x(breakEvenPrice);
-  const spotX = x(spotPrice);
-  const showSpotMarker = spotPrice >= minPrice && spotPrice <= maxPrice;
-  const showBreakEvenMarker = breakEvenPrice >= minPrice && breakEvenPrice <= maxPrice;
-
-  const profitColor = "#059669";
-  const lossColor = "#be123c";
-  const profitFill = "rgba(5, 150, 105, 0.08)";
-  const lossFill = "rgba(190, 18, 60, 0.08)";
-
-  const findNearestPoint = (price: number) => {
-    let nearest = points[0];
-    let nearestDistance = Math.abs(points[0].price - price);
-    for (let index = 1; index < points.length; index += 1) {
-      const distance = Math.abs(points[index].price - price);
-      if (distance < nearestDistance) {
-        nearest = points[index];
-        nearestDistance = distance;
-      }
-    }
-    return nearest;
-  };
-  const handleSvgPointerMove = (event: PointerEvent<SVGSVGElement>) => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    if (rect.width === 0) return;
-    const localX = ((event.clientX - rect.left) / rect.width) * width;
-    if (localX < padding.left || localX > width - padding.right) {
-      setHoverPrice(null);
-      return;
-    }
-    const ratio = (localX - padding.left) / Math.max(chartWidth, 1);
-    const price = minPrice + ratio * (maxPrice - minPrice);
-    setHoverPrice(price);
-  };
-  const handlePointerLeave = () => setHoverPrice(null);
-
-  const hoverPoint = hoverPrice !== null ? findNearestPoint(hoverPrice) : null;
-  const hoverX = hoverPoint ? x(hoverPoint.price) : 0;
-  const hoverSelectedY = hoverPoint ? y(hoverPoint.selectedDatePnl) : 0;
-  const hoverExpiryY = hoverPoint ? y(hoverPoint.expiryPnl) : 0;
-  const hoverValue = hoverPoint ? hoverPoint.selectedDatePnl + totalCost : 0;
-  const hoverExpiryValue = hoverPoint ? hoverPoint.expiryPnl + totalCost : 0;
-  const tooltipWidth = 168;
-  const tooltipHeight = showExpiryCurve ? 102 : 78;
-  const tooltipPadding = 12;
-  const tooltipX =
-    hoverPoint && hoverX + tooltipPadding + tooltipWidth > width - padding.right
-      ? hoverX - tooltipPadding - tooltipWidth
-      : hoverX + tooltipPadding;
-  const tooltipY = padding.top + 4;
-
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
-          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
-        </div>
-        <div className="flex flex-wrap justify-end gap-x-4 gap-y-1.5 text-xs text-slate-600">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-0.5 w-4 rounded-full bg-slate-700" />
-            On {scenarioDateLabel}
-          </span>
-          {showExpiryCurve ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className="h-0.5 w-4 rounded-full"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(to right, #64748b 50%, transparent 50%)",
-                  backgroundSize: "6px 2px",
-                }}
-              />
-              At expiry
-            </span>
-          ) : null}
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[var(--accent)]" />
-            Selected
-            <span
-              className={cn(
-                "font-mono font-semibold tabular-nums",
-                selectedPnl >= 0 ? "text-emerald-700" : "text-rose-700",
-              )}
-            >
-              {selectedPnl >= 0 ? "+" : ""}
-              {formatCompactCurrency(selectedPnl)}
-            </span>
-            <span className="font-mono text-slate-500 tabular-nums">
-              ({formatCompactCurrency(selectedPnl + totalCost)} value)
-            </span>
-          </span>
-          {showBreakEvenMarker ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className="h-0.5 w-4 rounded-full"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(to right, #0f172a 50%, transparent 50%)",
-                  backgroundSize: "4px 2px",
-                }}
-              />
-              B/E
-              <span className="font-mono text-slate-500 tabular-nums">
-                {formatCurrency(breakEvenPrice)}
-              </span>
-            </span>
-          ) : null}
-        </div>
-      </div>
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${width} ${height}`}
-        className="w-full"
-        role="img"
-        aria-label={`${title}: ${subtitle}`}
-        onPointerMove={handleSvgPointerMove}
-        onPointerLeave={handlePointerLeave}
-      >
-        <defs>
-          <clipPath id={profitClipId}>
-            <rect
-              x={padding.left}
-              y={padding.top}
-              width={chartWidth}
-              height={Math.max(zeroY - padding.top, 0)}
-            />
-          </clipPath>
-          <clipPath id={lossClipId}>
-            <rect
-              x={padding.left}
-              y={zeroY}
-              width={chartWidth}
-              height={Math.max(height - padding.bottom - zeroY, 0)}
-            />
-          </clipPath>
-        </defs>
-
-        <rect
-          x={padding.left}
-          y={padding.top}
-          width={chartWidth}
-          height={chartHeight}
-          fill={CHART_COLORS.paper}
-        />
-
-        <rect
-          x={padding.left}
-          y={padding.top}
-          width={chartWidth}
-          height={Math.max(zeroY - padding.top, 0)}
-          fill={profitFill}
-        />
-        <rect
-          x={padding.left}
-          y={zeroY}
-          width={chartWidth}
-          height={Math.max(height - padding.bottom - zeroY, 0)}
-          fill={lossFill}
-        />
-
-        {yTickValues.map((tick, index) => (
-          <g key={`pnl-y-${tick}-${index}`}>
-            <line
-              x1={padding.left}
-              x2={width - padding.right}
-              y1={y(tick)}
-              y2={y(tick)}
-              stroke={tick === 0 ? CHART_COLORS.inkMuted : CHART_COLORS.line}
-              strokeWidth={tick === 0 ? 1.25 : 1}
-            />
-            <text
-              x={padding.left - 10}
-              y={y(tick) + 4}
-              textAnchor="end"
-              fill={tick === 0 ? CHART_COLORS.ink : CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
-            >
-              {tick > 0 ? "+" : ""}
-              {formatCompactCurrency(tick)}
-            </text>
-            <text
-              x={width - padding.right + 10}
-              y={y(tick) + 4}
-              textAnchor="start"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
-            >
-              {formatCompactCurrency(tick + totalCost)}
-            </text>
-          </g>
-        ))}
-        <text
-          x={padding.left - 10}
-          y={padding.top - 12}
-          textAnchor="end"
-          fill={CHART_COLORS.inkMuted}
-          className="text-[10px] font-semibold uppercase tracking-wide"
-        >
-          P/L
-        </text>
-        <text
-          x={width - padding.right + 10}
-          y={padding.top - 12}
-          textAnchor="start"
-          fill={CHART_COLORS.inkMuted}
-          className="text-[10px] font-semibold uppercase tracking-wide"
-        >
-          Value
-        </text>
-
-        {priceAxisTicks.map((tick) => (
-          <g key={`pnl-price-axis-${tick}`}>
-            <line
-              x1={x(tick)}
-              x2={x(tick)}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.grid}
-              strokeWidth={1}
-            />
-            <text
-              x={x(tick)}
-              y={height - padding.bottom + 18}
-              textAnchor="middle"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
-            >
-              {formatCurrency(tick)}
-            </text>
-          </g>
-        ))}
-
-        {showExpiryCurve ? (
-          <>
-            <path
-              d={expiryPath}
-              fill="none"
-              stroke={profitColor}
-              strokeWidth={2}
-              strokeDasharray="6 5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              clipPath={`url(#${profitClipId})`}
-            />
-            <path
-              d={expiryPath}
-              fill="none"
-              stroke={lossColor}
-              strokeWidth={2}
-              strokeDasharray="6 5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              clipPath={`url(#${lossClipId})`}
-            />
-          </>
-        ) : null}
-
-        <path
-          d={selectedPath}
-          fill="none"
-          stroke={profitColor}
-          strokeWidth={2.75}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          clipPath={`url(#${profitClipId})`}
-        />
-        <path
-          d={selectedPath}
-          fill="none"
-          stroke={lossColor}
-          strokeWidth={2.75}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          clipPath={`url(#${lossClipId})`}
-        />
-
-        {showSpotMarker ? (
-          <g>
-            <line
-              x1={spotX}
-              x2={spotX}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.inkMuted}
-              strokeOpacity={0.55}
-              strokeWidth={1}
-              strokeDasharray="3 3"
-            />
-            <text
-              x={spotX}
-              y={padding.top - 8}
-              textAnchor="middle"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[10px]"
-            >
-              Spot {formatCurrency(spotPrice)}
-            </text>
-          </g>
-        ) : null}
-
-        {strikeMarkers.map((marker, index) => (
-          <g key={`pnl-strike-${marker.label}-${index}`}>
-            <line
-              x1={x(marker.value)}
-              x2={x(marker.value)}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.inkMuted}
-              strokeOpacity={0.35}
-              strokeWidth={1}
-              strokeDasharray="2 4"
-            />
-            <text
-              x={x(marker.value)}
-              y={padding.top - (index % 2 === 0 ? 8 : 20)}
-              textAnchor="middle"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[10px]"
-            >
-              {marker.label} {formatCurrency(marker.value)}
-            </text>
-          </g>
-        ))}
-
-        {showBreakEvenMarker ? (
-          <g>
-            <line
-              x1={breakEvenX}
-              x2={breakEvenX}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.ink}
-              strokeOpacity={0.45}
-              strokeWidth={1}
-              strokeDasharray="2 4"
-            />
-          </g>
-        ) : null}
-
-        <line
-          x1={selectedX}
-          x2={selectedX}
-          y1={padding.top}
-          y2={height - padding.bottom}
-          stroke={CHART_COLORS.accent}
-          strokeDasharray="4 4"
-          strokeWidth={1.5}
-        />
-        <circle
-          cx={selectedX}
-          cy={selectedY}
-          r={5.5}
-          fill={CHART_COLORS.accent}
-          stroke={CHART_COLORS.paper}
-          strokeWidth={2}
-        />
-
-        <text
-          x={padding.left + chartWidth / 2}
-          y={height - 10}
-          textAnchor="middle"
-          fill={CHART_COLORS.inkMuted}
-          className="text-[11px] font-medium"
-        >
-          Underlying price
-        </text>
-
-        {hoverPoint ? (
-          <g pointerEvents="none">
-            <line
-              x1={hoverX}
-              x2={hoverX}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.ink}
-              strokeOpacity={0.5}
-              strokeWidth={1}
-            />
-            <circle
-              cx={hoverX}
-              cy={hoverSelectedY}
-              r={4}
-              fill={CHART_COLORS.paper}
-              stroke={hoverPoint.selectedDatePnl >= 0 ? profitColor : lossColor}
-              strokeWidth={2}
-            />
-            {showExpiryCurve ? (
-              <circle
-                cx={hoverX}
-                cy={hoverExpiryY}
-                r={3}
-                fill={CHART_COLORS.paper}
-                stroke={hoverPoint.expiryPnl >= 0 ? profitColor : lossColor}
-                strokeWidth={1.5}
-              />
-            ) : null}
-            <rect
-              x={tooltipX}
-              y={tooltipY}
-              width={tooltipWidth}
-              height={tooltipHeight}
-              rx={6}
-              fill={CHART_COLORS.paper}
-              stroke={CHART_COLORS.line}
-              strokeWidth={1}
-            />
-            <text
-              x={tooltipX + 10}
-              y={tooltipY + 18}
-              fill={CHART_COLORS.ink}
-              className="font-mono text-[11px] font-semibold"
-            >
-              {formatCurrency(hoverPoint.price)}
-            </text>
-            <text
-              x={tooltipX + 10}
-              y={tooltipY + 36}
-              fill={CHART_COLORS.inkMuted}
-              className="text-[10px] font-semibold uppercase tracking-wide"
-            >
-              {scenarioDateLabel}
-            </text>
-            <text
-              x={tooltipX + 10}
-              y={tooltipY + 52}
-              fill={CHART_COLORS.ink}
-              className="font-mono text-[11px]"
-            >
-              <tspan>Value </tspan>
-              <tspan className="font-semibold">{formatCurrency(hoverValue)}</tspan>
-            </text>
-            <text
-              x={tooltipX + 10}
-              y={tooltipY + 66}
-              fill={hoverPoint.selectedDatePnl >= 0 ? profitColor : lossColor}
-              className="font-mono text-[11px] font-semibold"
-            >
-              {hoverPoint.selectedDatePnl >= 0 ? "+" : ""}
-              {formatCurrency(hoverPoint.selectedDatePnl)}{" "}
-              <tspan fill={CHART_COLORS.inkMuted} className="font-normal">
-                P/L
-              </tspan>
-            </text>
-            {showExpiryCurve ? (
-              <text
-                x={tooltipX + 10}
-                y={tooltipY + 86}
-                fill={CHART_COLORS.inkMuted}
-                className="font-mono text-[10px]"
-              >
-                <tspan>At expiry </tspan>
-                <tspan
-                  fill={hoverPoint.expiryPnl >= 0 ? profitColor : lossColor}
-                  className="font-semibold"
-                >
-                  {hoverPoint.expiryPnl >= 0 ? "+" : ""}
-                  {formatCompactCurrency(hoverPoint.expiryPnl)}
-                </tspan>
-                <tspan> · {formatCompactCurrency(hoverExpiryValue)}</tspan>
-              </text>
-            ) : null}
-          </g>
-        ) : null}
-      </svg>
-    </div>
-  );
-}
-
 function TimeDecayChart({
   title,
   subtitle,
@@ -6248,7 +5253,6 @@ function TimeDecayChart({
   const minOffset = 0;
   const maxOffset = expirationDays;
   const valueValues = points.map((p) => p.positionValue);
-  const pnlValuesAll = points.map((p) => p.pnl);
   const valueMax = Math.max(...valueValues, selectedPositionValue, totalCost);
   const valueMin = Math.min(...valueValues, 0);
   const valueSpan = Math.max(valueMax - valueMin, 1);
@@ -6593,943 +5597,6 @@ function TimeDecayChart({
   );
 }
 
-function MultiDateOverlayChart({
-  title,
-  subtitle,
-  curves,
-  selectedPrice,
-  selectedOffsetDays,
-  breakEvenPrice,
-  spotPrice,
-  priceMarkers,
-  totalCost,
-}: MultiDateOverlayChartProps) {
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const [hoverPrice, setHoverPrice] = useState<number | null>(null);
-  const profitClipId = useId();
-  const lossClipId = useId();
-
-  const width = 820;
-  const height = 360;
-  const padding = { top: 28, right: 96, bottom: 58, left: 84 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-
-  if (curves.length === 0 || curves[0].points.length < 2) {
-    return null;
-  }
-
-  const allPrices = [
-    selectedPrice,
-    breakEvenPrice,
-    spotPrice,
-    ...curves.flatMap((curve) => curve.points.map((p) => p.price)),
-  ];
-  const minPrice = Math.min(...allPrices);
-  const maxPrice = Math.max(...allPrices, minPrice + 1);
-
-  const allPnls = curves.flatMap((curve) => curve.points.map((p) => p.pnl));
-  const rawMin = Math.min(...allPnls);
-  const rawMax = Math.max(...allPnls);
-  const span = Math.max(rawMax - rawMin, 1);
-  const yMin = rawMin - span * 0.08;
-  const yMax = rawMax + span * 0.08;
-
-  const x = (price: number) =>
-    padding.left +
-    ((clamp(price, minPrice, maxPrice) - minPrice) /
-      Math.max(maxPrice - minPrice, 1)) *
-      chartWidth;
-  const y = (value: number) =>
-    padding.top +
-    ((yMax - clamp(value, yMin, yMax)) / Math.max(yMax - yMin, 1)) * chartHeight;
-
-  const niceTick = (raw: number) => {
-    const abs = Math.abs(raw);
-    if (abs >= 1000) return Math.round(raw / 1000) * 1000;
-    if (abs >= 100) return Math.round(raw / 100) * 100;
-    return Math.round(raw);
-  };
-  const yTickValues = Array.from(new Set([
-    niceTick(yMin + (yMax - yMin) * 0.1),
-    niceTick(rawMin),
-    0,
-    niceTick(rawMax),
-    niceTick(yMin + (yMax - yMin) * 0.9),
-  ].filter((tick) => tick >= yMin && tick <= yMax)));
-  yTickValues.sort((a, b) => a - b);
-
-  const priceAxisTicks = buildStockPriceAxisTicks(minPrice, maxPrice, spotPrice);
-  const strikeMarkers = priceMarkers
-    .filter(
-      (marker) =>
-        marker.label !== "Spot" &&
-        marker.value >= minPrice &&
-        marker.value <= maxPrice,
-    )
-    .sort((a, b) => a.value - b.value);
-
-  const zeroY = y(0);
-
-  const curveColors = ["#0f172a", "#475569", "#94a3b8", "#cbd5e1", "#059669"];
-  const colorFor = (index: number, isExpiry: boolean) =>
-    isExpiry ? "#059669" : curveColors[Math.min(index, curveColors.length - 2)];
-
-  const buildCurvePath = (curvePoints: OverlayCurve["points"]) =>
-    curvePoints
-      .map((point, index) => `${index === 0 ? "M" : "L"} ${x(point.price)} ${y(point.pnl)}`)
-      .join(" ");
-
-  const findNearest = (curve: OverlayCurve, price: number) => {
-    let nearest = curve.points[0];
-    let nearestDistance = Math.abs(curve.points[0].price - price);
-    for (let index = 1; index < curve.points.length; index += 1) {
-      const distance = Math.abs(curve.points[index].price - price);
-      if (distance < nearestDistance) {
-        nearest = curve.points[index];
-        nearestDistance = distance;
-      }
-    }
-    return nearest;
-  };
-  const handleMove = (event: PointerEvent<SVGSVGElement>) => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    if (rect.width === 0) return;
-    const localX = ((event.clientX - rect.left) / rect.width) * width;
-    if (localX < padding.left || localX > width - padding.right) {
-      setHoverPrice(null);
-      return;
-    }
-    const ratio = (localX - padding.left) / Math.max(chartWidth, 1);
-    setHoverPrice(minPrice + ratio * (maxPrice - minPrice));
-  };
-  const handleLeave = () => setHoverPrice(null);
-
-  const hoverX = hoverPrice !== null ? x(hoverPrice) : 0;
-  const hoverPriceValue = hoverPrice !== null ? curves[0].points.length > 0 ? findNearest(curves[0], hoverPrice).price : 0 : 0;
-  const tooltipWidth = 198;
-  const tooltipLineHeight = 14;
-  const tooltipHeaderHeight = 36;
-  const tooltipHeight = hoverPrice !== null
-    ? tooltipHeaderHeight + curves.length * tooltipLineHeight + 8
-    : 0;
-  const tooltipX =
-    hoverPrice !== null && hoverX + 12 + tooltipWidth > width - padding.right
-      ? hoverX - 12 - tooltipWidth
-      : hoverX + 12;
-  const tooltipY = padding.top + 4;
-
-  const breakEvenX = x(breakEvenPrice);
-  const spotX = x(spotPrice);
-  const selectedX = x(selectedPrice);
-  const showBreakEvenMarker = breakEvenPrice >= minPrice && breakEvenPrice <= maxPrice;
-  const showSpotMarker = spotPrice >= minPrice && spotPrice <= maxPrice;
-
-  return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
-          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
-        </div>
-        <div className="flex flex-wrap justify-end gap-x-3 gap-y-1.5 text-xs text-slate-600">
-          {curves.map((curve, index) => (
-            <span key={curve.id} className="inline-flex items-center gap-1.5">
-              <span
-                className="h-0.5 w-4 rounded-full"
-                style={{ backgroundColor: colorFor(index, curve.isExpiry) }}
-              />
-              {curve.label}
-            </span>
-          ))}
-          {showBreakEvenMarker ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className="h-0.5 w-4 rounded-full"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(to right, #0f172a 50%, transparent 50%)",
-                  backgroundSize: "4px 2px",
-                }}
-              />
-              B/E
-              <span className="font-mono text-slate-500 tabular-nums">
-                {formatCurrency(breakEvenPrice)}
-              </span>
-            </span>
-          ) : null}
-        </div>
-      </div>
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${width} ${height}`}
-        className="w-full"
-        role="img"
-        aria-label={`${title}: ${subtitle}`}
-        onPointerMove={handleMove}
-        onPointerLeave={handleLeave}
-      >
-        <defs>
-          <clipPath id={profitClipId}>
-            <rect
-              x={padding.left}
-              y={padding.top}
-              width={chartWidth}
-              height={Math.max(zeroY - padding.top, 0)}
-            />
-          </clipPath>
-          <clipPath id={lossClipId}>
-            <rect
-              x={padding.left}
-              y={zeroY}
-              width={chartWidth}
-              height={Math.max(height - padding.bottom - zeroY, 0)}
-            />
-          </clipPath>
-        </defs>
-
-        <rect
-          x={padding.left}
-          y={padding.top}
-          width={chartWidth}
-          height={chartHeight}
-          fill={CHART_COLORS.paper}
-        />
-        <rect
-          x={padding.left}
-          y={padding.top}
-          width={chartWidth}
-          height={Math.max(zeroY - padding.top, 0)}
-          fill="rgba(5, 150, 105, 0.06)"
-        />
-        <rect
-          x={padding.left}
-          y={zeroY}
-          width={chartWidth}
-          height={Math.max(height - padding.bottom - zeroY, 0)}
-          fill="rgba(190, 18, 60, 0.06)"
-        />
-
-        {yTickValues.map((tick) => (
-          <g key={`overlay-y-${tick}`}>
-            <line
-              x1={padding.left}
-              x2={width - padding.right}
-              y1={y(tick)}
-              y2={y(tick)}
-              stroke={tick === 0 ? CHART_COLORS.inkMuted : CHART_COLORS.line}
-              strokeWidth={tick === 0 ? 1.25 : 1}
-            />
-            <text
-              x={padding.left - 10}
-              y={y(tick) + 4}
-              textAnchor="end"
-              fill={tick === 0 ? CHART_COLORS.ink : CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
-            >
-              {tick > 0 ? "+" : ""}
-              {formatCompactCurrency(tick)}
-            </text>
-            <text
-              x={width - padding.right + 10}
-              y={y(tick) + 4}
-              textAnchor="start"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
-            >
-              {formatCompactCurrency(tick + totalCost)}
-            </text>
-          </g>
-        ))}
-        <text
-          x={padding.left - 10}
-          y={padding.top - 12}
-          textAnchor="end"
-          fill={CHART_COLORS.inkMuted}
-          className="text-[10px] font-semibold uppercase tracking-wide"
-        >
-          P/L
-        </text>
-        <text
-          x={width - padding.right + 10}
-          y={padding.top - 12}
-          textAnchor="start"
-          fill={CHART_COLORS.inkMuted}
-          className="text-[10px] font-semibold uppercase tracking-wide"
-        >
-          Value
-        </text>
-
-        {priceAxisTicks.map((tick) => (
-          <g key={`overlay-price-axis-${tick}`}>
-            <line
-              x1={x(tick)}
-              x2={x(tick)}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.grid}
-              strokeWidth={1}
-            />
-            <text
-              x={x(tick)}
-              y={height - padding.bottom + 18}
-              textAnchor="middle"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
-            >
-              {formatCurrency(tick)}
-            </text>
-          </g>
-        ))}
-
-        {curves.map((curve, index) => (
-          <g key={curve.id}>
-            <path
-              d={buildCurvePath(curve.points)}
-              fill="none"
-              stroke={colorFor(index, curve.isExpiry)}
-              strokeWidth={curve.isExpiry ? 2 : 2.25}
-              strokeDasharray={curve.isExpiry ? "6 5" : undefined}
-              strokeOpacity={curve.offsetDays === selectedOffsetDays ? 1 : 0.85}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </g>
-        ))}
-
-        {showSpotMarker ? (
-          <g>
-            <line
-              x1={spotX}
-              x2={spotX}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.inkMuted}
-              strokeOpacity={0.5}
-              strokeDasharray="3 3"
-              strokeWidth={1}
-            />
-            <text
-              x={spotX}
-              y={padding.top - 8}
-              textAnchor="middle"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[10px]"
-            >
-              Spot {formatCurrency(spotPrice)}
-            </text>
-          </g>
-        ) : null}
-        {strikeMarkers.map((marker, index) => (
-          <g key={`overlay-strike-${marker.label}-${index}`}>
-            <line
-              x1={x(marker.value)}
-              x2={x(marker.value)}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.inkMuted}
-              strokeOpacity={0.35}
-              strokeDasharray="2 4"
-              strokeWidth={1}
-            />
-            <text
-              x={x(marker.value)}
-              y={padding.top - (index % 2 === 0 ? 8 : 20)}
-              textAnchor="middle"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[10px]"
-            >
-              {marker.label} {formatCurrency(marker.value)}
-            </text>
-          </g>
-        ))}
-        {showBreakEvenMarker ? (
-          <g>
-            <line
-              x1={breakEvenX}
-              x2={breakEvenX}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.ink}
-              strokeOpacity={0.45}
-              strokeDasharray="2 4"
-              strokeWidth={1}
-            />
-          </g>
-        ) : null}
-
-        <line
-          x1={selectedX}
-          x2={selectedX}
-          y1={padding.top}
-          y2={height - padding.bottom}
-          stroke={CHART_COLORS.accent}
-          strokeDasharray="4 4"
-          strokeWidth={1.5}
-        />
-
-        <text
-          x={padding.left + chartWidth / 2}
-          y={height - 10}
-          textAnchor="middle"
-          fill={CHART_COLORS.inkMuted}
-          className="text-[11px] font-medium"
-        >
-          Underlying price
-        </text>
-
-        {hoverPrice !== null ? (
-          <g pointerEvents="none">
-            <line
-              x1={hoverX}
-              x2={hoverX}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.ink}
-              strokeOpacity={0.5}
-              strokeWidth={1}
-            />
-            {curves.map((curve, index) => {
-              const point = findNearest(curve, hoverPrice);
-              return (
-                <circle
-                  key={`overlay-hover-${curve.id}`}
-                  cx={hoverX}
-                  cy={y(point.pnl)}
-                  r={3.5}
-                  fill={CHART_COLORS.paper}
-                  stroke={colorFor(index, curve.isExpiry)}
-                  strokeWidth={2}
-                />
-              );
-            })}
-            <rect
-              x={tooltipX}
-              y={tooltipY}
-              width={tooltipWidth}
-              height={tooltipHeight}
-              rx={6}
-              fill={CHART_COLORS.paper}
-              stroke={CHART_COLORS.line}
-              strokeWidth={1}
-            />
-            <text
-              x={tooltipX + 10}
-              y={tooltipY + 18}
-              fill={CHART_COLORS.ink}
-              className="font-mono text-[11px] font-semibold"
-            >
-              {formatCurrency(hoverPriceValue)}
-            </text>
-            {curves.map((curve, index) => {
-              const point = findNearest(curve, hoverPrice);
-              const lineY = tooltipY + tooltipHeaderHeight + index * tooltipLineHeight + 2;
-              const value = point.pnl + totalCost;
-              return (
-                <g key={`overlay-tip-${curve.id}`}>
-                  <rect
-                    x={tooltipX + 10}
-                    y={lineY - 8}
-                    width={8}
-                    height={2}
-                    fill={colorFor(index, curve.isExpiry)}
-                  />
-                  <text
-                    x={tooltipX + 24}
-                    y={lineY}
-                    fill={CHART_COLORS.ink}
-                    className="font-mono text-[10px]"
-                  >
-                    <tspan>{curve.label} </tspan>
-                    <tspan
-                      fill={point.pnl >= 0 ? "#059669" : "#be123c"}
-                      className="font-semibold"
-                    >
-                      {point.pnl >= 0 ? "+" : ""}
-                      {formatCompactCurrency(point.pnl)}
-                    </tspan>
-                    <tspan fill={CHART_COLORS.inkMuted}>
-                      {" · "}
-                      {formatCompactCurrency(value)}
-                    </tspan>
-                  </text>
-                </g>
-              );
-            })}
-          </g>
-        ) : null}
-      </svg>
-    </div>
-  );
-}
-
-function ScenarioValueMap({
-  unitName: _unitName,
-  minPrice,
-  maxPrice,
-  selectedPrice,
-  selectedOffsetDays,
-  selectedValue,
-  selectedPnl,
-  selectedRoi,
-  currentSpot,
-  expirationDays,
-  todayIso,
-  scenarioDateLabel,
-  breakEvenPrice,
-  totalCost,
-  maxProfit,
-  getScenarioTooltipPoint,
-}: ScenarioValueMapProps) {
-  const [hoverPoint, setHoverPoint] = useState<{
-    price: number;
-    offsetDays: number;
-    dateLabel: string;
-    positionValue: number;
-    pnl: number;
-    roi: number;
-  } | null>(null);
-
-  const width = 820;
-  const height = 390;
-  const padding = { top: 26, right: 28, bottom: 58, left: 92 };
-  const chartWidth = width - padding.left - padding.right;
-  const chartHeight = height - padding.top - padding.bottom;
-  const columnCount = Math.min(Math.max(expirationDays + 1, 2), 42);
-  const rowCount = 34;
-  const cellWidth = chartWidth / columnCount;
-  const cellHeight = chartHeight / rowCount;
-  const toChartCoordinate = (value: number) => roundTo(value, 3);
-
-  const x = (offsetDays: number) =>
-    toChartCoordinate(
-      padding.left +
-        (clamp(offsetDays, 0, expirationDays) / Math.max(expirationDays, 1)) *
-          chartWidth,
-    );
-  const y = (price: number) =>
-    toChartCoordinate(
-      padding.top +
-        ((maxPrice - clamp(price, minPrice, maxPrice)) /
-          Math.max(maxPrice - minPrice, 1)) *
-          chartHeight,
-    );
-
-  const cells = useMemo(
-    () =>
-      Array.from({ length: rowCount }, (_, rowIndex) => {
-        const price = Math.round(
-          maxPrice -
-            ((maxPrice - minPrice) * rowIndex) / Math.max(rowCount - 1, 1),
-        );
-
-        return Array.from({ length: columnCount }, (_, columnIndex) => {
-          const offsetDays = Math.round(
-            (expirationDays * columnIndex) / Math.max(columnCount - 1, 1),
-          );
-          const point = getScenarioTooltipPoint(price, offsetDays);
-
-          return {
-            ...point,
-            price,
-            offsetDays,
-            rowIndex,
-            columnIndex,
-            x: padding.left + columnIndex * cellWidth,
-            y: padding.top + rowIndex * cellHeight,
-          };
-        });
-      }).flat(),
-    [
-      cellHeight,
-      cellWidth,
-      columnCount,
-      expirationDays,
-      getScenarioTooltipPoint,
-      maxPrice,
-      minPrice,
-      padding.left,
-      padding.top,
-      rowCount,
-    ],
-  );
-  const lossFloor = -Math.max(totalCost, 1);
-  const profitCeiling = Math.max(
-    maxProfit ?? 0,
-    selectedPnl,
-    ...cells.map((cell) => cell.pnl),
-    1,
-  );
-  const pnlColor = (pnl: number) => {
-    if (pnl > 0) {
-      const ratio = clamp(pnl / profitCeiling, 0, 1);
-      if (ratio < 0.15) return "#dcfce7";
-      if (ratio < 0.35) return "#bbf7d0";
-      if (ratio < 0.55) return "#86efac";
-      if (ratio < 0.75) return "#34d399";
-      return "#059669";
-    }
-    if (pnl < 0) {
-      const ratio = clamp(pnl / lossFloor, 0, 1);
-      if (ratio < 0.15) return "#fee2e2";
-      if (ratio < 0.35) return "#fecaca";
-      if (ratio < 0.55) return "#fca5a5";
-      if (ratio < 0.75) return "#f87171";
-      return "#dc2626";
-    }
-    return "#f8fafc";
-  };
-  const priceAxisTicks = buildStockPriceAxisTicks(
-    minPrice,
-    maxPrice,
-    currentSpot,
-  ).sort((a, b) => b - a);
-  const dateTickCount = expirationDays >= 60 ? 6 : 5;
-  const dateTicks = Array.from({ length: dateTickCount }, (_, index) => {
-    const ratio = index / Math.max(dateTickCount - 1, 1);
-    return Math.round(expirationDays * ratio);
-  });
-  const showBreakEvenMarker =
-    breakEvenPrice >= minPrice && breakEvenPrice <= maxPrice;
-  const selectedTooltipPoint = {
-    price: selectedPrice,
-    offsetDays: selectedOffsetDays,
-    dateLabel: scenarioDateLabel,
-    positionValue: selectedValue,
-    pnl: selectedPnl,
-    roi: selectedRoi,
-  };
-  const tooltipPoint = hoverPoint ?? selectedTooltipPoint;
-  const tooltipVisible = hoverPoint !== null;
-  const tooltipXAnchor = x(tooltipPoint.offsetDays);
-  const tooltipYAnchor = y(tooltipPoint.price);
-  const selectedX = x(selectedOffsetDays);
-  const selectedY = y(selectedPrice);
-  const isCurrentSpotVisible = currentSpot >= minPrice && currentSpot <= maxPrice;
-  const tooltipWidth = 224;
-  const tooltipHeight = 108;
-  const tooltipX = clamp(
-    tooltipXAnchor > width - padding.right - tooltipWidth - 12
-      ? tooltipXAnchor - tooltipWidth - 12
-      : tooltipXAnchor + 12,
-    padding.left,
-    width - padding.right - tooltipWidth,
-  );
-  const tooltipY = clamp(
-    tooltipYAnchor - tooltipHeight / 2,
-    padding.top,
-    height - padding.bottom - tooltipHeight,
-  );
-  const getPointerScenarioPoint = (event: PointerEvent<SVGRectElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const xRatio = clamp(
-      (event.clientX - bounds.left) / Math.max(bounds.width, 1),
-      0,
-      1,
-    );
-    const yRatio = clamp(
-      (event.clientY - bounds.top) / Math.max(bounds.height, 1),
-      0,
-      1,
-    );
-
-    return {
-      price: Math.round(maxPrice - (maxPrice - minPrice) * yRatio),
-      offsetDays: Math.round(xRatio * Math.max(expirationDays, 0)),
-    };
-  };
-  const showHoverTooltip = (event: PointerEvent<SVGRectElement>) => {
-    const { price, offsetDays } = getPointerScenarioPoint(event);
-    const tooltipPoint = getScenarioTooltipPoint(price, offsetDays);
-
-    setHoverPoint({
-      price,
-      offsetDays,
-      ...tooltipPoint,
-    });
-  };
-  const handlePointerMove = (event: PointerEvent<SVGRectElement>) => {
-    showHoverTooltip(event);
-  };
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-600">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[var(--accent)]" />
-            Selected
-          </span>
-          {currentSpot >= minPrice && currentSpot <= maxPrice ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className="h-0.5 w-4 rounded-full"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(to right, #64748b 50%, transparent 50%)",
-                  backgroundSize: "6px 2px",
-                }}
-              />
-              Spot {formatCurrency(currentSpot)}
-            </span>
-          ) : null}
-          {showBreakEvenMarker ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span
-                className="h-0.5 w-4 rounded-full"
-                style={{
-                  backgroundImage:
-                    "linear-gradient(to right, #0f172a 50%, transparent 50%)",
-                  backgroundSize: "4px 2px",
-                }}
-              />
-              B/E {formatCurrency(breakEvenPrice)}
-            </span>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2 text-xs text-slate-600">
-          <span className="font-mono tabular-nums">
-            {formatCompactCurrency(lossFloor)}
-          </span>
-          <span
-            className="h-2 w-32 rounded-sm border border-slate-200"
-            style={{
-              background:
-                "linear-gradient(to right, #dc2626, #fca5a5, #f8fafc, #86efac, #059669)",
-            }}
-            aria-hidden
-          />
-          <span className="font-mono tabular-nums">
-            +{formatCompactCurrency(profitCeiling)}
-          </span>
-          <span className="font-medium uppercase tracking-wide text-[10px] text-slate-500">
-            P/L
-          </span>
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full">
-        <rect
-          x={padding.left}
-          y={padding.top}
-          width={chartWidth}
-          height={chartHeight}
-          fill={CHART_COLORS.paper}
-        />
-        {cells.map((cell) => (
-          <rect
-            key={`${cell.rowIndex}-${cell.columnIndex}`}
-            x={cell.x}
-            y={cell.y}
-            width={cellWidth + 0.4}
-            height={cellHeight + 0.4}
-            fill={pnlColor(cell.pnl)}
-          />
-        ))}
-
-        {priceAxisTicks.map((tick) => (
-          <g key={`map-price-axis-${tick}`}>
-            <line
-              x1={padding.left}
-              x2={width - padding.right}
-              y1={y(tick)}
-              y2={y(tick)}
-              stroke={CHART_COLORS.paper}
-              strokeOpacity={0.7}
-              strokeWidth={1}
-            />
-            <text
-              x={padding.left - 12}
-              y={y(tick) + 4}
-              textAnchor="end"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
-            >
-              {formatCurrency(tick)}
-            </text>
-          </g>
-        ))}
-
-        {dateTicks.map((offsetDays, index) => (
-          <g key={`map-date-${offsetDays}-${index}`}>
-            <line
-              x1={x(offsetDays)}
-              x2={x(offsetDays)}
-              y1={padding.top}
-              y2={height - padding.bottom}
-              stroke={CHART_COLORS.paper}
-              strokeOpacity={0.7}
-              strokeWidth={1}
-            />
-            <text
-              x={x(offsetDays)}
-              y={height - padding.bottom + 18}
-              textAnchor="middle"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
-            >
-              {offsetDays === 0
-                ? "Today"
-                : offsetDays === expirationDays
-                  ? "Expiry"
-                  : `+${offsetDays}d`}
-            </text>
-            <text
-              x={x(offsetDays)}
-              y={height - padding.bottom + 32}
-              textAnchor="middle"
-              fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[10px]"
-              opacity={0.7}
-            >
-              {formatLongDate(addDaysToIso(todayIso, offsetDays))}
-            </text>
-          </g>
-        ))}
-
-        {isCurrentSpotVisible ? (
-          <line
-            x1={padding.left}
-            x2={width - padding.right}
-            y1={y(currentSpot)}
-            y2={y(currentSpot)}
-            stroke={CHART_COLORS.inkMuted}
-            strokeDasharray="4 4"
-            strokeWidth={1}
-          />
-        ) : null}
-        {showBreakEvenMarker ? (
-          <line
-            x1={padding.left}
-            x2={width - padding.right}
-            y1={y(breakEvenPrice)}
-            y2={y(breakEvenPrice)}
-            stroke={CHART_COLORS.ink}
-            strokeOpacity={0.5}
-            strokeDasharray="2 4"
-            strokeWidth={1}
-          />
-        ) : null}
-        <line
-          x1={selectedX}
-          x2={selectedX}
-          y1={padding.top}
-          y2={height - padding.bottom}
-          stroke={CHART_COLORS.accent}
-          strokeWidth={1.5}
-        />
-        <line
-          x1={padding.left}
-          x2={width - padding.right}
-          y1={selectedY}
-          y2={selectedY}
-          stroke={CHART_COLORS.accent}
-          strokeWidth={1.5}
-        />
-        <circle cx={selectedX} cy={selectedY} r={5.5} fill={CHART_COLORS.accent} stroke={CHART_COLORS.paper} strokeWidth={2} />
-        <text
-          x={padding.left + chartWidth / 2}
-          y={height - 12}
-          textAnchor="middle"
-          fill={CHART_COLORS.inkMuted}
-          className="text-[12px] font-medium"
-        >
-          Valuation date
-        </text>
-        <text
-          x={18}
-          y={padding.top + chartHeight / 2}
-          textAnchor="middle"
-          transform={`rotate(-90 18 ${padding.top + chartHeight / 2})`}
-          fill={CHART_COLORS.inkMuted}
-          className="text-[12px] font-medium"
-        >
-          Underlying price
-        </text>
-        {tooltipVisible ? (
-          <g pointerEvents="none">
-            <line
-              x1={tooltipXAnchor}
-              x2={tooltipXAnchor}
-              y1={tooltipYAnchor}
-              y2={tooltipY + tooltipHeight / 2}
-              stroke={CHART_COLORS.accent}
-              strokeOpacity={0.4}
-              strokeWidth={1}
-            />
-            <rect
-              x={tooltipX}
-              y={tooltipY}
-              width={tooltipWidth}
-              height={tooltipHeight}
-              rx={6}
-              fill={CHART_COLORS.paper}
-              stroke={CHART_COLORS.line}
-            />
-            <text
-              x={tooltipX + 10}
-              y={tooltipY + 18}
-              fill={CHART_COLORS.inkMuted}
-              className="text-[12px] font-medium"
-            >
-              {formatCurrency(tooltipPoint.price)} stock price
-            </text>
-            <text
-              x={tooltipX + 10}
-              y={tooltipY + 36}
-              fill={CHART_COLORS.inkMuted}
-              className="text-[12px] font-medium"
-            >
-              {tooltipPoint.dateLabel}
-            </text>
-            <text
-              x={tooltipX + 10}
-              y={tooltipY + 60}
-              fill={CHART_COLORS.ink}
-              className="font-mono text-[15px] font-semibold"
-            >
-              {formatCurrency(tooltipPoint.positionValue)} total value
-            </text>
-            <text
-              x={tooltipX + 10}
-              y={tooltipY + 80}
-              className={cn(
-                "font-mono text-[12px]",
-                tooltipPoint.roi >= 0 ? "fill-emerald-700" : "fill-rose-700",
-              )}
-            >
-              {formatPercent(tooltipPoint.roi)} gain
-            </text>
-            <text
-              x={tooltipX + 10}
-              y={tooltipY + 98}
-              className={cn(
-                "font-mono text-[12px]",
-                tooltipPoint.pnl >= 0 ? "fill-emerald-700" : "fill-rose-700",
-              )}
-            >
-              {formatCurrency(tooltipPoint.pnl)} P/L
-            </text>
-          </g>
-        ) : null}
-        <rect
-          x={padding.left}
-          y={padding.top}
-          width={chartWidth}
-          height={chartHeight}
-          fill={CHART_COLORS.paper}
-          fillOpacity={0}
-          pointerEvents="all"
-          className="cursor-default"
-          onPointerMove={handlePointerMove}
-          onPointerLeave={() => setHoverPoint(null)}
-        />
-      </svg>
-    </div>
-  );
-}
-
 function ResultsTable<Row extends { id: string; isHighlighted?: boolean }>({
   title,
   subtitle,
@@ -7635,7 +5702,6 @@ export default function DebitCallSpreadLab({
     Math.round(defaultExpirationDays / 2),
   );
   const [isUrlStateReady, setIsUrlStateReady] = useState(false);
-  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
   const [comparisonPanelMode, setComparisonPanelMode] =
     useState<ComparisonPanelMode>("presets");
   const [customComparisons, setCustomComparisons] = useState<
@@ -7646,7 +5712,6 @@ export default function DebitCallSpreadLab({
   const pendingScenarioOffsetAfterStrategyChangeRef = useRef<number | null>(
     null,
   );
-  const [isStrategyShelfOpen, setIsStrategyShelfOpen] = useState(false);
   const [isCustomComparisonEditorOpen, setIsCustomComparisonEditorOpen] =
     useState(false);
   const [editingComparisonId, setEditingComparisonId] = useState<string | null>(
@@ -7655,7 +5720,6 @@ export default function DebitCallSpreadLab({
   const [showDetailedTables, setShowDetailedTables] = useState(false);
   const [activeWorkflowTab, setActiveWorkflowTab] =
     useState<WorkflowTab>(DEFAULT_WORKFLOW_TAB);
-  const workflowLayout: string = "tabbed";
   const [decisionComparisonView, setDecisionComparisonView] =
     useState<DecisionComparisonView>(DEFAULT_DECISION_COMPARISON_VIEW);
   const [colorScheme, setColorScheme] = useState<ColorScheme>("blue");
@@ -7705,7 +5769,6 @@ export default function DebitCallSpreadLab({
     isDebitCallSpread || isCallRatioSpread || isBullPutSpread
       ? shortStrike
       : longStrike;
-  const lowerStrike = isPutDownsideSpread ? shortStrike : longStrike;
 
   setActiveMoneyDisplayUnit(moneyDisplayUnit);
   const moneyDisplayUnitScale = getMoneyDisplayUnitScale(moneyDisplayUnit);
@@ -8701,22 +6764,8 @@ export default function DebitCallSpreadLab({
     setEditingComparisonId(card.id);
     setComparisonPanelMode("custom");
     setGraphComparisonId(`custom:${card.id}`);
-    setIsStrategyShelfOpen(true);
     setIsSetupFormVisible(true);
     setIsCustomComparisonEditorOpen(true);
-  };
-  const showCustomComparisons = () => {
-    if (comparisonPanelMode !== "custom") {
-      seedCustomDraftFromCurrent();
-    }
-
-    if (graphComparisonId.startsWith("preset:")) {
-      setGraphComparisonId("editor");
-    }
-    setComparisonPanelMode("custom");
-    setIsCustomComparisonEditorOpen(false);
-    setIsSetupFormVisible(false);
-    setIsStrategyShelfOpen((currentValue) => !currentValue);
   };
   const openCustomComparisonEditor = () => {
     setEditingComparisonId(null);
@@ -8733,19 +6782,8 @@ export default function DebitCallSpreadLab({
     }
 
     setComparisonPanelMode("custom");
-    setIsStrategyShelfOpen(true);
     setIsSetupFormVisible(true);
     setIsCustomComparisonEditorOpen(true);
-  };
-  const showPresetComparisons = () => {
-    if (comparisonPanelMode === "presets" || graphComparisonId.startsWith("custom:")) {
-      setGraphComparisonId("editor");
-    }
-
-    setComparisonPanelMode((currentMode) =>
-      currentMode === "presets" ? "hidden" : "presets",
-    );
-    setIsCustomComparisonEditorOpen(false);
   };
   const changeWorkflowTab = (nextTab: WorkflowTab) => {
     setActiveWorkflowTab(nextTab);
@@ -8934,7 +6972,6 @@ export default function DebitCallSpreadLab({
     });
     setIsCustomComparisonEditorOpen(false);
     setIsSetupFormVisible(false);
-    setIsStrategyShelfOpen(true);
   };
   const addCurrentStrategyComparison = () => {
     const nextLongStrike = normalizeStrikeValue(longStrike);
@@ -8980,7 +7017,6 @@ export default function DebitCallSpreadLab({
       syncMarketScenarioDteRange(customComparisons);
       setIsCustomComparisonEditorOpen(false);
       setIsSetupFormVisible(false);
-      setIsStrategyShelfOpen(true);
       return;
     }
 
@@ -9043,7 +7079,6 @@ export default function DebitCallSpreadLab({
     setGraphComparisonId(`custom:${nextId}`);
     setIsCustomComparisonEditorOpen(false);
     setIsSetupFormVisible(false);
-    setIsStrategyShelfOpen(true);
   };
   const createIvAlternativeStrategy = (
     alternative: IvAlternativeStrategy,
@@ -9174,7 +7209,6 @@ export default function DebitCallSpreadLab({
     setEditingComparisonId(null);
     setIsCustomComparisonEditorOpen(false);
     setIsSetupFormVisible(false);
-    setIsStrategyShelfOpen(true);
     setActiveWorkflowTab("decision");
   };
   const removeCustomComparison = (id: string) => {
@@ -9230,11 +7264,6 @@ export default function DebitCallSpreadLab({
 
       return [...orderedComparisons, ...remainingComparisons];
     });
-  };
-  const analyzePresetComparison = (card: ComparisonCardData) => {
-    setComparisonPanelMode("presets");
-    setGraphComparisonId(`preset:${card.id}`);
-    setIsCustomComparisonEditorOpen(false);
   };
   const loadComparisonSetup = (card: ComparisonCardData) => {
     const nextSymbol = normalizeSymbol(card.symbol ?? symbol);
@@ -9400,10 +7429,8 @@ export default function DebitCallSpreadLab({
     { value: "decay", label: "Time value", shortLabel: "Time" },
     { value: "overlay", label: "Multi-date", shortLabel: "Dates" },
   ];
-  const isTabbedAnalysis =
-    workflowLayout === "tabbed" && activeWorkflowTab === "analysis";
-  const isTabbedHeatMap =
-    workflowLayout === "tabbed" && activeWorkflowTab === "heatmap";
+  const isTabbedAnalysis = activeWorkflowTab === "analysis";
+  const isTabbedHeatMap = activeWorkflowTab === "heatmap";
   const activeDisplayGraphView: ScenarioGraphView = isTabbedHeatMap
     ? "map"
     : isTabbedAnalysis && activeScenarioGraphView === "map"
@@ -9712,24 +7739,13 @@ export default function DebitCallSpreadLab({
   const visualizedSnapshot = selectedGraphComparison.snapshot;
   const visualizedStrategy = visualizedInputs.strategy;
   const visualizedStrategyCopy = STRATEGY_COPY[visualizedStrategy];
-  const visualizedIsDebitSpread = isDebitSpreadStrategy(visualizedStrategy);
   const visualizedIsBearPut = visualizedStrategy === "bear-put";
   const visualizedIsPutSpread = visualizedStrategy === "debit-put-spread";
   const visualizedIsPutRatioSpread = visualizedStrategy === "put-ratio-spread";
   const visualizedIsCallRatioSpread = visualizedStrategy === "call-ratio-spread";
   const visualizedIsRatioSpread = isRatioSpreadStrategy(visualizedStrategy);
   const visualizedIsPutDownsideSpread = isPutDownsideStrategy(visualizedStrategy);
-  const analyzedStrategyName = selectedGraphComparison.label.replace(/^#\d+\s+/, "");
   const visualizedIsCallCalendar = visualizedStrategy === "call-calendar";
-  const analyzedStructureLabel = visualizedIsCallCalendar
-    ? `${formatStrikeCurrency(visualizedInputs.longStrike)} ${visualizedSnapshot.shortExpirationDays}/${visualizedSnapshot.expirationDays} DTE`
-    : visualizedIsDebitSpread
-      ? `${formatStrikeCurrency(visualizedInputs.longStrike)} / ${formatStrikeCurrency(
-          visualizedInputs.shortStrike,
-        )}${visualizedIsRatioSpread ? ` x${visualizedInputs.ratioShortCount}` : ""}`
-    : `${formatStrikeCurrency(visualizedInputs.longStrike)} ${
-        visualizedIsBearPut ? "put" : "call"
-      }`;
   const visualizedMaxProfitAtExpiry =
     visualizedSnapshot.maxProfitPerUnit !== null
       ? visualizedSnapshot.maxProfitPerUnit *
@@ -9800,18 +7816,6 @@ export default function DebitCallSpreadLab({
         : [],
     [canModel, inputs],
   );
-  const pnlCurvePoints = useMemo<PnlCurvePoint[]>(() => {
-    if (!canModel) {
-      return [];
-    }
-
-    const totalCost = visualizedSnapshot.totalCost;
-    return buildPriceCurve(visualizedInputs).map((point: PriceCurvePoint) => ({
-      price: point.price,
-      selectedDatePnl: point.selectedDateValue - totalCost,
-      expiryPnl: point.expiryValue - totalCost,
-    }));
-  }, [canModel, visualizedInputs, visualizedSnapshot.totalCost]);
   const decayPoints = useMemo<TimeDecayPoint[]>(() => {
     const visualizedExpirationDays = visualizedSnapshot.expirationDays;
 
@@ -9853,113 +7857,6 @@ export default function DebitCallSpreadLab({
     visualizedSnapshot.expirationDays,
     visualizedSnapshot.shortExpirationDays,
   ]);
-  const overlayCurves = useMemo<OverlayCurve[]>(() => {
-    if (!canModel) {
-      return [];
-    }
-
-    const visualizedExpirationDays = visualizedSnapshot.expirationDays;
-    const totalCost = visualizedSnapshot.totalCost;
-    const offsets = visualizedExpirationDays > 0
-      ? [
-          { offsetDays: 0, label: "Today" },
-          { offsetDays: Math.round(visualizedExpirationDays * 0.33), label: `+${Math.round(visualizedExpirationDays * 0.33)}d` },
-          { offsetDays: Math.round(visualizedExpirationDays * 0.66), label: `+${Math.round(visualizedExpirationDays * 0.66)}d` },
-          { offsetDays: visualizedSnapshot.selectedOffsetDays, label: `Selected (+${visualizedSnapshot.selectedOffsetDays}d)` },
-        ]
-      : [{ offsetDays: 0, label: "Today" }];
-    const dedupedOffsets: Array<{ offsetDays: number; label: string }> = [];
-    const seen = new Set<number>();
-    offsets.forEach((entry) => {
-      if (seen.has(entry.offsetDays)) return;
-      seen.add(entry.offsetDays);
-      dedupedOffsets.push(entry);
-    });
-    const result: OverlayCurve[] = dedupedOffsets.map((entry) => {
-      const curve = buildPriceCurve({
-        ...visualizedInputs,
-        scenarioOffsetDays: clamp(entry.offsetDays, 0, visualizedExpirationDays),
-      });
-      return {
-        id: `overlay-${entry.offsetDays}`,
-        label: entry.label,
-        offsetDays: entry.offsetDays,
-        isExpiry: false,
-        points: curve.map((point) => ({
-          price: point.price,
-          pnl: point.selectedDateValue - totalCost,
-        })),
-      };
-    });
-    if (visualizedExpirationDays > 0 && !seen.has(visualizedExpirationDays)) {
-      const expiryCurve = buildPriceCurve(visualizedInputs);
-      result.push({
-        id: "overlay-expiry",
-        label: "At expiry",
-        offsetDays: visualizedExpirationDays,
-        isExpiry: true,
-        points: expiryCurve.map((point) => ({
-          price: point.price,
-          pnl: point.expiryValue - totalCost,
-        })),
-      });
-    }
-    return result;
-  }, [
-    canModel,
-    visualizedInputs,
-    visualizedSnapshot.expirationDays,
-    visualizedSnapshot.selectedOffsetDays,
-    visualizedSnapshot.totalCost,
-  ]);
-  const scenarioMapRange = useMemo(() => {
-    const minMapPrice = Math.max(1, Math.floor(Math.min(spot, lowerStrike) * 0.7));
-    const maxMapPrice = Math.max(
-      scenarioPriceSliderMax,
-      Math.ceil(spot * 1.05),
-    );
-
-    return {
-      minPrice: minMapPrice,
-      maxPrice: Math.ceil(maxMapPrice),
-    };
-  }, [lowerStrike, scenarioPriceSliderMax, spot]);
-  const priceMarkers = useMemo<PriceMarker[]>(() => {
-    const markers: PriceMarker[] = [
-      { value: visualizedInputs.spot, label: "Spot" },
-      {
-        value: visualizedInputs.longStrike,
-        label: visualizedIsDebitSpread ? "Long" : "Strike",
-      },
-    ];
-    if (visualizedIsDebitSpread) {
-      markers.push({ value: visualizedInputs.shortStrike, label: "Short" });
-    }
-    return markers
-      .filter((marker) => Number.isFinite(marker.value) && marker.value > 0)
-      .sort((a, b) => a.value - b.value);
-  }, [visualizedInputs, visualizedIsDebitSpread]);
-  const getScenarioTooltipPoint = (price: number, offsetDays: number) => {
-    const selectedOffsetDays = clamp(offsetDays, 0, visualizedSnapshot.expirationDays);
-    const calendarShortPriceForTooltip =
-      visualizedInputs.strategy === "call-calendar" &&
-      selectedOffsetDays === visualizedSnapshot.shortExpirationDays
-        ? price
-        : visualizedInputs.calendarShortPrice;
-    const hoverSnapshot = createScenarioSnapshot({
-      ...visualizedInputs,
-      scenarioPrice: price,
-      calendarShortPrice: calendarShortPriceForTooltip,
-      scenarioOffsetDays: selectedOffsetDays,
-    });
-
-    return {
-      dateLabel: formatLongDate(hoverSnapshot.selectedDateIso),
-      positionValue: hoverSnapshot.scenarioPositionValue,
-      pnl: hoverSnapshot.pnl,
-      roi: hoverSnapshot.roi,
-    };
-  };
 
   const timelineColumns: TableColumn<TimelineTableRow>[] = [
     {
@@ -10099,11 +7996,8 @@ export default function DebitCallSpreadLab({
     }
     setScenarioGraphView("map");
   };
-  const showGuidedSidebar = workflowLayout === "guided" && isSidebarVisible;
   const isTopBarVisible = isTopBarPinnedVisible || isTopBarHoverRevealed;
-  const isAnalysisVisible =
-    workflowLayout === "guided" || isTabbedAnalysis || isTabbedHeatMap;
-  const showTabbedSetupContext = workflowLayout === "tabbed";
+  const isAnalysisVisible = isTabbedAnalysis || isTabbedHeatMap;
   const ivToolInstrument: IvComparisonInstrument =
     visualizedInputs.strategy === "long-call"
       ? "long-call"
@@ -10134,7 +8028,7 @@ export default function DebitCallSpreadLab({
     <div
       className={cn(
         "grid min-w-0 gap-3",
-        workflowLayout === "tabbed" && "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]",
+        "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]",
       )}
     >
       <section className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -10498,13 +8392,11 @@ export default function DebitCallSpreadLab({
             disabled={!canModel}
             onClick={() => {
               addCurrentStrategyComparison();
-              if (workflowLayout === "tabbed") {
-                changeWorkflowTab("decision");
-              }
+              changeWorkflowTab("decision");
             }}
             className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
           >
-            {workflowLayout === "tabbed" ? "Create Strategy" : "Add strategy"}
+            Create Strategy
           </button>
         </div>
       </section>
@@ -10896,45 +8788,10 @@ export default function DebitCallSpreadLab({
     >
       <div className="mx-auto w-full max-w-7xl px-2 pb-2 pt-1 sm:px-4 sm:pb-3 md:px-6">
         <h1 className="sr-only">Callculator debit spread strategy simulator</h1>
-        <div
-          className={cn(
-            "grid min-w-0 items-start gap-2",
-            showGuidedSidebar && "lg:grid-cols-[19rem_minmax(0,1fr)]",
-          )}
-        >
-          {showGuidedSidebar ? (
-          <aside className="min-w-0 lg:sticky lg:top-3 lg:max-h-[calc(100dvh-1.5rem)] lg:overflow-y-auto lg:overscroll-none lg:pr-1">
-            <SectionCard
-              title="Inputs"
-              eyebrow="Callculator"
-              eyebrowClassName="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance"
-              action={
-                <button
-                  type="button"
-                  onClick={() => setIsSidebarVisible(false)}
-                  className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:w-auto"
-                >
-                  Hide inputs
-                </button>
-              }
-            >
-              {setupInputControls}
-            </SectionCard>
-          </aside>
-          ) : null}
+        <div className="grid min-w-0 items-start gap-2">
 
           <div className="min-w-0 space-y-2">
-            {workflowLayout === "guided" && !isSidebarVisible ? (
-              <div className="flex justify-start">
-                <button
-                  type="button"
-                  onClick={() => setIsSidebarVisible(true)}
-                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
-                >
-                  Show inputs
-                </button>
-              </div>
-            ) : null}
+
             <div
               onFocusCapture={() => setIsTopBarPinnedVisible(true)}
               onMouseEnter={revealTopBarFromEdge}
@@ -10946,21 +8803,12 @@ export default function DebitCallSpreadLab({
                 isTopBarVisible
                   ? "translate-y-0 opacity-100"
                   : "pointer-events-none -translate-y-[calc(100%+0.75rem)] opacity-0",
-                workflowLayout === "tabbed" &&
-                  "grid-cols-[minmax(0,1fr)_auto] rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-lg shadow-slate-900/10 backdrop-blur",
+                "grid-cols-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-lg shadow-slate-900/10 backdrop-blur md:grid-cols-[minmax(0,1fr)_auto]",
               )}
             >
-              {workflowLayout === "tabbed" ? (
-                <WorkflowTabs activeTab={activeWorkflowTab} onChange={changeWorkflowTab} />
-              ) : null}
+              <WorkflowTabs activeTab={activeWorkflowTab} onChange={changeWorkflowTab} />
               <div className="flex min-w-0 items-stretch justify-end gap-2">
-                {workflowLayout === "guided" ? (
-                  <StrategyShelfToggle
-                    count={customComparisonCards.length}
-                    isOpen={isStrategyShelfOpen}
-                    onClick={showCustomComparisons}
-                  />
-                ) : null}
+
                 <SettingsWidget
                   colorScheme={colorScheme}
                   moneyDisplayUnit={moneyDisplayUnit}
@@ -10969,97 +8817,60 @@ export default function DebitCallSpreadLab({
                   onMoneyDisplayUnitChange={setMoneyDisplayUnit}
                   onUpdateStrikesWithPriceChange={setUpdateStrikesWithPrice}
                 />
+                <AiHelp context={JSON.stringify({
+                  symbol: selectedSavedStrategyCard?.symbol ?? symbol,
+                  activeTab: activeWorkflowTab,
+                  inputs: visualizedInputs,
+                  results: canModel ? visualizedSnapshot : null,
+                  validationMessages,
+                  pricing: "Theoretical Black-Scholes model; not live market quotes. Monetary values are USD; one contract represents 100 shares.",
+                })} />
               </div>
             </div>
 
-            {showTabbedSetupContext ? (
-              <ActiveSetupStrip
-                symbol={symbol}
-                spot={spot}
-                volatilityPct={volatilityPct}
-                expirationDays={expirationDays}
-                strategy={strategy}
-                longStrike={longStrike}
-                shortStrike={shortStrike}
-                ratioShortCount={putRatioShortCount}
-                selectedStrategy={selectedSavedStrategyCard}
-                isOpen={isCoreSetupOpen}
-                strategyCount={customComparisonCards.length}
-                onToggle={() => {
-                  setIsCoreSetupOpen(false);
-                  setIsStrategyShelfOpen(false);
-                  setIsSetupFormVisible(false);
-                }}
-                onOpen={() => {
-                  if (comparisonPanelMode !== "custom") {
-                    seedCustomDraftFromCurrent();
-                  }
-                  if (graphComparisonId.startsWith("preset:")) {
-                    setGraphComparisonId("editor");
-                  }
-                  setComparisonPanelMode("custom");
-                  setIsCustomComparisonEditorOpen(false);
-                  setIsSetupFormVisible(false);
-                  setIsCoreSetupOpen(true);
-                  setIsStrategyShelfOpen(true);
-                }}
-                strategiesPanel={
-                  <CustomComparisonBoard
-                    cards={customComparisonCards}
-                    draft={customDraft}
-                    draftError={customDraftError}
-                    draftSnapshot={customDraftSnapshot}
-                    embedded
-                    editingComparisonId={editingComparisonId}
-                    isEditorOpen={isCustomComparisonEditorOpen}
-                    setupForm={setupFormFields}
-                    quickStartCards={isCustomComparisonEditorOpen ? comparisonCards : []}
-                    saveActionLabel={editingComparisonId ? "Save changes" : "Save strategy"}
-                    selectedCardId={selectedCustomCardId}
-                    showSummary
-                    showSetupForm={isSetupFormVisible}
-                    moneyDisplayUnitScale={moneyDisplayUnitScale}
-                    moneyDisplayUnitSuffix={moneyDisplayUnitSuffix}
-                    currentSpot={spot}
-                    currentVolatilityPct={volatilityPct}
-                    currentRatePct={ratePct}
-                    scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
-                    scenarioPrice={effectiveScenarioPrice}
-                    symbol={symbol}
-                    onDraftChange={setCustomDraft}
-                    onAddComparison={addCustomComparison}
-                    onAnalyzeCard={analyzeCustomComparison}
-                    onClose={() => {
-                      setEditingComparisonId(null);
-                      setIsCustomComparisonEditorOpen(false);
-                      setIsSetupFormVisible(false);
-                    }}
-                    onEditComparison={editCustomComparison}
-                    onOpenEditor={openCustomComparisonEditor}
-                    onRemoveComparison={removeCustomComparison}
-                    onReorderComparisons={reorderCustomComparisons}
-                    onToggleSetupForm={() =>
-                      setIsSetupFormVisible((currentValue) => !currentValue)
-                    }
-                    onUseQuickStart={useCustomQuickStart}
-                  />
+            <ActiveSetupStrip
+              symbol={symbol}
+              spot={spot}
+              volatilityPct={volatilityPct}
+              expirationDays={expirationDays}
+              strategy={strategy}
+              longStrike={longStrike}
+              shortStrike={shortStrike}
+              ratioShortCount={putRatioShortCount}
+              selectedStrategy={selectedSavedStrategyCard}
+              isOpen={isCoreSetupOpen}
+              strategyCount={customComparisonCards.length}
+              onToggle={() => {
+                setIsCoreSetupOpen(false);
+                setIsSetupFormVisible(false);
+              }}
+              onOpen={() => {
+                if (comparisonPanelMode !== "custom") {
+                  seedCustomDraftFromCurrent();
                 }
-              />
-            ) : null}
-
-            {isStrategyShelfOpen && workflowLayout === "guided" ? (
-              <div id="strategy-shelf">
+                if (graphComparisonId.startsWith("preset:")) {
+                  setGraphComparisonId("editor");
+                }
+                setComparisonPanelMode("custom");
+                setIsCustomComparisonEditorOpen(false);
+                setIsSetupFormVisible(false);
+                setIsCoreSetupOpen(true);
+              }}
+              strategiesPanel={
                 <CustomComparisonBoard
                   cards={customComparisonCards}
                   draft={customDraft}
                   draftError={customDraftError}
                   draftSnapshot={customDraftSnapshot}
+                  embedded
                   editingComparisonId={editingComparisonId}
                   isEditorOpen={isCustomComparisonEditorOpen}
+                  setupForm={setupFormFields}
                   quickStartCards={isCustomComparisonEditorOpen ? comparisonCards : []}
                   saveActionLabel={editingComparisonId ? "Save changes" : "Save strategy"}
                   selectedCardId={selectedCustomCardId}
                   showSummary
+                  showSetupForm={isSetupFormVisible}
                   moneyDisplayUnitScale={moneyDisplayUnitScale}
                   moneyDisplayUnitSuffix={moneyDisplayUnitSuffix}
                   currentSpot={spot}
@@ -11074,53 +8885,21 @@ export default function DebitCallSpreadLab({
                   onClose={() => {
                     setEditingComparisonId(null);
                     setIsCustomComparisonEditorOpen(false);
+                    setIsSetupFormVisible(false);
                   }}
                   onEditComparison={editCustomComparison}
                   onOpenEditor={openCustomComparisonEditor}
                   onRemoveComparison={removeCustomComparison}
                   onReorderComparisons={reorderCustomComparisons}
+                  onToggleSetupForm={() =>
+                    setIsSetupFormVisible((currentValue) => !currentValue)
+                  }
                   onUseQuickStart={useCustomQuickStart}
                 />
-              </div>
-            ) : null}
+              }
+            />
 
-            {workflowLayout === "guided" ? (
-              <WorkflowStep
-                step="1"
-                title="Setup"
-                description="Start with the stock details, then save or compare a strategy."
-              >
-                <SetupSummaryStrip
-                  symbol={symbol}
-                  spot={spot}
-                  volatilityPct={volatilityPct}
-                />
-
-                {validationMessages.length > 0 ? (
-                  <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">
-                    <p className="font-medium">Fix these inputs first</p>
-                    <ul className="mt-2 space-y-1">
-                      {validationMessages.map((message) => (
-                        <li key={message}>{message}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {canModel && comparisonPanelMode === "presets" && comparisonCards.length > 0 ? (
-                  <OptionComparisonBoard
-                    cards={comparisonCards}
-                    selectedCardId={selectedPresetCardId}
-                    scenarioDateLabel={formatLongDate(snapshot.selectedDateIso)}
-                    scenarioPrice={effectiveScenarioPrice}
-                    symbol={symbol}
-                  />
-                ) : null}
-
-              </WorkflowStep>
-            ) : null}
-
-            {workflowLayout === "tabbed" && activeWorkflowTab === "setup" ? (
+            {activeWorkflowTab === "setup" ? (
               <div className="space-y-3">
                 <SectionCard
                   title="Setup"
@@ -11143,7 +8922,7 @@ export default function DebitCallSpreadLab({
               </div>
             ) : null}
 
-            {workflowLayout === "tabbed" && activeWorkflowTab === "decision" ? (
+            {activeWorkflowTab === "decision" ? (
               <div className="space-y-2">
                 {marketScenarioCard}
 
@@ -11166,8 +8945,7 @@ export default function DebitCallSpreadLab({
               </div>
             ) : null}
 
-            {workflowLayout === "tabbed" &&
-            activeWorkflowTab === "understanding-iv" ? (
+            {activeWorkflowTab === "understanding-iv" ? (
               <UnderstandingIvTool
                 key={selectedGraphComparison.id}
                 symbol={selectedSavedStrategyCard?.symbol ?? symbol}
@@ -11187,63 +8965,10 @@ export default function DebitCallSpreadLab({
               />
             ) : null}
 
-            {workflowLayout === "guided" ? (
-              <WorkflowStepIntro
-                step="2"
-                title="Scenario analysis"
-                description="Set future market conditions, then inspect how the selected strategy moves."
-              />
-            ) : null}
-
             {isAnalysisVisible ? (
               <>
-                {workflowLayout === "guided" ? (
-                <section className="rounded-lg border border-slate-200 bg-white px-3 py-2.5 shadow-sm">
-                  <div className="flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase text-slate-500">
-                        Analyzing
-                      </p>
-                      <h2 className="truncate font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">
-                        {analyzedStrategyName}
-                      </h2>
-                    </div>
-                    <div className="flex min-w-0 flex-wrap gap-1.5 text-xs">
-                      <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-slate-700 tabular-nums">
-                        {analyzedStructureLabel}
-                      </span>
-                      <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-slate-700 tabular-nums">
-                        {visualizedSnapshot.expirationDays} DTE
-                      </span>
-                      <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-slate-700 tabular-nums">
-                        {visualizedSnapshot.reserveOffset > 0 ? "Reserve" : "Cost"} {formatCurrency(visualizedSnapshot.totalCost)}
-                      </span>
-                      <span
-                        className={cn(
-                          "rounded-md border px-2 py-1 font-mono font-semibold tabular-nums",
-                          visualizedSnapshot.pnl >= 0
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                            : "border-rose-200 bg-rose-50 text-rose-800",
-                        )}
-                      >
-                        {visualizedSnapshot.pnl >= 0 ? "+" : ""}
-                        {formatCurrency(visualizedSnapshot.pnl)}
-                      </span>
-                    </div>
-                  </div>
-                </section>
-                ) : null}
 
-                {workflowLayout === "tabbed" ? (
-                  !isTabbedHeatMap ? marketScenarioCard : null
-                ) : (
-                  <SectionCard
-                    title="Market scenario"
-                    eyebrow={`${symbol.trim() || "Underlying"} scenario assumptions`}
-                  >
-                    {scenarioControlsBlock}
-                  </SectionCard>
-                )}
+                {!isTabbedHeatMap ? marketScenarioCard : null}
 
             <SectionCard
               title={isTabbedHeatMap ? "Heat map" : "Scenario curve"}
@@ -11251,9 +8976,7 @@ export default function DebitCallSpreadLab({
                 eyebrow={
                   isTabbedHeatMap
                     ? "Value across stock price and DTE"
-                    : workflowLayout === "tabbed"
-                      ? "Value across stock price and time"
-                      : `${symbol.trim() || "Underlying"} profit & loss by stock price · ${selectedGraphComparison.label}`
+                    : "Value across stock price and time"
                 }
               action={
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
@@ -11279,7 +9002,7 @@ export default function DebitCallSpreadLab({
                     <div
                       className={cn(
                         "grid w-full min-w-0 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:grid-cols-none",
-                        workflowLayout === "tabbed" ? "grid-cols-2" : "grid-cols-3",
+                        "grid-cols-2",
                       )}
                       aria-label="Scenario graph view"
                     >
