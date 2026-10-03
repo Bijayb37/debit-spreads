@@ -80,7 +80,7 @@ export function DecisionOutcomeMatrix({
         >
           <div className="bg-slate-950 px-3 py-2.5 text-white">
             <p className="text-xs font-medium text-slate-300">Metric</p>
-            <h3 className="mt-1 font-[family:var(--font-space-grotesk)] text-base font-semibold leading-tight text-balance">
+            <h3 className="mt-1 font-sans text-base font-semibold leading-tight text-balance">
               {metric.label}
             </h3>
           </div>

@@ -108,7 +108,7 @@ export function DecisionOutcomeCards({
               )}
             >
               <div className="flex min-w-0 items-baseline gap-2">
-                <h3 className="min-w-0 truncate font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-tight text-balance">
+                <h3 className="min-w-0 truncate font-sans text-sm font-semibold leading-tight text-balance">
                   {card.label}
                 </h3>
                 <p className="shrink-0 font-mono text-xs font-medium text-slate-300 tabular-nums">

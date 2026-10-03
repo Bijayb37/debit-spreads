@@ -2511,7 +2511,7 @@ export default function DebitCallSpreadLab({
         {number}
       </span>
       <div className="min-w-0">
-        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold leading-tight text-ink text-balance">
+        <h3 className="font-sans text-base font-semibold leading-tight text-ink text-balance">
           {title}
         </h3>
         <p className="mt-0.5 text-xs leading-5 text-ink-muted text-pretty">{hint}</p>
@@ -3226,7 +3226,7 @@ export default function DebitCallSpreadLab({
             </svg>
           </span>
           <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-ink">
+            <span className="font-sans text-sm font-semibold text-ink">
               Market scenario
             </span>
             <span className="min-w-0 truncate font-mono text-xs text-ink-secondary tabular-nums">
@@ -3553,7 +3553,7 @@ export default function DebitCallSpreadLab({
                             </div>
                             <p
                               className={cn(
-                                  "overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none tabular-nums",
+                                  "overflow-hidden whitespace-nowrap font-sans text-2xl font-semibold leading-none tabular-nums",
                                 visualizedSnapshot.pnl >= 0 ? "text-gain" : "text-loss",
                               )}
                             >
@@ -3595,7 +3595,7 @@ export default function DebitCallSpreadLab({
                                   : "≥"} ${formatStrikeCurrency(visualizedInputs.shortStrike)}`}
                             </p>
                           </div>
-                            <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-gain tabular-nums">
+                            <p className="overflow-hidden whitespace-nowrap font-sans text-2xl font-semibold leading-none text-gain tabular-nums">
                             +{formatCurrency(visualizedMaxProfitAtExpiry ?? 0)}
                           </p>
                             <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
@@ -3622,7 +3622,7 @@ export default function DebitCallSpreadLab({
                                   : `≥ ${formatCurrencyWithCents(visualizedSnapshot.breakEvenAtExpiry)}`}
                               </p>
                             </div>
-                          <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-gain tabular-nums">
+                          <p className="overflow-hidden whitespace-nowrap font-sans text-2xl font-semibold leading-none text-gain tabular-nums">
                             {visualizedIsCallCalendar ? "Open" : "Uncapped"}
                           </p>
                             <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
@@ -3659,7 +3659,7 @@ export default function DebitCallSpreadLab({
                                 : formatStrikeCurrency(visualizedInputs.longStrike)}
                             </p>
                           </div>
-                              <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-loss tabular-nums">
+                              <p className="overflow-hidden whitespace-nowrap font-sans text-2xl font-semibold leading-none text-loss tabular-nums">
                               {visualizedMaxLossAtExpiry === null
                                 ? "Uncapped"
                                 : formatCurrency(visualizedMaxLossAtExpiry)}
@@ -3746,7 +3746,7 @@ export default function DebitCallSpreadLab({
                 className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 <span>
-                  <span className="block font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink">
+                  <span className="block font-sans text-base font-semibold text-ink">
                     Detailed tables
                   </span>
                   <span className="block text-xs text-ink-muted">

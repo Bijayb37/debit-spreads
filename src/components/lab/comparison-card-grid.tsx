@@ -121,7 +121,7 @@ export function ComparisonCardGrid({
                   </p>
                   <p
                     className={cn(
-                      "mt-1 truncate font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none tabular-nums",
+                      "mt-1 truncate font-sans text-3xl font-semibold leading-none tabular-nums",
                       pnlTone,
                     )}
                   >
@@ -135,7 +135,7 @@ export function ComparisonCardGrid({
                   </p>
                   <p
                     className={cn(
-                      "mt-1 font-[family:var(--font-space-grotesk)] text-xl font-semibold leading-none tabular-nums",
+                      "mt-1 font-sans text-xl font-semibold leading-none tabular-nums",
                       pnlTone,
                     )}
                   >

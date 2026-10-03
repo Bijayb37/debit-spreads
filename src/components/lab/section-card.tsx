@@ -42,7 +42,7 @@ export function SectionCard({
                 {eyebrow}
               </p>
             ) : null}
-            <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance text-ink">
+            <h2 className="font-sans text-lg font-semibold text-balance text-ink">
               {title}
             </h2>
           </div>

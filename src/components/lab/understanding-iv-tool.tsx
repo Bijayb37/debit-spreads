@@ -59,7 +59,7 @@ function IvEquivalentChoiceColumn({
   return (
     <section className="min-w-0 p-3 sm:p-4">
       <div className="flex min-w-0 items-baseline justify-between gap-3">
-        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink">
+        <h3 className="font-sans text-base font-semibold text-ink">
           {title}
         </h3>
         <span className="text-right font-mono text-caption font-semibold text-accent-strong tabular-nums">
@@ -217,7 +217,7 @@ export function UnderstandingIvTool({
               <p className="text-caption font-semibold uppercase text-accent-strong">
                 Understanding IV
               </p>
-              <h2 className="mt-1 font-[family:var(--font-space-grotesk)] text-xl font-semibold text-ink">
+              <h2 className="mt-1 font-sans text-xl font-semibold text-ink">
                 Higher IV: farther OTM or less time
               </h2>
             </div>
@@ -363,7 +363,7 @@ export function UnderstandingIvTool({
       <section className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
         <header className="flex min-w-0 flex-col gap-1 border-b border-line bg-surface-muted px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
           <div className="min-w-0">
-            <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink">
+            <h2 className="font-sans text-base font-semibold text-ink">
               At {compactNumber(comparisonIvPct)}% IV, choose one
             </h2>
             <p className="mt-0.5 text-xs text-ink-muted">

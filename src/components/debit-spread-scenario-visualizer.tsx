@@ -1180,7 +1180,7 @@ export default function DebitSpreadScenarioVisualizer({
       {!isHeatmapView ? (
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink text-balance">
+            <h2 className="font-sans text-base font-semibold text-ink text-balance">
               {`How does the ${unitName} shift over time?`}
             </h2>
           </div>
@@ -1216,7 +1216,7 @@ export default function DebitSpreadScenarioVisualizer({
                 </svg>
               </span>
               <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-ink">
+                <span className="font-sans text-sm font-semibold text-ink">
                   Range settings
                 </span>
                 <span className="min-w-0 truncate font-mono text-xs text-ink-secondary tabular-nums">

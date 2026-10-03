@@ -121,7 +121,7 @@ export function ActiveSetupStrip({
               Setup
             </span>
             <span className="flex min-w-0 items-baseline gap-x-2 gap-y-0.5 whitespace-nowrap md:flex-wrap md:whitespace-normal">
-              <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-ink">
+              <span className="font-sans text-sm font-semibold leading-none text-ink">
                 {symbol.trim() || "Underlying"}
               </span>
               <span className="font-mono text-caption font-medium tabular-nums text-ink-secondary">
@@ -139,7 +139,7 @@ export function ActiveSetupStrip({
             <span className="flex min-w-0 items-baseline gap-x-2 gap-y-0.5 whitespace-nowrap md:flex-wrap md:whitespace-normal">
               {hasSavedStrategies ? (
                 <>
-                  <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-ink">
+                  <span className="font-sans text-sm font-semibold leading-none text-ink">
                     {strategyLabel}
                   </span>
                   <span className="min-w-0 truncate font-mono text-caption font-medium tabular-nums text-ink-secondary">
@@ -154,7 +154,7 @@ export function ActiveSetupStrip({
                 </>
               ) : (
                 <>
-                  <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold leading-none text-ink">
+                  <span className="font-sans text-sm font-semibold leading-none text-ink">
                     No saved strategy
                   </span>
                   <span className="hidden min-w-0 truncate text-caption font-medium text-ink-secondary md:inline">
