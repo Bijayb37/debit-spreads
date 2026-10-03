@@ -8,7 +8,7 @@ export function RatioCreditSummary({ snapshot }: { snapshot: ScenarioSnapshot })
   if (snapshot.reserveOffset <= 0) return null;
   const credit = Math.max(-snapshot.entryPremium, 0) * CONTRACT_MULTIPLIER;
   return (
-    <p className="mt-2 text-sm text-slate-600">
+    <p className="mt-2 text-sm text-ink-secondary">
       Credit / spread: <strong>{formatCurrencyWithCents(credit)}</strong>
       {" · "}Total credit: <strong>{formatCurrencyWithCents(credit * snapshot.contracts)}</strong>
       {" · "}Reserve / spread: <strong>{formatCurrencyWithCents(snapshot.unitCost * CONTRACT_MULTIPLIER)}</strong>.

@@ -48,29 +48,29 @@ export function DecisionOutcomeCards({
           ...(card.snapshot.reserveOffset > 0 ? [{
             label: "Credit / spread",
             value: formatCurrencyWithCents(-card.snapshot.entryPremium * CONTRACT_MULTIPLIER),
-            valueClassName: "text-emerald-700",
+            valueClassName: "text-gain",
           }] : []),
             {
               label: "DTE · Initial price",
               value: `${getDteDisplayLabel(card)} · ${
                 card.spot !== undefined ? formatPriceCurrency(card.spot) : "Current"
               }`,
-              valueClassName: "text-slate-950",
+              valueClassName: "text-ink",
             },
           {
             label: getBreakEvenLabel(card.snapshot),
             value: formatBreakEvenAtExpiry(card.snapshot),
-            valueClassName: "text-slate-950",
+            valueClassName: "text-ink",
           },
           {
             label: getUnitCostMetricLabel(card.strategy, card.snapshot),
             value: formatCurrencyWithCents(card.snapshot.unitCost * CONTRACT_MULTIPLIER),
-            valueClassName: "text-slate-950",
+            valueClassName: "text-ink",
           },
           {
             label: card.snapshot.reserveOffset > 0 ? "Capital reserved" : "Initial cost",
             value: formatCurrency(card.snapshot.totalCost),
-            valueClassName: "text-slate-950",
+            valueClassName: "text-ink",
           },
           {
             label: "IV",
@@ -78,7 +78,7 @@ export function DecisionOutcomeCards({
               card.volatilityPct !== undefined
                 ? `${compactNumber(card.volatilityPct)}%`
                 : "Current",
-            valueClassName: "text-slate-950",
+            valueClassName: "text-ink",
           },
         ];
 
@@ -86,9 +86,9 @@ export function DecisionOutcomeCards({
           <article
             key={card.id}
             className={cn(
-              "group relative min-w-0 overflow-hidden rounded-md border bg-white shadow-sm transition-colors",
-              isSelected ? "border-[var(--accent)]" : "border-slate-200",
-              onAnalyzeCard && !isSelected && "hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]",
+              "group relative min-w-0 overflow-hidden rounded-md border bg-surface shadow-sm transition-colors",
+              isSelected ? "border-accent" : "border-line",
+              onAnalyzeCard && !isSelected && "hover:border-accent hover:bg-accent-faint",
             )}
           >
             {onAnalyzeCard ? (
@@ -97,7 +97,7 @@ export function DecisionOutcomeCards({
                 aria-pressed={isSelected}
                 aria-label={`Select ${card.label}`}
                 onClick={() => onAnalyzeCard(card)}
-                className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]"
+                className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent"
               />
             ) : null}
 
@@ -116,26 +116,26 @@ export function DecisionOutcomeCards({
                 </p>
               </div>
               {isSelected ? (
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-accent px-2 py-0.5 text-micro font-semibold text-white shadow-sm">
                   Selected
                 </span>
               ) : null}
             </div>
 
             <div className="pointer-events-none space-y-2 p-2.5">
-              <div className="grid min-w-0 grid-cols-3 gap-2 rounded-md bg-slate-50 p-2">
+              <div className="grid min-w-0 grid-cols-3 gap-2 rounded-md bg-surface-muted p-2">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-slate-500">Position value</p>
-                  <p className="mt-1 truncate font-mono text-sm font-semibold leading-none text-slate-950 tabular-nums">
+                  <p className="text-caption font-medium text-ink-muted">Position value</p>
+                  <p className="mt-1 truncate font-mono text-sm font-semibold leading-none text-ink tabular-nums">
                     {formatCurrency(card.snapshot.scenarioPositionValue)}
                   </p>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-slate-500">P/L</p>
+                  <p className="text-caption font-medium text-ink-muted">P/L</p>
                   <p
                     className={cn(
                       "mt-1 truncate font-mono text-base font-semibold leading-none tabular-nums",
-                      pnlIsPositive ? "text-emerald-700" : "text-rose-700",
+                      pnlIsPositive ? "text-gain" : "text-loss",
                     )}
                   >
                     {pnlIsPositive ? "+" : ""}
@@ -143,8 +143,8 @@ export function DecisionOutcomeCards({
                   </p>
                 </div>
                 <div className="min-w-0 text-right">
-                  <p className="text-[11px] font-medium text-slate-500">Return</p>
-                  <p className="mt-1 truncate font-mono text-sm font-semibold leading-none text-slate-950 tabular-nums">
+                  <p className="text-caption font-medium text-ink-muted">Return</p>
+                  <p className="mt-1 truncate font-mono text-sm font-semibold leading-none text-ink tabular-nums">
                     {formatPercent(card.snapshot.roi)}
                   </p>
                 </div>
@@ -154,9 +154,9 @@ export function DecisionOutcomeCards({
                 {metrics.map((metric) => (
                   <div
                     key={metric.label}
-                    className="min-w-0 rounded-md border border-slate-100 bg-white px-2 py-1.5 shadow-sm"
+                    className="min-w-0 rounded-md border border-slate-100 bg-surface px-2 py-1.5 shadow-sm"
                   >
-                    <p className="text-[11px] font-medium text-slate-500">{metric.label}</p>
+                    <p className="text-caption font-medium text-ink-muted">{metric.label}</p>
                     <p
                       className={cn(
                         "mt-0.5 truncate font-mono text-xs font-semibold tabular-nums",
@@ -167,11 +167,11 @@ export function DecisionOutcomeCards({
                     </p>
                   </div>
                 ))}
-                <div className="min-w-0 rounded-md border border-slate-100 bg-white px-2 py-1.5 shadow-sm">
-                  <p className="text-[11px] font-medium text-slate-500">
+                <div className="min-w-0 rounded-md border border-slate-100 bg-surface px-2 py-1.5 shadow-sm">
+                  <p className="text-caption font-medium text-ink-muted">
                     Max profit %
                   </p>
-                  <p className="mt-0.5 truncate font-mono text-xs font-semibold text-emerald-700 tabular-nums">
+                  <p className="mt-0.5 truncate font-mono text-xs font-semibold text-gain tabular-nums">
                     {maxProfitPercent}
                   </p>
                 </div>

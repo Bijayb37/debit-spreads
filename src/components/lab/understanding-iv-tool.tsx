@@ -59,39 +59,39 @@ function IvEquivalentChoiceColumn({
   return (
     <section className="min-w-0 p-3 sm:p-4">
       <div className="flex min-w-0 items-baseline justify-between gap-3">
-        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">
+        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink">
           {title}
         </h3>
-        <span className="text-right font-mono text-[11px] font-semibold text-[var(--accent-strong)] tabular-nums">
+        <span className="text-right font-mono text-caption font-semibold text-accent-strong tabular-nums">
           {formatReturnMatch(matchDifferencePoints)}
         </span>
       </div>
-      <p className="mt-3 break-words font-mono text-xl font-semibold text-slate-950 tabular-nums">
+      <p className="mt-3 break-words font-mono text-xl font-semibold text-ink tabular-nums">
         {value}
       </p>
-      <p className="mt-1 text-xs text-slate-500">
-        Instead of <span className="font-mono font-semibold text-slate-700">{baselineValue}</span>
+      <p className="mt-1 text-xs text-ink-muted">
+        Instead of <span className="font-mono font-semibold text-ink-soft">{baselineValue}</span>
       </p>
-      <div className="mt-3 border-t border-slate-200 pt-3">
+      <div className="mt-3 border-t border-line pt-3">
         <div className="grid grid-cols-2 gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-medium text-slate-500">Change</p>
-            <p className="mt-1 break-words font-mono text-sm font-semibold text-[var(--accent-strong)] tabular-nums">
+            <p className="text-caption font-medium text-ink-muted">Change</p>
+            <p className="mt-1 break-words font-mono text-sm font-semibold text-accent-strong tabular-nums">
               {change}
             </p>
           </div>
           <div className="min-w-0">
-            <p className="text-[11px] font-medium text-slate-500">
+            <p className="text-caption font-medium text-ink-muted">
               Max return
             </p>
-            <p className="mt-1 font-mono text-sm font-semibold text-slate-950 tabular-nums">
+            <p className="mt-1 font-mono text-sm font-semibold text-ink tabular-nums">
               {maximumReturnPct === null
                 ? "Unlimited"
                 : formatSignedGreekPercent(maximumReturnPct, 1)}
             </p>
           </div>
         </div>
-        <p className="mt-1 text-[11px] text-slate-500">
+        <p className="mt-1 text-caption text-ink-muted">
           {isExactMatch
             ? `Matches the selected strategy's ${formatSignedGreekPercent(
                 targetMetricPct,
@@ -110,7 +110,7 @@ function IvEquivalentChoiceColumn({
         type="button"
         aria-label={`Create ${title.toLowerCase()} strategy`}
         onClick={onCreateStrategy}
-        className="mt-3 w-full rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+        className="mt-3 w-full rounded-md border border-accent bg-accent px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         Create this strategy
       </button>
@@ -210,18 +210,18 @@ export function UnderstandingIvTool({
 
   return (
     <div className="min-w-0 space-y-3">
-      <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <header className="border-b border-slate-200 px-3 py-3 sm:px-4">
+      <section className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
+        <header className="border-b border-line px-3 py-3 sm:px-4">
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase text-[var(--accent-strong)]">
+              <p className="text-caption font-semibold uppercase text-accent-strong">
                 Understanding IV
               </p>
-              <h2 className="mt-1 font-[family:var(--font-space-grotesk)] text-xl font-semibold text-slate-950">
+              <h2 className="mt-1 font-[family:var(--font-space-grotesk)] text-xl font-semibold text-ink">
                 Higher IV: farther OTM or less time
               </h2>
             </div>
-            <p className="font-mono text-xs text-slate-600 tabular-nums">
+            <p className="font-mono text-xs text-ink-secondary tabular-nums">
               {symbol.trim() || "Stock"} {formatPriceCurrency(spot)} ·{" "}
               {compactNumber(currentIvPct)}% entry IV · {expirationDays} DTE
             </p>
@@ -234,7 +234,7 @@ export function UnderstandingIvTool({
               Position
             </legend>
             <div
-              className="mt-2 grid grid-cols-2 rounded-lg border border-slate-200 bg-slate-100 p-1"
+              className="mt-2 grid grid-cols-2 rounded-lg border border-line bg-surface-sunken p-1"
               aria-label="IV comparison position"
             >
               {([
@@ -253,30 +253,30 @@ export function UnderstandingIvTool({
                   aria-pressed={instrument === option.value}
                   onClick={() => setInstrument(option.value)}
                   className={cn(
-                    "min-w-0 rounded-md px-2 py-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                    "min-w-0 rounded-md px-2 py-2 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                     instrument === option.value
-                      ? "bg-white text-slate-950 shadow-sm"
-                      : "text-slate-600 hover:text-slate-950",
+                      ? "bg-surface text-ink shadow-sm"
+                      : "text-ink-secondary hover:text-ink",
                   )}
                 >
                   {option.label}
                 </button>
               ))}
             </div>
-            <dl className="mt-3 grid min-w-0 grid-cols-2 gap-3 border-t border-slate-200 pt-3">
+            <dl className="mt-3 grid min-w-0 grid-cols-2 gap-3 border-t border-line pt-3">
               <div className="min-w-0">
-                <dt className="text-[11px] font-medium text-slate-500">
+                <dt className="text-caption font-medium text-ink-muted">
                   Structure
                 </dt>
-                <dd className="mt-1 break-words font-mono text-xs font-semibold text-slate-950">
+                <dd className="mt-1 break-words font-mono text-xs font-semibold text-ink">
                   {structureLabel}
                 </dd>
               </div>
               <div className="min-w-0">
-                <dt className="text-[11px] font-medium text-slate-500">
+                <dt className="text-caption font-medium text-ink-muted">
                   Max return
                 </dt>
-                <dd className="mt-1 font-mono text-sm font-semibold text-[var(--accent-strong)] tabular-nums">
+                <dd className="mt-1 font-mono text-sm font-semibold text-accent-strong tabular-nums">
                   {result.maximumReturnPct === null
                     ? "Unlimited"
                     : formatSignedGreekPercent(
@@ -286,10 +286,10 @@ export function UnderstandingIvTool({
                 </dd>
               </div>
               <div className="min-w-0">
-                <dt className="text-[11px] font-medium text-slate-500">
+                <dt className="text-caption font-medium text-ink-muted">
                   Return at expected move
                 </dt>
-                <dd className="mt-1 font-mono text-xs font-semibold text-slate-950 tabular-nums">
+                <dd className="mt-1 font-mono text-xs font-semibold text-ink tabular-nums">
                   {formatSignedGreekPercent(
                     result.baseline.returnPct,
                     1,
@@ -297,10 +297,10 @@ export function UnderstandingIvTool({
                 </dd>
               </div>
               <div className="min-w-0">
-                <dt className="text-[11px] font-medium text-slate-500">
+                <dt className="text-caption font-medium text-ink-muted">
                   {compactNumber(currentIvPct)}% expected move
                 </dt>
-                <dd className="mt-1 font-mono text-xs font-semibold text-slate-950 tabular-nums">
+                <dd className="mt-1 font-mono text-xs font-semibold text-ink tabular-nums">
                   {formatExpectedMove(
                     result.baselineExpectedMoveDollar,
                     result.baselineExpectedMovePct,
@@ -330,12 +330,12 @@ export function UnderstandingIvTool({
                 { label: "150%", value: 150 },
               ]}
             />
-            <dl className="grid min-w-0 grid-cols-2 gap-3 border-t border-slate-200 pt-3">
+            <dl className="grid min-w-0 grid-cols-2 gap-3 border-t border-line pt-3">
               <div className="min-w-0">
-                <dt className="text-[11px] font-medium text-slate-500">
+                <dt className="text-caption font-medium text-ink-muted">
                   Expected move
                 </dt>
-                <dd className="mt-1 font-mono text-sm font-semibold text-slate-950 tabular-nums">
+                <dd className="mt-1 font-mono text-sm font-semibold text-ink tabular-nums">
                   {formatExpectedMove(
                     result.comparisonExpectedMoveDollar,
                     result.comparisonExpectedMovePct,
@@ -343,30 +343,30 @@ export function UnderstandingIvTool({
                 </dd>
               </div>
               <div className="min-w-0">
-                <dt className="text-[11px] font-medium text-slate-500">
+                <dt className="text-caption font-medium text-ink-muted">
                   Expected stock price
                 </dt>
-                <dd className="mt-1 font-mono text-sm font-semibold text-slate-950 tabular-nums">
+                <dd className="mt-1 font-mono text-sm font-semibold text-ink tabular-nums">
                   {formatCurrencyWithCents(result.comparisonScenarioPrice)}
                 </dd>
               </div>
             </dl>
           </div>
         </div>
-        <p className="border-t border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-500 sm:px-4">
+        <p className="border-t border-line bg-surface-muted px-3 py-2.5 text-xs text-ink-muted sm:px-4">
           {result.matchMetric === "maximum-return"
             ? "The alternatives below match the selected spread's max return. Expected move is shown for context."
             : "Long calls have unlimited max return, so alternatives match the return at the expected move."}
         </p>
       </section>
 
-      <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-        <header className="flex min-w-0 flex-col gap-1 border-b border-slate-200 bg-slate-50 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
+      <section className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
+        <header className="flex min-w-0 flex-col gap-1 border-b border-line bg-surface-muted px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-4">
           <div className="min-w-0">
-            <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">
+            <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink">
               At {compactNumber(comparisonIvPct)}% IV, choose one
             </h2>
-            <p className="mt-0.5 text-xs text-slate-500">
+            <p className="mt-0.5 text-xs text-ink-muted">
               {result.matchMetric === "maximum-return"
                 ? `Both target the selected strategy's ${formatSignedGreekPercent(
                     result.targetMetricPct,
@@ -378,7 +378,7 @@ export function UnderstandingIvTool({
                   )} return at the expected move.`}
             </p>
           </div>
-          <p className="font-mono text-xs font-semibold text-[var(--accent-strong)] tabular-nums">
+          <p className="font-mono text-xs font-semibold text-accent-strong tabular-nums">
             Current IV {compactNumber(currentIvPct)}%
           </p>
         </header>

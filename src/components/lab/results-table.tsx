@@ -17,16 +17,16 @@ export function ResultsTable<Row extends { id: string; isHighlighted?: boolean }
   rows,
 }: ResultsTableProps<Row>) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-3 py-2.5">
-        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">
+    <div className="rounded-lg border border-line bg-surface shadow-sm">
+      <div className="border-b border-line px-3 py-2.5">
+        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink">
           {title}
         </h3>
-        <p className="mt-1 text-xs text-slate-500 text-pretty">{subtitle}</p>
+        <p className="mt-1 text-xs text-ink-muted text-pretty">{subtitle}</p>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full border-collapse text-sm">
-          <thead className="bg-slate-50 text-slate-600">
+          <thead className="bg-surface-muted text-ink-secondary">
             <tr>
               {columns.map((column) => (
                 <th
@@ -47,16 +47,16 @@ export function ResultsTable<Row extends { id: string; isHighlighted?: boolean }
                 key={row.id}
                 className={cn(
                   "border-t border-slate-100",
-                  row.isHighlighted && "bg-[var(--accent-soft)]",
+                  row.isHighlighted && "bg-accent-soft",
                 )}
               >
                 {columns.map((column) => (
                   <td
                     key={column.key}
                     className={cn(
-                      "px-3 py-2 align-top font-mono tabular-nums text-slate-950",
+                      "px-3 py-2 align-top font-mono tabular-nums text-ink",
                       column.align === "right" && "text-right",
-                      column.muted && "text-slate-600",
+                      column.muted && "text-ink-secondary",
                     )}
                   >
                     {column.render(row)}

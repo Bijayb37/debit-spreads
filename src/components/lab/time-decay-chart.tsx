@@ -138,13 +138,13 @@ export function TimeDecayChart({
   const lossColor = "#be123c";
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
+    <div className="rounded-lg border border-line bg-surface-muted p-4 shadow-sm">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
-          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+          <h3 className="text-sm font-semibold text-ink">{title}</h3>
+          <p className="mt-1 text-xs text-ink-muted">{subtitle}</p>
         </div>
-        <div className="flex flex-wrap justify-end gap-x-4 gap-y-1.5 text-xs text-slate-600">
+        <div className="flex flex-wrap justify-end gap-x-4 gap-y-1.5 text-xs text-ink-secondary">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-0.5 w-4 rounded-full bg-slate-700" />
             Stock at {scenarioPriceLabel}
@@ -161,12 +161,12 @@ export function TimeDecayChart({
             Cost basis
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="size-2 rounded-full bg-[var(--accent)]" />
+            <span className="size-2 rounded-full bg-accent" />
             Selected
             <span
               className={cn(
                 "font-mono font-semibold tabular-nums",
-                selectedPnl >= 0 ? "text-emerald-700" : "text-rose-700",
+                selectedPnl >= 0 ? "text-gain" : "text-loss",
               )}
             >
               {formatCompactCurrency(selectedPositionValue)}
@@ -206,7 +206,7 @@ export function TimeDecayChart({
               y={y(tick) + 4}
               textAnchor="end"
               fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
+              className="font-mono text-caption"
             >
               {formatCompactCurrency(tick)}
             </text>
@@ -215,7 +215,7 @@ export function TimeDecayChart({
               y={y(tick) + 4}
               textAnchor="start"
               fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
+              className="font-mono text-caption"
             >
               {(tick - totalCost) >= 0 ? "+" : ""}
               {formatCompactCurrency(tick - totalCost)}
@@ -227,7 +227,7 @@ export function TimeDecayChart({
           y={padding.top - 12}
           textAnchor="end"
           fill={CHART_COLORS.inkMuted}
-          className="text-[10px] font-semibold uppercase tracking-wide"
+          className="text-micro font-semibold uppercase tracking-wide"
         >
           Value
         </text>
@@ -236,7 +236,7 @@ export function TimeDecayChart({
           y={padding.top - 12}
           textAnchor="start"
           fill={CHART_COLORS.inkMuted}
-          className="text-[10px] font-semibold uppercase tracking-wide"
+          className="text-micro font-semibold uppercase tracking-wide"
         >
           P/L
         </text>
@@ -256,7 +256,7 @@ export function TimeDecayChart({
               y={height - padding.bottom + 20}
               textAnchor="middle"
               fill={CHART_COLORS.inkMuted}
-              className="font-mono text-[11px]"
+              className="font-mono text-caption"
             >
               {tick === 0 ? "Today" : tick === maxOffset ? "Expiry" : `+${tick}d`}
             </text>
@@ -278,7 +278,7 @@ export function TimeDecayChart({
           y={costLineY - 4}
           textAnchor="end"
           fill={CHART_COLORS.inkMuted}
-          className="font-mono text-[10px]"
+          className="font-mono text-micro"
         >
           Cost {formatCompactCurrency(totalCost)}
         </text>
@@ -315,7 +315,7 @@ export function TimeDecayChart({
           y={height - 10}
           textAnchor="middle"
           fill={CHART_COLORS.inkMuted}
-          className="text-[11px] font-medium"
+          className="text-caption font-medium"
         >
           Days from today
         </text>
@@ -353,7 +353,7 @@ export function TimeDecayChart({
               x={tooltipX + 10}
               y={tooltipY + 18}
               fill={CHART_COLORS.ink}
-              className="font-mono text-[11px] font-semibold"
+              className="font-mono text-caption font-semibold"
             >
               {formatLongDate(hoverPoint.dateIso)}
             </text>
@@ -361,7 +361,7 @@ export function TimeDecayChart({
               x={tooltipX + 10}
               y={tooltipY + 36}
               fill={CHART_COLORS.inkMuted}
-              className="text-[10px] font-semibold uppercase tracking-wide"
+              className="text-micro font-semibold uppercase tracking-wide"
             >
               {hoverPoint.offsetDays === 0
                 ? "Today"
@@ -373,7 +373,7 @@ export function TimeDecayChart({
               x={tooltipX + 10}
               y={tooltipY + 54}
               fill={CHART_COLORS.ink}
-              className="font-mono text-[11px]"
+              className="font-mono text-caption"
             >
               <tspan>Value </tspan>
               <tspan className="font-semibold">{formatCurrency(hoverPoint.positionValue)}</tspan>
@@ -382,7 +382,7 @@ export function TimeDecayChart({
               x={tooltipX + 10}
               y={tooltipY + 72}
               fill={hoverPoint.pnl >= 0 ? profitColor : lossColor}
-              className="font-mono text-[11px] font-semibold"
+              className="font-mono text-caption font-semibold"
             >
               {hoverPoint.pnl >= 0 ? "+" : ""}
               {formatCurrency(hoverPoint.pnl)}{" "}

@@ -62,7 +62,7 @@ export function DecisionComparisonBoard({
       className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-hidden sm:w-auto sm:max-w-none [&_h2]:text-base [&_h2]:font-semibold"
       action={
         <div
-          className="grid w-full min-w-0 grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-0.5 shadow-sm sm:grid-cols-4"
+          className="grid w-full min-w-0 grid-cols-2 rounded-md border border-line bg-surface-sunken p-0.5 shadow-sm sm:grid-cols-4"
           aria-label="Comparison view"
         >
           {decisionViews.map((option) => (
@@ -72,8 +72,8 @@ export function DecisionComparisonBoard({
               aria-pressed={activeView === option.value}
               onClick={() => onViewChange(option.value)}
               className={cn(
-                "min-w-0 rounded px-2.5 py-1 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
-                activeView === option.value && "bg-white text-slate-950 shadow-sm",
+                "min-w-0 rounded px-2.5 py-1 text-xs font-semibold text-ink-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                activeView === option.value && "bg-surface text-ink shadow-sm",
               )}
             >
               {option.label}
@@ -83,7 +83,7 @@ export function DecisionComparisonBoard({
       }
     >
       {cards.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
+        <div className="rounded-lg border border-dashed border-line-strong bg-surface-muted p-6 text-center text-sm text-ink-muted">
           Add or fix a setup to compare strategies.
         </div>
       ) : activeView === "cards" ? (
@@ -106,7 +106,7 @@ export function DecisionComparisonBoard({
         />
       ) : (
         <div className="space-y-3">
-          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="overflow-x-auto rounded-lg border border-line bg-surface shadow-sm">
             <table className="min-w-full border-collapse text-sm">
               <thead className="bg-slate-950 text-white">
                 <tr>
@@ -124,7 +124,7 @@ export function DecisionComparisonBoard({
                       key={card.id}
                       className={cn(
                         "border-t border-slate-100 transition-colors",
-                        card.id === selectedCardId && "bg-[var(--accent-faint)]",
+                        card.id === selectedCardId && "bg-accent-faint",
                       )}
                     >
                       <td className="px-3 py-3">
@@ -133,43 +133,43 @@ export function DecisionComparisonBoard({
                             type="button"
                             aria-pressed={card.id === selectedCardId}
                             onClick={() => onAnalyzeCard(card)}
-                            className="text-left font-semibold text-slate-950 hover:text-[var(--accent-strong)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                            className="text-left font-semibold text-ink hover:text-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                           >
                             {card.label}
                           </button>
                         ) : (
-                          <p className="font-semibold text-slate-950">{card.label}</p>
+                          <p className="font-semibold text-ink">{card.label}</p>
                         )}
-                        <p className="font-mono text-xs text-slate-500 tabular-nums">
+                        <p className="font-mono text-xs text-ink-muted tabular-nums">
                           {getComparisonStrikeLabel(card)}
                         </p>
                       </td>
-                      <td className="max-w-64 px-3 py-3 text-xs leading-5 text-slate-600 text-pretty">
+                      <td className="max-w-64 px-3 py-3 text-xs leading-5 text-ink-secondary text-pretty">
                         {card.snapshot.pnl >= 0 ? "Profitable" : "Losing"} in this scenario
                         with {formatPercent(card.snapshot.roi)} return.
                       </td>
                       <td
                         className={cn(
                           "px-3 py-3 font-mono font-semibold tabular-nums",
-                          card.snapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
+                          card.snapshot.pnl >= 0 ? "text-gain" : "text-loss",
                         )}
                       >
                         {card.snapshot.pnl >= 0 ? "+" : ""}
                         {formatCurrency(card.snapshot.pnl)}
                       </td>
-                      <td className="px-3 py-3 font-mono font-semibold tabular-nums text-slate-950">
+                      <td className="px-3 py-3 font-mono font-semibold tabular-nums text-ink">
                         {formatPercent(card.snapshot.roi)}
                       </td>
-                      <td className="px-3 py-3 font-mono tabular-nums text-slate-950">
+                      <td className="px-3 py-3 font-mono tabular-nums text-ink">
                         {formatCurrency(card.snapshot.totalCost)}
                       </td>
-                        <td className="px-3 py-3 font-mono tabular-nums text-slate-950">
+                        <td className="px-3 py-3 font-mono tabular-nums text-ink">
                           {getDteDisplayLabel(card)}
                         </td>
-                      <td className="px-3 py-3 font-mono tabular-nums text-slate-950">
+                      <td className="px-3 py-3 font-mono tabular-nums text-ink">
                         {formatBreakEvenAtExpiry(card.snapshot)}
                       </td>
-                      <td className="px-3 py-3 font-mono tabular-nums text-slate-950">
+                      <td className="px-3 py-3 font-mono tabular-nums text-ink">
                         {getMaxProfitAtExpiryLabel(card)}
                       </td>
                     </tr>

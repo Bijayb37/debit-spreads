@@ -122,7 +122,7 @@ export function CustomComparisonBoard({
                   onUseQuickStart(selectedCard);
                 }
               }}
-              className="h-9 max-w-full cursor-pointer appearance-none rounded-md border border-slate-300 bg-white py-0 pl-3 pr-8 text-xs font-semibold text-slate-700 shadow-sm outline-none hover:border-[var(--accent)] hover:text-slate-950 focus:border-[var(--accent)] focus:outline-2 focus:outline-offset-2 focus:outline-[var(--accent)]"
+              className="h-9 max-w-full cursor-pointer appearance-none rounded-md border border-line-strong bg-surface py-0 pl-3 pr-8 text-xs font-semibold text-ink-soft shadow-sm outline-none hover:border-accent hover:text-ink focus:border-accent focus:outline-2 focus:outline-offset-2 focus:outline-accent"
             >
               <option value="" disabled>
                 Start with
@@ -138,7 +138,7 @@ export function CustomComparisonBoard({
             </select>
             <span
               aria-hidden
-              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-slate-500"
+              className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-ink-muted"
             >
               ▾
             </span>
@@ -149,7 +149,7 @@ export function CustomComparisonBoard({
             type="button"
             disabled={Boolean(draftError)}
             onClick={onAddComparison}
-            className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            className="rounded-md border border-accent bg-accent px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-accent-hover disabled:cursor-not-allowed disabled:border-line-strong disabled:bg-slate-200 disabled:text-ink-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {saveActionLabel}
           </button>
@@ -158,7 +158,7 @@ export function CustomComparisonBoard({
           <button
             type="button"
             onClick={onToggleSetupForm}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            className="rounded-md border border-line-strong bg-surface px-3 py-1.5 text-xs font-semibold text-ink-soft shadow-sm hover:border-accent hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {showSetupForm ? "Hide setup" : "Show setup"}
           </button>
@@ -167,7 +167,7 @@ export function CustomComparisonBoard({
           <button
             type="button"
             onClick={onOpenEditor}
-            className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            className="rounded-md border border-accent bg-accent px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             Add strategy
           </button>
@@ -176,7 +176,7 @@ export function CustomComparisonBoard({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            className="rounded-md border border-line-strong bg-surface px-3 py-1.5 text-xs font-semibold text-ink-soft shadow-sm hover:border-accent hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             Close
           </button>
@@ -188,21 +188,21 @@ export function CustomComparisonBoard({
       {showSetupForm && setupForm ? (
         <div
           className={cn(
-            "rounded-md border bg-slate-50 p-2 shadow-sm",
-            isEditingMode ? "border-[var(--accent)]" : "border-slate-200",
+            "rounded-md border bg-surface-muted p-2 shadow-sm",
+            isEditingMode ? "border-accent" : "border-line",
           )}
         >
           {isEditingMode ? (
-            <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-[var(--accent-border)] bg-white px-2.5 py-2">
+            <div className="mb-2 flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-md border border-accent-border bg-surface px-2.5 py-2">
               <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--accent-strong)]">
+                <p className="text-micro font-semibold uppercase tracking-wide text-accent-strong">
                   Editing saved strategy
                 </p>
-                <p className="mt-0.5 truncate text-xs text-slate-600">
+                <p className="mt-0.5 truncate text-xs text-ink-secondary">
                   Setup changes will be saved with this strategy.
                 </p>
               </div>
-              <span className="rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-semibold text-white">
+              <span className="rounded-full bg-accent px-2 py-0.5 text-micro font-semibold text-white">
                 Edit mode
               </span>
             </div>
@@ -213,15 +213,15 @@ export function CustomComparisonBoard({
 
       {isEditorOpen ? (
         <>
-          <div className={cn("rounded-md border border-slate-200 bg-slate-50 p-2 shadow-sm", showSetupForm && setupForm && "mt-2")}>
+          <div className={cn("rounded-md border border-line bg-surface-muted p-2 shadow-sm", showSetupForm && setupForm && "mt-2")}>
             {isEditingMode ? (
-              <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-[var(--accent-border)] bg-[var(--accent-faint)] px-2.5 py-2 text-xs font-semibold text-[var(--accent-strong)]">
+              <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 rounded-md border border-accent-border bg-accent-faint px-2.5 py-2 text-xs font-semibold text-accent-strong">
                 Editing existing strategy
               </div>
             ) : null}
             <div className="grid min-w-0 gap-x-2 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-[minmax(13rem,1.35fr)_minmax(12rem,1fr)_minmax(8rem,0.75fr)_minmax(8rem,0.75fr)_minmax(8rem,0.75fr)_minmax(6.5rem,0.55fr)_max-content]">
               <label className="block min-w-0 sm:col-span-2 lg:col-span-2 xl:col-span-1">
-                <span className="text-xs font-medium text-slate-500">Strategy name</span>
+                <span className="text-xs font-medium text-ink-muted">Strategy name</span>
                 <input
                   type="text"
                   value={draft.label}
@@ -229,12 +229,12 @@ export function CustomComparisonBoard({
                   onChange={(event) =>
                     onDraftChange({ ...draft, label: event.target.value })
                   }
-                  className="mt-0.5 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm font-medium text-slate-950 shadow-sm outline-none placeholder:text-slate-400 focus:border-[var(--accent)]"
+                  className="mt-0.5 w-full rounded-md border border-line-strong bg-surface px-2.5 py-1 text-sm font-medium text-ink shadow-sm outline-none placeholder:text-slate-400 focus:border-accent"
                 />
               </label>
 
               <label className="block min-w-0 lg:col-span-2 xl:col-span-1">
-                <span className="text-xs font-medium text-slate-500">Strategy type</span>
+                <span className="text-xs font-medium text-ink-muted">Strategy type</span>
                 <select
                   value={draft.strategy}
                   onChange={(event) => {
@@ -269,7 +269,7 @@ export function CustomComparisonBoard({
                             ),
                     });
                   }}
-                  className="mt-0.5 h-8 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm font-medium text-slate-950 shadow-sm outline-none focus:border-[var(--accent)] focus:outline-2 focus:outline-offset-2 focus:outline-[var(--accent)]"
+                  className="mt-0.5 h-8 w-full rounded-md border border-line-strong bg-surface px-2.5 py-1 text-sm font-medium text-ink shadow-sm outline-none focus:border-accent focus:outline-2 focus:outline-offset-2 focus:outline-accent"
                 >
                   {STRATEGY_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -424,7 +424,7 @@ export function CustomComparisonBoard({
                 }}
               />
 
-              <label className="flex min-h-8 min-w-0 items-center gap-2 self-end rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm text-slate-700 shadow-sm lg:col-span-1 xl:col-span-1">
+              <label className="flex min-h-8 min-w-0 items-center gap-2 self-end rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm text-ink-soft shadow-sm lg:col-span-1 xl:col-span-1">
                 <input
                   type="checkbox"
                   checked={draft.allowFractionalContracts}
@@ -434,7 +434,7 @@ export function CustomComparisonBoard({
                       allowFractionalContracts: event.target.checked,
                     })
                   }
-                  className="size-4 accent-[var(--accent)]"
+                  className="size-4 accent-accent"
                 />
                 <span>Fractional</span>
               </label>
@@ -443,7 +443,7 @@ export function CustomComparisonBoard({
 
           <RatioCreditSummary snapshot={draftSnapshot} />
           {draftError ? (
-            <p className="mt-2 text-sm font-medium text-rose-700">{draftError}</p>
+            <p className="mt-2 text-sm font-medium text-loss">{draftError}</p>
           ) : null}
         </>
       ) : null}
@@ -470,7 +470,7 @@ export function CustomComparisonBoard({
               />
             )
           ) : (
-            <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-500">
+            <div className="rounded-lg border border-dashed border-line-strong bg-surface-muted p-6 text-center text-sm text-ink-muted">
               Add a strategy to compare it against the selected scenario.
             </div>
           )}
@@ -484,7 +484,7 @@ export function CustomComparisonBoard({
       <div id="strategy-shelf" className="min-w-0 space-y-2">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-slate-950 text-balance">
+            <h3 className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-ink text-balance">
               Saved strategies
             </h3>
           </div>

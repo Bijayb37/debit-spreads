@@ -151,7 +151,7 @@ export function NumberSliderField({
   };
 
   return (
-    <div className={cn("min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm", className)}>
+    <div className={cn("min-w-0 rounded-lg border border-line bg-surface-muted p-2.5 shadow-sm", className)}>
       <div
         className={cn(
           "grid grid-cols-[minmax(0,1fr)_5.75rem] items-start gap-2",
@@ -170,8 +170,8 @@ export function NumberSliderField({
           </span>
         </div>
         <div className="w-[5.75rem] min-w-0 shrink-0">
-          <div className="flex items-center rounded-md border border-slate-300 bg-white px-2 py-1.5">
-            {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
+          <div className="flex items-center rounded-md border border-line-strong bg-surface px-2 py-1.5">
+            {prefix ? <span className="text-sm text-ink-muted">{prefix}</span> : null}
             <input
               type="number"
               value={displayInputValue}
@@ -197,10 +197,10 @@ export function NumberSliderField({
               }}
               onInput={(event) => handleInputTextChange(event.currentTarget.value)}
               onChange={(event) => handleInputTextChange(event.target.value)}
-              className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none tabular-nums"
+              className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-ink outline-none tabular-nums"
             />
             {displaySuffixLabel ? (
-              <span className="text-sm text-slate-500">{displaySuffixLabel}</span>
+              <span className="text-sm text-ink-muted">{displaySuffixLabel}</span>
             ) : null}
           </div>
         </div>
@@ -224,11 +224,11 @@ export function NumberSliderField({
         onTouchStart={beginSliderDrag}
         style={getRangeTrackStyle(safeSliderValue, min, sliderMax)}
         className={cn(
-          "mt-2.5 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]",
+          "mt-2.5 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-accent",
           sliderClassName,
         )}
       />
-      <div className="mt-1 grid min-h-4 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums">
+      <div className="mt-1 grid min-h-4 grid-cols-2 gap-2 font-mono text-micro leading-tight text-ink-muted tabular-nums">
         <span className="truncate whitespace-nowrap">
           {prefix}
           {formatInputDisplayValue(displayMin)}
@@ -247,7 +247,7 @@ export function NumberSliderField({
               key={action.label}
               type="button"
               onClick={() => onChange(clamp(action.value, 0, max))}
-              className="min-w-0 truncate whitespace-nowrap rounded-md border border-slate-300 bg-white px-1 py-1.5 text-[10px] font-medium text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+              className="min-w-0 truncate whitespace-nowrap rounded-md border border-line-strong bg-surface px-1 py-1.5 text-micro font-medium text-ink-soft shadow-sm hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {action.label}
             </button>
@@ -260,10 +260,10 @@ export function NumberSliderField({
           aria-pressed={toggleAction.pressed}
           onClick={toggleAction.onClick}
           className={cn(
-            "mt-2 w-full rounded-md border px-2 py-1.5 text-xs font-medium shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+            "mt-2 w-full rounded-md border px-2 py-1.5 text-xs font-medium shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
             toggleAction.pressed
-              ? "border-[var(--accent)] bg-[var(--accent)] text-white"
-              : "border-slate-300 bg-white text-slate-700 hover:border-[var(--accent)] hover:text-[var(--accent)]",
+              ? "border-accent bg-accent text-white"
+              : "border-line-strong bg-surface text-ink-soft hover:border-accent hover:text-accent",
           )}
         >
           {toggleAction.label}

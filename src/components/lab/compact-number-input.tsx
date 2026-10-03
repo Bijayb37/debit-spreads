@@ -71,9 +71,9 @@ export function CompactNumberInput({
 
   return (
     <label className={cn("block min-w-0", className)}>
-      <span className="text-xs font-medium text-slate-500">{label}</span>
-      <div className="mt-0.5 flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1 shadow-sm">
-        {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
+      <span className="text-xs font-medium text-ink-muted">{label}</span>
+      <div className="mt-0.5 flex items-center rounded-md border border-line-strong bg-surface px-2.5 py-1 shadow-sm">
+        {prefix ? <span className="text-sm text-ink-muted">{prefix}</span> : null}
         <input
           type="number"
           min={displayMin}
@@ -104,11 +104,11 @@ export function CompactNumberInput({
               );
             }
           }}
-          className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-sm font-medium text-slate-950 outline-none tabular-nums"
+          className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-sm font-medium text-ink outline-none tabular-nums"
         />
-        {suffix ? <span className="text-sm text-slate-500">{suffix}</span> : null}
+        {suffix ? <span className="text-sm text-ink-muted">{suffix}</span> : null}
         {displaySuffix ? (
-          <span className="text-sm text-slate-500">{displaySuffix}</span>
+          <span className="text-sm text-ink-muted">{displaySuffix}</span>
         ) : null}
       </div>
     </label>

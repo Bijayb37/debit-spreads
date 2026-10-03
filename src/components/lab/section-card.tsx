@@ -25,7 +25,7 @@ export function SectionCard({
   return (
     <section
       className={cn(
-        "min-w-0 rounded-lg border border-slate-200 bg-white p-3 shadow-sm",
+        "min-w-0 rounded-lg border border-line bg-surface p-3 shadow-sm",
         className,
       )}
     >
@@ -35,14 +35,14 @@ export function SectionCard({
             {eyebrow ? (
               <p
                 className={cn(
-                  "text-sm font-medium text-[var(--accent)]",
+                  "text-sm font-medium text-accent",
                   eyebrowClassName,
                 )}
               >
                 {eyebrow}
               </p>
             ) : null}
-            <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance text-slate-950">
+            <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance text-ink">
               {title}
             </h2>
           </div>

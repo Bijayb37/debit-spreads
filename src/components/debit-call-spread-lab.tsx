@@ -2354,7 +2354,7 @@ export default function DebitCallSpreadLab({
       render: (row) => (
         <div>
           <div>{formatLongDate(row.dateIso)}</div>
-          <div className="mt-1 text-xs text-slate-500">
+          <div className="mt-1 text-xs text-ink-muted">
             {row.daysRemaining} days left
           </div>
         </div>
@@ -2383,7 +2383,7 @@ export default function DebitCallSpreadLab({
       label: "P/L",
       align: "right",
       render: (row) => (
-        <span className={cn(row.pnl >= 0 ? "text-emerald-700" : "text-rose-700")}>
+        <span className={cn(row.pnl >= 0 ? "text-gain" : "text-loss")}>
           {formatCurrency(row.pnl)}
         </span>
       ),
@@ -2393,7 +2393,7 @@ export default function DebitCallSpreadLab({
       label: "Return",
       align: "right",
       render: (row) => (
-        <span className={cn(row.roi >= 0 ? "text-emerald-700" : "text-rose-700")}>
+        <span className={cn(row.roi >= 0 ? "text-gain" : "text-loss")}>
           {formatPercent(row.roi)}
         </span>
       ),
@@ -2423,7 +2423,7 @@ export default function DebitCallSpreadLab({
       label: "P/L",
       align: "right",
       render: (row) => (
-        <span className={cn(row.pnl >= 0 ? "text-emerald-700" : "text-rose-700")}>
+        <span className={cn(row.pnl >= 0 ? "text-gain" : "text-loss")}>
           {formatCurrency(row.pnl)}
         </span>
       ),
@@ -2433,7 +2433,7 @@ export default function DebitCallSpreadLab({
       label: "Return",
       align: "right",
       render: (row) => (
-        <span className={cn(row.roi >= 0 ? "text-emerald-700" : "text-rose-700")}>
+        <span className={cn(row.roi >= 0 ? "text-gain" : "text-loss")}>
           {formatPercent(row.roi)}
         </span>
       ),
@@ -2505,10 +2505,10 @@ export default function DebitCallSpreadLab({
         {number}
       </span>
       <div className="min-w-0">
-        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold leading-tight text-slate-950 text-balance">
+        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold leading-tight text-ink text-balance">
           {title}
         </h3>
-        <p className="mt-0.5 text-xs leading-5 text-slate-500 text-pretty">{hint}</p>
+        <p className="mt-0.5 text-xs leading-5 text-ink-muted text-pretty">{hint}</p>
       </div>
     </header>
   );
@@ -2520,17 +2520,17 @@ export default function DebitCallSpreadLab({
         "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]",
       )}
     >
-      <section className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="min-w-0 space-y-3 rounded-lg border border-line bg-surface p-4 shadow-sm">
         {stepHeader("1", "Stock setup", "Set the underlying assumptions.")}
-        <label className="flex min-w-0 items-center gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
-          <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+        <label className="flex min-w-0 items-center gap-3 rounded-md border border-line bg-surface-muted px-3 py-2 shadow-sm">
+          <span className="shrink-0 text-caption font-medium uppercase tracking-wide text-ink-muted">
             Ticker
           </span>
           <input
             type="text"
             value={symbol}
             onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-            className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-sm font-semibold text-slate-950 outline-none"
+            className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-sm font-semibold text-ink outline-none"
             placeholder="AAPL"
           />
         </label>
@@ -2574,20 +2574,20 @@ export default function DebitCallSpreadLab({
           }))}
         />
 
-        <details className="group rounded-md border border-slate-200 bg-slate-50 shadow-sm">
-          <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium text-slate-700">
+        <details className="group rounded-md border border-line bg-surface-muted shadow-sm">
+          <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium text-ink-soft">
             <span>Advanced pricing</span>
-            <span className="text-xs text-slate-500 transition-transform group-open:rotate-180">
+            <span className="text-xs text-ink-muted transition-transform group-open:rotate-180">
               ▾
             </span>
           </summary>
-          <div className="space-y-3 border-t border-slate-200 px-3 py-3">
+          <div className="space-y-3 border-t border-line px-3 py-3">
             <label className="block">
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-slate-900">Risk-free rate</span>
                 <InfoIcon label="Annualized rate used in the Black-Scholes model." />
               </div>
-              <div className="mt-2 flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5">
+              <div className="mt-2 flex items-center rounded-md border border-line-strong bg-surface px-3 py-1.5">
                 <input
                   type="text"
                   inputMode="decimal"
@@ -2599,13 +2599,13 @@ export default function DebitCallSpreadLab({
                   onBlur={commitRatePctDraft}
                   onKeyDown={handleRatePctKeyDown}
                   onChange={(event) => updateRatePctDraft(event.target.value)}
-                  className="w-full border-0 bg-transparent p-0 font-mono text-sm text-slate-950 outline-none"
+                  className="w-full border-0 bg-transparent p-0 font-mono text-sm text-ink outline-none"
                 />
-                <span className="text-sm text-slate-500">%</span>
+                <span className="text-sm text-ink-muted">%</span>
               </div>
             </label>
 
-            <div className="rounded-md border border-[var(--accent-border)] bg-[var(--accent-soft)] p-2.5 text-xs text-[var(--accent-strong)]">
+            <div className="rounded-md border border-accent-border bg-accent-soft p-2.5 text-xs text-accent-strong">
               <p className="font-medium">Model assumptions</p>
               <p className="mt-1 leading-5 text-pretty">
                 {strategyCopy.modelAssumptions}
@@ -2615,7 +2615,7 @@ export default function DebitCallSpreadLab({
         </details>
       </section>
 
-      <section className="min-w-0 space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="min-w-0 space-y-3 rounded-lg border border-line bg-surface p-4 shadow-sm">
         {stepHeader(
           "2",
           "Pick a strategy",
@@ -2640,7 +2640,7 @@ export default function DebitCallSpreadLab({
           <select
             value={strategy}
             onChange={(event) => updateStrategySelection(event.target.value as OptionStrategy)}
-            className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 font-medium text-slate-950 shadow-sm outline-none focus:border-[var(--accent)]"
+            className="w-full rounded-md border border-line-strong bg-surface px-3 py-2 font-medium text-ink shadow-sm outline-none focus:border-accent"
           >
             {STRATEGY_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -2662,9 +2662,9 @@ export default function DebitCallSpreadLab({
               title={option.description}
               onClick={() => updateStrategySelection(option.value)}
               className={cn(
-                "min-w-0 rounded-md border border-slate-300 bg-white px-3 py-2 text-center text-sm font-semibold leading-tight text-slate-700 shadow-sm text-balance focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                "min-w-0 rounded-md border border-line-strong bg-surface px-3 py-2 text-center text-sm font-semibold leading-tight text-ink-soft shadow-sm text-balance focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                 strategy === option.value &&
-                  "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950",
+                  "border-accent bg-accent-soft text-ink",
               )}
             >
               {option.label}
@@ -2674,7 +2674,7 @@ export default function DebitCallSpreadLab({
         {isDebitSpread && (
           isPutDownsideSpread ? shortStrike < longStrike : shortStrike > longStrike
         ) ? (
-          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink-secondary">
             <span className="font-semibold text-slate-900">
               {formatStrikeCurrency(Math.abs(shortStrike - longStrike))} wide
             </span>{" "}
@@ -2844,7 +2844,7 @@ export default function DebitCallSpreadLab({
         />
 
         <div
-          className="flex min-w-0 flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between"
+          className="flex min-w-0 flex-col gap-3 rounded-md border border-line bg-surface-muted px-3 py-2 shadow-sm min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between"
           role="group"
           aria-label="Position sizing"
         >
@@ -2852,7 +2852,7 @@ export default function DebitCallSpreadLab({
             <span className="text-sm font-medium text-slate-900">Contracts</span>
             <InfoIcon label="Whole rounds down so the position fits in cash. Fractional uses the full capital amount as if partial contracts were tradable." />
           </div>
-          <div className="inline-flex min-w-0 rounded-md border border-slate-300 bg-white p-0.5">
+          <div className="inline-flex min-w-0 rounded-md border border-line-strong bg-surface p-0.5">
             {[
               { label: "Whole", value: false },
               { label: "Fractional", value: true },
@@ -2863,9 +2863,9 @@ export default function DebitCallSpreadLab({
                 aria-pressed={allowFractionalContracts === option.value}
                 onClick={() => setAllowFractionalContracts(option.value)}
                 className={cn(
-                  "rounded-sm px-2.5 py-1 text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                  "rounded-sm px-2.5 py-1 text-xs font-medium text-ink-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                   allowFractionalContracts === option.value &&
-                    "bg-[var(--accent-soft)] text-[var(--accent-strong)]",
+                    "bg-accent-soft text-accent-strong",
                 )}
               >
                 {option.label}
@@ -2883,7 +2883,7 @@ export default function DebitCallSpreadLab({
               addCurrentStrategyComparison();
               changeWorkflowTab("decision");
             }}
-            className="rounded-md border border-[var(--accent)] bg-[var(--accent)] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+            className="rounded-md border border-accent bg-accent px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-hover disabled:cursor-not-allowed disabled:border-line-strong disabled:bg-slate-200 disabled:text-ink-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             Create Strategy
           </button>
@@ -2899,7 +2899,7 @@ export default function DebitCallSpreadLab({
         shouldShowCalendarShortPrice ? "md:grid-cols-2 xl:grid-cols-4" : "md:grid-cols-3",
       )}
     >
-      <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm sm:p-3">
+      <div className="min-w-0 rounded-lg border border-line bg-surface-muted p-2.5 shadow-sm sm:p-3">
         <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_6.25rem] items-start gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <p className="min-w-0 text-sm font-medium leading-tight text-slate-900 text-balance">
@@ -2914,8 +2914,8 @@ export default function DebitCallSpreadLab({
             />
           </div>
           <div className="w-[6.25rem] min-w-0 shrink-0">
-            <div className="flex items-center rounded-md border border-slate-300 bg-white px-2 py-1.5">
-              <span className="text-sm text-slate-500">$</span>
+            <div className="flex items-center rounded-md border border-line-strong bg-surface px-2 py-1.5">
+              <span className="text-sm text-ink-muted">$</span>
               <input
                 type="number"
                 value={displayedScenarioPriceInputValue}
@@ -2940,7 +2940,7 @@ export default function DebitCallSpreadLab({
                 onChange={(event) =>
                   updateScenarioPriceDraft(event.target.value)
                 }
-                className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none tabular-nums"
+                className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-ink outline-none tabular-nums"
               />
             </div>
           </div>
@@ -2965,11 +2965,11 @@ export default function DebitCallSpreadLab({
             scenarioPriceSliderMin,
             scenarioPriceSliderMax,
           )}
-          className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
+          className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-accent"
         />
-        <div className="mt-1.5 grid min-h-5 grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-start gap-1 font-mono text-[10px] text-slate-500 tabular-nums sm:text-[11px]">
+        <div className="mt-1.5 grid min-h-5 grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-start gap-1 font-mono text-micro text-ink-muted tabular-nums sm:text-caption">
           <span className="whitespace-nowrap">{formatCurrency(scenarioPriceSliderMin)}</span>
-          <span className="min-w-0 truncate whitespace-nowrap text-center text-slate-600">
+          <span className="min-w-0 truncate whitespace-nowrap text-center text-ink-secondary">
             {spot > 0
               ? `${effectiveScenarioPrice >= spot ? "+" : ""}${Math.round(
                   ((effectiveScenarioPrice - spot) / spot) * 100,
@@ -2981,7 +2981,7 @@ export default function DebitCallSpreadLab({
       </div>
 
       {shouldShowCalendarShortPrice ? (
-        <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm sm:p-3">
+        <div className="min-w-0 rounded-lg border border-line bg-surface-muted p-2.5 shadow-sm sm:p-3">
           <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_6.25rem] items-start gap-2">
             <div className="flex min-w-0 items-center gap-2">
               <p className="min-w-0 text-sm font-medium leading-tight text-slate-900 text-balance">
@@ -2990,8 +2990,8 @@ export default function DebitCallSpreadLab({
               <InfoIcon label="The stock price used when the short call expires. After this date, that short call payoff is fixed." />
             </div>
             <div className="w-[6.25rem] min-w-0 shrink-0">
-              <div className="flex items-center rounded-md border border-slate-300 bg-white px-2 py-1.5">
-                <span className="text-sm text-slate-500">$</span>
+              <div className="flex items-center rounded-md border border-line-strong bg-surface px-2 py-1.5">
+                <span className="text-sm text-ink-muted">$</span>
                 <input
                   type="number"
                   value={displayedCalendarShortPriceInputValue}
@@ -3012,7 +3012,7 @@ export default function DebitCallSpreadLab({
                   onChange={(event) =>
                     updateCalendarShortPriceDraft(event.target.value)
                   }
-                  className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none tabular-nums"
+                  className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-ink outline-none tabular-nums"
                 />
               </div>
             </div>
@@ -3033,11 +3033,11 @@ export default function DebitCallSpreadLab({
               scenarioPriceSliderMin,
               calendarShortPriceSliderMax,
             )}
-            className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
+            className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-accent"
           />
-          <div className="mt-1.5 grid min-h-5 grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-start gap-1 font-mono text-[10px] text-slate-500 tabular-nums sm:text-[11px]">
+          <div className="mt-1.5 grid min-h-5 grid-cols-[3.5rem_minmax(0,1fr)_3.5rem] items-start gap-1 font-mono text-micro text-ink-muted tabular-nums sm:text-caption">
             <span className="whitespace-nowrap">{formatCurrency(scenarioPriceSliderMin)}</span>
-            <span className="min-w-0 truncate whitespace-nowrap text-center text-slate-600">
+            <span className="min-w-0 truncate whitespace-nowrap text-center text-ink-secondary">
               {formatLongDate(calendarShortExpiryDateIso)}
             </span>
             <span className="whitespace-nowrap text-right">{formatCurrency(calendarShortPriceSliderMax)}</span>
@@ -3045,7 +3045,7 @@ export default function DebitCallSpreadLab({
         </div>
       ) : null}
 
-      <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-2.5 shadow-sm sm:p-3">
+      <div className="min-w-0 rounded-lg border border-line bg-surface-muted p-2.5 shadow-sm sm:p-3">
         <div className="grid min-h-9 grid-cols-[minmax(0,1fr)_7rem] items-start gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <p className="min-w-0 text-sm font-medium leading-tight text-slate-900 text-balance">Valuation date</p>
@@ -3054,7 +3054,7 @@ export default function DebitCallSpreadLab({
             />
           </div>
           <div className="w-[7rem] min-w-0 shrink-0">
-            <div className="flex items-center rounded-md border border-slate-300 bg-white px-2 py-1.5 shadow-sm">
+            <div className="flex items-center rounded-md border border-line-strong bg-surface px-2 py-1.5 shadow-sm">
               <input
                 type="number"
                 min={0}
@@ -3080,19 +3080,19 @@ export default function DebitCallSpreadLab({
                 onChange={(event) =>
                   updateValuationDteDraft(event.target.value)
                 }
-                className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-slate-950 outline-none disabled:text-slate-400 tabular-nums"
+                className="w-full border-0 bg-transparent p-0 font-mono text-right text-sm font-medium text-ink outline-none disabled:text-slate-400 tabular-nums"
               />
-              <span className="ml-1 shrink-0 text-xs font-medium text-slate-500">
+              <span className="ml-1 shrink-0 text-xs font-medium text-ink-muted">
                 {valuationDateInputMode === "elapsed" ? "days" : "DTE"}
               </span>
             </div>
-            <div className="mt-1 truncate whitespace-nowrap text-right font-mono text-[11px] leading-tight text-slate-500 tabular-nums">
+            <div className="mt-1 truncate whitespace-nowrap text-right font-mono text-caption leading-tight text-ink-muted tabular-nums">
               {formatLongDate(marketScenarioDateIso)}
             </div>
           </div>
         </div>
         <div
-          className="mt-2 grid grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-1"
+          className="mt-2 grid grid-cols-2 rounded-md border border-line bg-surface-sunken p-1"
           role="radiogroup"
           aria-label="Valuation date input mode"
         >
@@ -3102,10 +3102,10 @@ export default function DebitCallSpreadLab({
             aria-checked={valuationDateInputMode === "elapsed"}
             onClick={() => updateValuationDateInputMode("elapsed")}
             className={cn(
-              "min-w-0 rounded px-2 py-1 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+              "min-w-0 rounded px-2 py-1 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
               valuationDateInputMode === "elapsed"
-                ? "bg-white text-slate-950 shadow-sm"
-                : "text-slate-600 hover:text-slate-950",
+                ? "bg-surface text-ink shadow-sm"
+                : "text-ink-secondary hover:text-ink",
             )}
           >
             Days past
@@ -3116,10 +3116,10 @@ export default function DebitCallSpreadLab({
             aria-checked={valuationDateInputMode === "remaining"}
             onClick={() => updateValuationDateInputMode("remaining")}
             className={cn(
-              "min-w-0 rounded px-2 py-1 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+              "min-w-0 rounded px-2 py-1 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
               valuationDateInputMode === "remaining"
-                ? "bg-white text-slate-950 shadow-sm"
-                : "text-slate-600 hover:text-slate-950",
+                ? "bg-surface text-ink shadow-sm"
+                : "text-ink-secondary hover:text-ink",
             )}
           >
             DTE remaining
@@ -3138,9 +3138,9 @@ export default function DebitCallSpreadLab({
           onPointerDown={blurFocusedField}
           onTouchStart={blurFocusedField}
           style={getRangeTrackStyle(safeScenarioOffsetDays, 0, marketScenarioMaxOffsetDays)}
-          className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
+          className="mt-2.5 h-2 w-full cursor-pointer appearance-none rounded-full bg-slate-200 accent-accent"
         />
-        <div className="mt-1.5 grid min-h-5 grid-cols-2 gap-2 font-mono text-[10px] leading-tight text-slate-500 tabular-nums sm:text-[11px]">
+        <div className="mt-1.5 grid min-h-5 grid-cols-2 gap-2 font-mono text-micro leading-tight text-ink-muted tabular-nums sm:text-caption">
           <span className="truncate whitespace-nowrap">
             {formatLongDate(todayIso)} · {marketScenarioMaxOffsetDays} DTE
           </span>
@@ -3192,7 +3192,7 @@ export default function DebitCallSpreadLab({
         ]
   ).join(" · ");
   const marketScenarioCard = (
-    <section className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm transition-colors hover:border-[var(--accent)] hover:bg-slate-50">
+    <section className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface shadow-sm transition-colors hover:border-accent hover:bg-surface-muted">
       <div className="min-w-0">
         <button
           type="button"
@@ -3201,11 +3201,11 @@ export default function DebitCallSpreadLab({
             isMarketScenarioOpen ? "Close market scenario" : "Open market scenario"
           }
           onClick={() => setIsMarketScenarioOpen((currentValue) => !currentValue)}
-          className="flex w-full min-w-0 items-center gap-2 bg-transparent px-3 py-2 text-left transition-colors hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-[var(--accent)]"
+          className="flex w-full min-w-0 items-center gap-2 bg-transparent px-3 py-2 text-left transition-colors hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-inset focus-visible:outline-accent"
         >
           <span
             aria-hidden
-            className="flex size-7 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-slate-50 text-slate-700 shadow-sm"
+            className="flex size-7 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface-muted text-ink-soft shadow-sm"
           >
             <svg
               viewBox="0 0 20 20"
@@ -3220,17 +3220,17 @@ export default function DebitCallSpreadLab({
             </svg>
           </span>
           <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-slate-950">
+            <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-ink">
               Market scenario
             </span>
-            <span className="min-w-0 truncate font-mono text-xs text-slate-600 tabular-nums">
+            <span className="min-w-0 truncate font-mono text-xs text-ink-secondary tabular-nums">
               {marketScenarioSummary}
             </span>
           </span>
         </button>
       </div>
       {isMarketScenarioOpen ? (
-        <div className="border-t border-slate-200 p-2">{scenarioControlsBlock}</div>
+        <div className="border-t border-line p-2">{scenarioControlsBlock}</div>
       ) : null}
     </section>
   );
@@ -3238,12 +3238,12 @@ export default function DebitCallSpreadLab({
   const setupFormFields = (
     <div className="grid min-w-0 gap-x-2 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-[minmax(10rem,18rem)_minmax(10rem,18rem)_minmax(10rem,18rem)]">
       <label className="block min-w-0">
-        <span className="text-xs font-medium text-slate-500">Ticker</span>
+        <span className="text-xs font-medium text-ink-muted">Ticker</span>
         <input
           type="text"
           value={symbol}
           onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-          className="mt-0.5 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 font-mono text-sm font-medium text-slate-950 shadow-sm outline-none focus:border-[var(--accent)]"
+          className="mt-0.5 w-full rounded-md border border-line-strong bg-surface px-2.5 py-1 font-mono text-sm font-medium text-ink shadow-sm outline-none focus:border-accent"
           placeholder="AAPL"
         />
       </label>
@@ -3292,7 +3292,7 @@ export default function DebitCallSpreadLab({
                 isTopBarVisible
                   ? "translate-y-0 opacity-100"
                   : "pointer-events-none -translate-y-[calc(100%+0.75rem)] opacity-0",
-                "grid-cols-1 rounded-xl border border-slate-200 bg-white/95 p-1.5 shadow-lg shadow-slate-900/10 backdrop-blur md:grid-cols-[minmax(0,1fr)_auto]",
+                "grid-cols-1 rounded-xl border border-line bg-surface/95 p-1.5 shadow-lg shadow-slate-900/10 backdrop-blur md:grid-cols-[minmax(0,1fr)_auto]",
               )}
             >
               <WorkflowTabs activeTab={activeWorkflowTab} onChange={changeWorkflowTab} />
@@ -3424,9 +3424,9 @@ export default function DebitCallSpreadLab({
                     onViewChange={changeDecisionComparisonView}
                   />
                 ) : (
-                  <div className="rounded-lg border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-600 shadow-sm">
+                  <div className="rounded-lg border border-dashed border-line-strong bg-surface p-6 text-sm text-ink-secondary shadow-sm">
                     <p className="font-medium text-slate-900">Create a strategy first.</p>
-                    <p className="mt-1 text-xs text-slate-500">
+                    <p className="mt-1 text-xs text-ink-muted">
                       Use Create Strategy in setup, then the comparison board will show the available outcomes.
                     </p>
                   </div>
@@ -3469,15 +3469,15 @@ export default function DebitCallSpreadLab({
                 }
               action={
                 <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-                  <label className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 shadow-sm sm:w-72">
-                    <span className="text-xs font-semibold text-slate-500">
+                  <label className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-lg border border-line bg-surface-muted px-2 py-1.5 shadow-sm sm:w-72">
+                    <span className="text-xs font-semibold text-ink-muted">
                       Strategy
                     </span>
                     <select
                       value={selectedGraphComparison.id}
                       onChange={(event) => setGraphComparisonId(event.target.value)}
                       title={selectedGraphComparison.detail}
-                      className="min-w-0 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm outline-none focus:border-[var(--accent)]"
+                      className="min-w-0 rounded-md border border-line-strong bg-surface px-2 py-1.5 text-xs font-semibold text-slate-800 shadow-sm outline-none focus:border-accent"
                       aria-label={isTabbedHeatMap ? "Heat map strategy" : "Scenario curve strategy"}
                     >
                       {graphComparisonOptions.map((option) => (
@@ -3490,7 +3490,7 @@ export default function DebitCallSpreadLab({
                     {!isTabbedHeatMap ? (
                     <div
                       className={cn(
-                        "grid w-full min-w-0 rounded-lg border border-slate-200 bg-slate-100 p-1 sm:inline-flex sm:w-auto sm:grid-cols-none",
+                        "grid w-full min-w-0 rounded-lg border border-line bg-surface-sunken p-1 sm:inline-flex sm:w-auto sm:grid-cols-none",
                         "grid-cols-2",
                       )}
                       aria-label="Scenario graph view"
@@ -3510,9 +3510,9 @@ export default function DebitCallSpreadLab({
                           setScenarioGraphView(option.value as ScenarioGraphView)
                         }
                         className={cn(
-                          "min-w-0 truncate rounded-md px-1.5 py-1.5 text-center text-xs font-medium text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] min-[360px]:text-sm sm:px-3",
+                          "min-w-0 truncate rounded-md px-1.5 py-1.5 text-center text-xs font-medium text-ink-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent min-[360px]:text-sm sm:px-3",
                             activeDisplayGraphView === option.value &&
-                              "bg-white text-slate-950 shadow-sm",
+                              "bg-surface text-ink shadow-sm",
                           )}
                       >
                         <span className="hidden min-[360px]:inline">{option.label}</span>
@@ -3526,40 +3526,40 @@ export default function DebitCallSpreadLab({
             >
               <div className="space-y-4">
                 {showScenarioSelectionControls ? (
-                    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                    <div className="overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
                       <div className="grid divide-y divide-slate-200 md:grid-cols-3 md:divide-x md:divide-y-0">
                         <div className="grid min-w-0 grid-rows-[auto_2.25rem_auto] gap-2.5 p-3 lg:p-4">
                           <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-2">
-                            <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+                            <p className="text-xs font-semibold uppercase text-ink-muted text-balance">
                               At your scenario
                               </p>
-                              <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
+                              <p className="truncate text-right font-mono text-caption text-ink-muted tabular-nums">
                                 {formatPriceCurrency(effectiveScenarioPrice)} · {formatLongDate(visualizedSnapshot.selectedDateIso)}
                               </p>
                             </div>
                             <p
                               className={cn(
                                   "overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none tabular-nums",
-                                visualizedSnapshot.pnl >= 0 ? "text-emerald-700" : "text-rose-700",
+                                visualizedSnapshot.pnl >= 0 ? "text-gain" : "text-loss",
                               )}
                             >
                               {visualizedSnapshot.pnl >= 0 ? "+" : ""}
                               {formatCurrency(visualizedSnapshot.pnl)}
                             </p>
                               <div className="grid grid-cols-[minmax(0,1fr)_7rem] items-baseline gap-2 text-sm">
-                              <span className="font-medium text-slate-500">
+                              <span className="font-medium text-ink-muted">
                                 {visualizedSnapshot.pnl >= 0 ? "Profit" : "Loss"}
                                 {" · "}
                                 <span
                                   className={cn(
                                     "font-mono font-semibold tabular-nums",
-                                    visualizedSnapshot.roi >= 0 ? "text-emerald-700" : "text-rose-700",
+                                    visualizedSnapshot.roi >= 0 ? "text-gain" : "text-loss",
                                   )}
                                 >
                                   {visualizedSnapshot.totalCost > 0 ? formatPercent(visualizedSnapshot.roi) : "N/A"}
                                 </span>
                               </span>
-                              <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
+                              <span className="truncate text-right font-mono text-xs text-ink-muted tabular-nums">
                                 Position {formatCurrency(visualizedSnapshot.scenarioPositionValue)}
                               </span>
                             </div>
@@ -3568,10 +3568,10 @@ export default function DebitCallSpreadLab({
                           {visualizedSnapshot.isProfitCapped ? (
                           <div className="grid min-w-0 grid-rows-[auto_2.25rem_auto] gap-2.5 p-3 lg:p-4">
                             <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2">
-                            <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+                            <p className="text-xs font-semibold uppercase text-ink-muted text-balance">
                               Best case at expiry
                             </p>
-                            <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
+                            <p className="truncate text-right font-mono text-caption text-ink-muted tabular-nums">
                               {visualizedIsBearPut
                                 ? "At $0"
                                 : `${visualizedIsRatioSpread
@@ -3581,17 +3581,17 @@ export default function DebitCallSpreadLab({
                                   : "≥"} ${formatStrikeCurrency(visualizedInputs.shortStrike)}`}
                             </p>
                           </div>
-                            <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
+                            <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-gain tabular-nums">
                             +{formatCurrency(visualizedMaxProfitAtExpiry ?? 0)}
                           </p>
                             <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
-                            <span className="font-medium text-slate-500">
+                            <span className="font-medium text-ink-muted">
                               Max profit ·{" "}
-                              <span className="font-mono font-semibold text-emerald-700 tabular-nums">
+                              <span className="font-mono font-semibold text-gain tabular-nums">
                                 {visualizedMaxReturnAtExpiry !== null ? formatPercent(visualizedMaxReturnAtExpiry) : "N/A"}
                               </span>
                             </span>
-                            <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
+                            <span className="truncate text-right font-mono text-xs text-ink-muted tabular-nums">
                               {getBreakEvenLabel(visualizedSnapshot)} {formatBreakEvenAtExpiry(visualizedSnapshot)}
                             </span>
                           </div>
@@ -3599,25 +3599,25 @@ export default function DebitCallSpreadLab({
                     ) : (
                           <div className="grid min-w-0 grid-rows-[auto_2.25rem_auto] gap-2.5 p-3 lg:p-4">
                             <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2">
-                              <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+                              <p className="text-xs font-semibold uppercase text-ink-muted text-balance">
                                 {visualizedIsCallCalendar ? "Calendar target" : "Upside at expiry"}
                               </p>
-                              <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
+                              <p className="truncate text-right font-mono text-caption text-ink-muted tabular-nums">
                                 {visualizedIsCallCalendar
                                   ? `At ${formatCurrencyWithCents(visualizedSnapshot.breakEvenAtExpiry)}`
                                   : `≥ ${formatCurrencyWithCents(visualizedSnapshot.breakEvenAtExpiry)}`}
                               </p>
                             </div>
-                          <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-emerald-700 tabular-nums">
+                          <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-gain tabular-nums">
                             {visualizedIsCallCalendar ? "Open" : "Uncapped"}
                           </p>
                             <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
-                            <span className="font-medium text-slate-500">
+                            <span className="font-medium text-ink-muted">
                               {visualizedIsCallCalendar
                                 ? "Calendar value depends on how the short call expires."
                                 : "Long calls have no profit ceiling."}
                               </span>
-                              <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
+                              <span className="truncate text-right font-mono text-xs text-ink-muted tabular-nums">
                                 {visualizedIsCallCalendar ? "Target" : "B/E"}{" "}
                               {formatCurrencyWithCents(visualizedSnapshot.breakEvenAtExpiry)}
                               </span>
@@ -3627,10 +3627,10 @@ export default function DebitCallSpreadLab({
 
                         <div className="grid min-w-0 grid-rows-[auto_2.25rem_auto] gap-2.5 p-3 lg:p-4">
                           <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2">
-                            <p className="text-xs font-semibold uppercase text-slate-500 text-balance">
+                            <p className="text-xs font-semibold uppercase text-ink-muted text-balance">
                               Worst case at expiry
                             </p>
-                            <p className="truncate text-right font-mono text-[11px] text-slate-500 tabular-nums">
+                            <p className="truncate text-right font-mono text-caption text-ink-muted tabular-nums">
                               {visualizedIsPutRatioSpread
                                 ? "At $0"
                                 : visualizedIsBearPut
@@ -3645,15 +3645,15 @@ export default function DebitCallSpreadLab({
                                 : formatStrikeCurrency(visualizedInputs.longStrike)}
                             </p>
                           </div>
-                              <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-rose-700 tabular-nums">
+                              <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-loss tabular-nums">
                               {visualizedMaxLossAtExpiry === null
                                 ? "Uncapped"
                                 : formatCurrency(visualizedMaxLossAtExpiry)}
                             </p>
                           <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
-                            <span className="font-medium text-slate-500">
+                            <span className="font-medium text-ink-muted">
                               Max loss ·{" "}
-                                <span className="font-mono font-semibold text-rose-700 tabular-nums">
+                                <span className="font-mono font-semibold text-loss tabular-nums">
                                   {visualizedMaxLossAtExpiry === null
                                       ? "Uncapped"
                                       : visualizedMaxLossReturnAtExpiry !== null
@@ -3661,7 +3661,7 @@ export default function DebitCallSpreadLab({
                                         : "N/A"}
                                 </span>
                               </span>
-                              <span className="truncate text-right font-mono text-xs text-slate-500 tabular-nums">
+                              <span className="truncate text-right font-mono text-xs text-ink-muted tabular-nums">
                                 {visualizedSnapshot.reserveOffset > 0 ? "Reserve" : "Cost"} {formatCurrency(visualizedSnapshot.totalCost)}
                               </span>
                           </div>
@@ -3717,35 +3717,35 @@ export default function DebitCallSpreadLab({
                 ) : null}
 
                 {!canModel ? (
-                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-slate-500">
+                  <div className="rounded-lg border border-dashed border-line-strong bg-surface-muted p-8 text-center text-ink-muted">
                     Clean up the inputs and the curve will appear here.
                   </div>
                 ) : null}
               </div>
             </SectionCard>
 
-            <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
+            <section className="rounded-lg border border-line bg-surface shadow-sm">
               <button
                 type="button"
                 onClick={() => setShowDetailedTables((isOpen) => !isOpen)}
                 aria-expanded={showDetailedTables}
-                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 <span>
-                  <span className="block font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950">
+                  <span className="block font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink">
                     Detailed tables
                   </span>
-                  <span className="block text-xs text-slate-500">
+                  <span className="block text-xs text-ink-muted">
                     Open when you want exact rows by date or stock price.
                   </span>
                 </span>
-                <span className="text-sm text-slate-500">
+                <span className="text-sm text-ink-muted">
                   {showDetailedTables ? "Hide" : "Show"}
                 </span>
               </button>
 
               {showDetailedTables ? (
-                <div className="space-y-3 border-t border-slate-200 p-3">
+                <div className="space-y-3 border-t border-line p-3">
                   <ResultsTable
                     title={`${strategyCopy.unitTitle} value over time at the selected stock price`}
                     subtitle={`These rows keep ${symbol.trim() || "the stock"} fixed at ${formatCurrency(

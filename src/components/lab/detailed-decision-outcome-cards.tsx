@@ -149,9 +149,9 @@ export function DetailedDecisionOutcomeCards({
           <article
             key={card.id}
             className={cn(
-              "group relative min-w-0 overflow-hidden rounded-md border bg-white shadow-sm transition-colors",
-              isSelected ? "border-[var(--accent)]" : "border-slate-200",
-              onAnalyzeCard && !isSelected && "hover:border-[var(--accent)] hover:bg-[var(--accent-faint)]",
+              "group relative min-w-0 overflow-hidden rounded-md border bg-surface shadow-sm transition-colors",
+              isSelected ? "border-accent" : "border-line",
+              onAnalyzeCard && !isSelected && "hover:border-accent hover:bg-accent-faint",
             )}
           >
             {onAnalyzeCard ? (
@@ -160,11 +160,11 @@ export function DetailedDecisionOutcomeCards({
                 aria-pressed={isSelected}
                 aria-label={`Select ${card.label}`}
                 onClick={() => onAnalyzeCard(card)}
-                className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]"
+                className="absolute inset-0 z-10 cursor-pointer bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent"
               />
             ) : null}
 
-            <div className="pointer-events-none border-b border-slate-200 bg-slate-950 px-3 py-2.5 text-white">
+            <div className="pointer-events-none border-b border-line bg-slate-950 px-3 py-2.5 text-white">
               <div className="flex min-w-0 items-start justify-between gap-2">
                 <div className="min-w-0">
                   <h3 className="truncate font-[family:var(--font-space-grotesk)] text-base font-semibold leading-tight text-balance">
@@ -175,14 +175,14 @@ export function DetailedDecisionOutcomeCards({
                   </p>
                 </div>
                 {isSelected ? (
-                  <span className="shrink-0 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                  <span className="shrink-0 rounded-full bg-accent px-2 py-0.5 text-micro font-semibold text-white shadow-sm">
                     Selected
                   </span>
                 ) : null}
               </div>
               <div className="mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3">
                 <div className="min-w-0">
-                  <p className="text-[11px] font-medium text-slate-300">P/L</p>
+                  <p className="text-caption font-medium text-slate-300">P/L</p>
                   <p
                     className={cn(
                       "mt-1 truncate font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none tabular-nums",
@@ -194,7 +194,7 @@ export function DetailedDecisionOutcomeCards({
                   </p>
                 </div>
                 <div className="min-w-[5rem] text-right">
-                  <p className="text-[11px] font-medium text-slate-300">Return</p>
+                  <p className="text-caption font-medium text-slate-300">Return</p>
                   <p
                     className={cn(
                       "mt-1 font-[family:var(--font-space-grotesk)] text-xl font-semibold leading-none tabular-nums",
@@ -215,17 +215,17 @@ export function DetailedDecisionOutcomeCards({
               ) : null}
               {groups.map((group) => (
                 <section key={group.title} className="min-w-0">
-                  <h4 className="text-[10px] font-semibold uppercase text-slate-500">
+                  <h4 className="text-micro font-semibold uppercase text-ink-muted">
                     {group.title}
                   </h4>
                   <dl className="mt-2 grid min-w-0 grid-cols-2 gap-x-3 gap-y-2">
                     {group.details.map((detail) => (
                       <div key={`${group.title}-${detail.label}`} className="min-w-0">
-                        <dt className="truncate text-[11px] font-medium text-slate-500">
+                        <dt className="truncate text-caption font-medium text-ink-muted">
                           {detail.label}
                         </dt>
                         <dd
-                          className="mt-0.5 truncate font-mono text-xs font-semibold text-slate-950 tabular-nums"
+                          className="mt-0.5 truncate font-mono text-xs font-semibold text-ink tabular-nums"
                           title={String(detail.value)}
                         >
                           {detail.value}
@@ -236,7 +236,7 @@ export function DetailedDecisionOutcomeCards({
                 </section>
               ))}
               <section className="min-w-0 sm:col-span-2">
-                <h4 className="text-[10px] font-semibold uppercase text-slate-500">
+                <h4 className="text-micro font-semibold uppercase text-ink-muted">
                   Greeks (%)
                 </h4>
                 <div className="mt-2 grid min-w-0 gap-2">
@@ -278,13 +278,13 @@ export function DetailedDecisionOutcomeCards({
                         key={row.label}
                         className={cn(
                           "min-w-0",
-                          row.isNet && "border-t border-slate-200 pt-2",
+                          row.isNet && "border-t border-line pt-2",
                         )}
                       >
                         <p
                           className={cn(
-                            "truncate text-[11px] font-medium text-slate-500",
-                            row.isNet && "font-semibold text-slate-700",
+                            "truncate text-caption font-medium text-ink-muted",
+                            row.isNet && "font-semibold text-ink-soft",
                           )}
                         >
                           {row.label}
@@ -292,13 +292,13 @@ export function DetailedDecisionOutcomeCards({
                         <dl className="mt-1 grid min-w-0 grid-cols-5 gap-x-2">
                           {metrics.map((metric) => (
                             <div key={metric.label} className="min-w-0">
-                              <dt className="truncate text-[9px] font-medium text-slate-400">
+                              <dt className="truncate text-nano font-medium text-slate-400">
                                 {metric.label}
                               </dt>
                               <dd
                                 className={cn(
-                                  "mt-0.5 truncate font-mono text-[11px] font-semibold text-slate-950 tabular-nums",
-                                  row.isNet && "text-[var(--accent-strong)]",
+                                  "mt-0.5 truncate font-mono text-caption font-semibold text-ink tabular-nums",
+                                  row.isNet && "text-accent-strong",
                                 )}
                                 title={metric.value}
                               >

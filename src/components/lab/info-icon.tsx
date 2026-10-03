@@ -92,7 +92,7 @@ export function InfoIcon({ label }: InfoIconProps) {
           setIsHovered(true);
         }}
         onPointerLeave={() => setIsHovered(false)}
-        className="inline-flex size-5 items-center justify-center rounded-full border border-slate-300 bg-white font-[family:var(--font-space-grotesk)] text-xs font-semibold text-slate-500 shadow-sm hover:border-[var(--accent)] hover:text-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+        className="inline-flex size-5 items-center justify-center rounded-full border border-line-strong bg-surface font-[family:var(--font-space-grotesk)] text-xs font-semibold text-ink-muted shadow-sm hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         i
       </button>
@@ -105,7 +105,7 @@ export function InfoIcon({ label }: InfoIconProps) {
           top: tooltipPosition.top,
         }}
         className={cn(
-          "pointer-events-none invisible fixed z-50 w-64 rounded-md border border-slate-200 bg-white px-3 py-2 text-left text-xs font-normal leading-5 text-slate-700 opacity-0 shadow-lg",
+          "pointer-events-none invisible fixed z-50 w-64 rounded-md border border-line bg-surface px-3 py-2 text-left text-xs font-normal leading-5 text-ink-soft opacity-0 shadow-lg",
           isOpen && "visible opacity-100",
         )}
       >

@@ -157,7 +157,7 @@ function cellColor(point: DebitSpreadScenarioPoint, maxProfit: number | null, ma
     return "border border-rose-100 bg-rose-50 text-rose-900";
   }
 
-  return "border border-slate-200 bg-white text-slate-700";
+  return "border border-line bg-surface text-ink-soft";
 }
 
 function buildPriceSeries(currentPrice: number, steps = 61): number[] {
@@ -284,8 +284,8 @@ function MobileRangeValueControl({
 
   return (
     <div className="mt-1 sm:hidden">
-      <div className="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-2.5 py-1.5">
-        {prefix ? <span className="text-sm text-slate-500">{prefix}</span> : null}
+      <div className="flex items-center gap-2 rounded-md border border-line-strong bg-surface px-2.5 py-1.5">
+        {prefix ? <span className="text-sm text-ink-muted">{prefix}</span> : null}
         <input
           type="number"
           min={safeMin}
@@ -299,9 +299,9 @@ function MobileRangeValueControl({
             }
           }}
           onChange={(event) => onChange(Number(event.target.value))}
-          className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-right text-sm font-semibold text-slate-950 outline-none tabular-nums"
+          className="min-w-0 flex-1 border-0 bg-transparent p-0 font-mono text-right text-sm font-semibold text-ink outline-none tabular-nums"
         />
-        {suffix ? <span className="text-sm text-slate-500">{suffix}</span> : null}
+        {suffix ? <span className="text-sm text-ink-muted">{suffix}</span> : null}
       </div>
       <input
         type="range"
@@ -315,7 +315,7 @@ function MobileRangeValueControl({
         onPointerDown={blurFocusedField}
         onTouchStart={blurFocusedField}
         style={getRangeTrackStyle(safeValue, safeMin, safeMax)}
-        className="mt-2 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
+        className="mt-2 h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-accent"
       />
     </div>
   );
@@ -384,20 +384,20 @@ function HeatmapTab({
   };
 
   return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3">
+    <div className="min-w-0 rounded-lg border border-line bg-surface-muted p-3">
       <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-slate-950 text-balance">
+          <h3 className="text-sm font-semibold text-ink text-balance">
             At stock price X and DTE Y
           </h3>
-          <p className="mt-1 text-xs text-slate-500 text-pretty">
+          <p className="mt-1 text-xs text-ink-muted text-pretty">
             Theoretical estimates using the selected IV and Black-Scholes for non-expiry cells.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-slate-600">
+        <div className="flex items-center gap-2 text-caption text-ink-secondary">
           <span className="size-3 rounded-sm bg-rose-700" />
           Loss
-          <span className="size-3 rounded-sm border border-slate-200 bg-white" />
+          <span className="size-3 rounded-sm border border-line bg-surface" />
           Near B/E
           <span className="size-3 rounded-sm bg-emerald-800" />
           Profit
@@ -412,8 +412,8 @@ function HeatmapTab({
               aria-pressed={selectedDte === dte}
               onClick={() => selectDte(dte)}
               className={cn(
-                "shrink-0 rounded-md border border-slate-200 bg-white px-3 py-2 font-mono text-xs font-semibold text-slate-600 tabular-nums shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
-                selectedDte === dte && "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950",
+                "shrink-0 rounded-md border border-line bg-surface px-3 py-2 font-mono text-xs font-semibold text-ink-secondary tabular-nums shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                selectedDte === dte && "border-accent bg-accent-soft text-ink",
               )}
             >
               {dte} DTE
@@ -437,9 +437,9 @@ function HeatmapTab({
                 onClick={() => onLock(point)}
                 className={cn(
                   "grid min-h-12 w-full grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-3 py-2 text-left shadow-sm outline-none",
-                  "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                  "focus-visible:ring-2 focus-visible:ring-accent",
                   cellColor(point, grid.summary.maxProfit, grid.summary.maxLoss),
-                  isSelected && "ring-2 ring-[var(--accent)]",
+                  isSelected && "ring-2 ring-accent",
                 )}
               >
                 <span className="font-mono text-xs font-semibold tabular-nums">
@@ -463,18 +463,18 @@ function HeatmapTab({
             gridTemplateColumns: `4.5rem repeat(${grid.dteBuckets.length}, minmax(4.75rem, 1fr))`,
           }}
         >
-          <div className="text-[10px] font-semibold uppercase text-slate-500">Price</div>
+          <div className="text-micro font-semibold uppercase text-ink-muted">Price</div>
           {grid.dteBuckets.map((dte) => (
             <div
               key={`dte-head-${dte}`}
-              className="text-center font-mono text-[11px] font-semibold text-slate-600 tabular-nums"
+              className="text-center font-mono text-caption font-semibold text-ink-secondary tabular-nums"
             >
               {dte} DTE
             </div>
           ))}
           {displayedPriceBuckets.map((price) => (
             <div key={`price-row-${price}`} className="contents">
-              <div className="flex items-center justify-end pr-2 font-mono text-[11px] text-slate-500 tabular-nums">
+              <div className="flex items-center justify-end pr-2 font-mono text-caption text-ink-muted tabular-nums">
                 {formatCurrency(price)}
               </div>
               {grid.dteBuckets.map((dte) => {
@@ -497,10 +497,10 @@ function HeatmapTab({
                     onBlur={onClearPreview}
                     onClick={() => onLock(point)}
                     className={cn(
-                      "min-h-8 rounded-md px-1.5 py-1 text-center font-mono text-[11px] font-semibold shadow-sm outline-none tabular-nums",
-                      "focus-visible:ring-2 focus-visible:ring-[var(--accent)]",
+                      "min-h-8 rounded-md px-1.5 py-1 text-center font-mono text-caption font-semibold shadow-sm outline-none tabular-nums",
+                      "focus-visible:ring-2 focus-visible:ring-accent",
                       cellColor(point, grid.summary.maxProfit, grid.summary.maxLoss),
-                      isSelected && "ring-2 ring-[var(--accent)]",
+                      isSelected && "ring-2 ring-accent",
                     )}
                   >
                     {formatMetricValue(point, metric)}
@@ -694,13 +694,13 @@ function MultiDateTab({
   };
 
   return (
-    <div className="min-w-0 rounded-lg border border-slate-200 bg-slate-50 p-3 shadow-sm">
+    <div className="min-w-0 rounded-lg border border-line bg-surface-muted p-3 shadow-sm">
       <div className="mb-3 flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-slate-950 text-balance">
+          <h3 className="text-sm font-semibold text-ink text-balance">
             P/L curves as expiry approaches
           </h3>
-          <p className="mt-1 text-xs text-slate-500 text-pretty">
+          <p className="mt-1 text-xs text-ink-muted text-pretty">
             Compare how the curve shifts across valuation dates at the same stock prices.
           </p>
         </div>
@@ -713,14 +713,14 @@ function MultiDateTab({
                 [...new Set([...current, selectedDte])].sort((first, second) => second - first),
               )
             }
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-line-strong bg-surface px-2.5 py-1 text-xs font-semibold text-ink-soft shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
             Add date
           </button>
           {dteEntries.map((entry, index) => (
             <span
               key={`date-chip-${entry.dte}-${entry.label}`}
-              className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-600"
+              className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-semibold text-ink-secondary"
             >
               <span className="size-2 rounded-full" style={{ backgroundColor: CURVE_COLORS[index % CURVE_COLORS.length] }} />
               {entry.label}
@@ -732,7 +732,7 @@ function MultiDateTab({
                       current.filter((dte) => normalizeDte(dte, inputs.currentDte) !== entry.dte),
                     )
                   }
-                  className="rounded px-1 text-[10px] font-semibold text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  className="rounded px-1 text-micro font-semibold text-ink-muted hover:bg-surface-sunken hover:text-slate-900"
                 >
                   Remove
                 </button>
@@ -747,7 +747,7 @@ function MultiDateTab({
           {[rawMin, 0, rawMax].map((tick, index) => (
             <g key={`multi-y-${index}`}>
               <line x1={padding.left} x2={width - padding.right} y1={y(tick)} y2={y(tick)} stroke={CHART_COLORS.grid} />
-              <text x={padding.left - 10} y={y(tick) + 4} textAnchor="end" className="font-mono text-[11px]" fill={CHART_COLORS.muted}>
+              <text x={padding.left - 10} y={y(tick) + 4} textAnchor="end" className="font-mono text-caption" fill={CHART_COLORS.muted}>
                 {formatCurrency(tick)}
               </text>
             </g>
@@ -765,7 +765,7 @@ function MultiDateTab({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 />
-                <text x={x(lastPoint.underlyingPrice) + 8} y={curveEndLabelY.get(curve.dte)} className="font-mono text-[10px]" fill={CURVE_COLORS[index % CURVE_COLORS.length]}>
+                <text x={x(lastPoint.underlyingPrice) + 8} y={curveEndLabelY.get(curve.dte)} className="font-mono text-micro" fill={CURVE_COLORS[index % CURVE_COLORS.length]}>
                   {curve.label}
                 </text>
               </g>
@@ -840,29 +840,29 @@ function MultiDateTab({
             </g>
           ) : null}
           {[minPrice, inputs.currentPrice, maxPrice].map((tick) => (
-            <text key={`multi-x-${tick}`} x={x(tick)} y={height - padding.bottom + 20} textAnchor="middle" className="font-mono text-[11px]" fill={CHART_COLORS.muted}>
+            <text key={`multi-x-${tick}`} x={x(tick)} y={height - padding.bottom + 20} textAnchor="middle" className="font-mono text-caption" fill={CHART_COLORS.muted}>
               {formatCurrency(tick)}
             </text>
           ))}
         </svg>
         {hoverTooltip ? (
           <div
-            className="pointer-events-none absolute z-10 w-[min(18rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 shadow-lg"
+            className="pointer-events-none absolute z-10 w-[min(18rem,calc(100vw-2rem))] rounded-lg border border-line bg-surface p-3 text-xs text-ink-secondary shadow-lg"
             style={{
               left: `${Math.min(Math.max(hoverTooltip.leftPct, 12), 76)}%`,
               top: `${Math.min(Math.max(hoverTooltip.topPct, 10), 72)}%`,
             }}
           >
-            <p className="mb-2 font-mono font-semibold text-slate-950 tabular-nums">
+            <p className="mb-2 font-mono font-semibold text-ink tabular-nums">
               Underlying {formatCurrency(hoverTooltip.price)}
             </p>
             <div className="space-y-1">
               {hoverTooltip.rows.map((row) => (
                 <div key={row.label} className="grid grid-cols-[4.5rem_minmax(0,1fr)] gap-2">
-                  <span className="font-semibold text-slate-700">{row.label}</span>
+                  <span className="font-semibold text-ink-soft">{row.label}</span>
                   <span className="min-w-0 font-mono tabular-nums">
                     Value {formatCurrency(row.positionValue)} · P/L{" "}
-                    <span className={row.profitLoss >= 0 ? "text-emerald-700" : "text-rose-700"}>
+                    <span className={row.profitLoss >= 0 ? "text-gain" : "text-loss"}>
                       {formatCurrency(row.profitLoss)}
                     </span>{" "}
                     ({formatPercent(row.profitLossPercent)})
@@ -902,46 +902,46 @@ function ScenarioTable({
   ].slice(0, 8);
 
   return (
-    <div className="min-w-0 bg-white">
+    <div className="min-w-0 bg-surface">
       <div className="divide-y divide-slate-100 sm:hidden">
         {dedupedRows.map((row, index) => (
           <div
             key={`mobile-row-${row.underlyingPrice}-${row.dte}-${index}`}
-            className={cn("px-3 py-3", index === 0 && "bg-[var(--accent-soft)]")}
+            className={cn("px-3 py-3", index === 0 && "bg-accent-soft")}
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="font-mono text-sm font-semibold text-slate-950 tabular-nums">
+                <p className="font-mono text-sm font-semibold text-ink tabular-nums">
                   {formatCurrency(row.underlyingPrice)}
                 </p>
-                <p className="mt-1 text-xs text-slate-500">{row.dte} DTE</p>
+                <p className="mt-1 text-xs text-ink-muted">{row.dte} DTE</p>
               </div>
               <div className="text-right">
                 <p
                   className={cn(
                     "font-mono text-sm font-semibold tabular-nums",
-                    row.profitLoss >= 0 ? "text-emerald-700" : "text-rose-700",
+                    row.profitLoss >= 0 ? "text-gain" : "text-loss",
                   )}
                 >
                   {formatCurrency(row.profitLoss)}
                 </p>
-                <p className="mt-1 font-mono text-xs text-slate-500 tabular-nums">
+                <p className="mt-1 font-mono text-xs text-ink-muted tabular-nums">
                   {formatPercent(row.profitLossPercent)}
                 </p>
               </div>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
               <div>
-                  <p className="font-semibold uppercase text-slate-500">
+                  <p className="font-semibold uppercase text-ink-muted">
                     {isLongCall ? "Call" : isBearPut ? "Put" : isCallCalendar ? "Calendar" : isRatioSpread ? "Ratio" : "Spread"}
                   </p>
-                <p className="font-mono font-semibold text-slate-950 tabular-nums">
+                <p className="font-mono font-semibold text-ink tabular-nums">
                   {formatDecimalCurrency(row.spreadValue)}
                 </p>
               </div>
               <div className="text-right">
-                <p className="font-semibold uppercase text-slate-500">Position</p>
-                <p className="font-mono font-semibold text-slate-950 tabular-nums">
+                <p className="font-semibold uppercase text-ink-muted">Position</p>
+                <p className="font-mono font-semibold text-ink tabular-nums">
                   {formatCurrency(row.positionValue)}
                 </p>
               </div>
@@ -950,7 +950,7 @@ function ScenarioTable({
               <p
                 className={cn(
                   "mt-2 font-mono text-xs font-semibold tabular-nums",
-                  row.percentOfMaxProfitCaptured >= 0 ? "text-emerald-700" : "text-rose-700",
+                  row.percentOfMaxProfitCaptured >= 0 ? "text-gain" : "text-loss",
                 )}
               >
                 {formatPercent(row.percentOfMaxProfitCaptured)} max profit
@@ -961,7 +961,7 @@ function ScenarioTable({
       </div>
       <div className="hidden overflow-x-auto sm:block">
         <table className="w-full min-w-[760px] border-collapse text-left text-xs">
-          <thead className="bg-slate-50 text-[10px] uppercase text-slate-500">
+          <thead className="bg-surface-muted text-micro uppercase text-ink-muted">
             <tr>
               <th className="px-4 py-2 font-semibold">Price</th>
               <th className="px-4 py-2 font-semibold">DTE</th>
@@ -988,20 +988,20 @@ function ScenarioTable({
             {dedupedRows.map((row, index) => (
               <tr
                 key={`${row.underlyingPrice}-${row.dte}-${index}`}
-                className={cn(index === 0 ? "bg-[var(--accent-soft)]" : "border-t border-slate-100")}
+                className={cn(index === 0 ? "bg-accent-soft" : "border-t border-slate-100")}
               >
-                <td className="px-4 py-2 font-mono tabular-nums text-slate-950">{formatCurrency(row.underlyingPrice)}</td>
-                <td className="px-4 py-2 font-mono tabular-nums text-slate-950">{row.dte}</td>
-                <td className="px-4 py-2 text-right font-mono tabular-nums text-slate-950">{formatDecimalCurrency(row.spreadValue)}</td>
-                <td className="px-4 py-2 text-right font-mono tabular-nums text-slate-950">{formatCurrency(row.positionValue)}</td>
-                <td className={cn("px-4 py-2 text-right font-mono font-semibold tabular-nums", row.profitLoss >= 0 ? "text-emerald-700" : "text-rose-700")}>
+                <td className="px-4 py-2 font-mono tabular-nums text-ink">{formatCurrency(row.underlyingPrice)}</td>
+                <td className="px-4 py-2 font-mono tabular-nums text-ink">{row.dte}</td>
+                <td className="px-4 py-2 text-right font-mono tabular-nums text-ink">{formatDecimalCurrency(row.spreadValue)}</td>
+                <td className="px-4 py-2 text-right font-mono tabular-nums text-ink">{formatCurrency(row.positionValue)}</td>
+                <td className={cn("px-4 py-2 text-right font-mono font-semibold tabular-nums", row.profitLoss >= 0 ? "text-gain" : "text-loss")}>
                   {formatCurrency(row.profitLoss)}
                 </td>
-                <td className={cn("px-4 py-2 text-right font-mono font-semibold tabular-nums", row.profitLossPercent >= 0 ? "text-emerald-700" : "text-rose-700")}>
+                <td className={cn("px-4 py-2 text-right font-mono font-semibold tabular-nums", row.profitLossPercent >= 0 ? "text-gain" : "text-loss")}>
                   {formatPercent(row.profitLossPercent)}
                 </td>
                 {!isLongCall && !isCallCalendar ? (
-                  <td className={cn("px-4 py-2 text-right font-mono font-semibold tabular-nums", row.percentOfMaxProfitCaptured >= 0 ? "text-emerald-700" : "text-rose-700")}>
+                  <td className={cn("px-4 py-2 text-right font-mono font-semibold tabular-nums", row.percentOfMaxProfitCaptured >= 0 ? "text-gain" : "text-loss")}>
                     {formatPercent(row.percentOfMaxProfitCaptured)}
                   </td>
                 ) : null}
@@ -1172,7 +1172,7 @@ export default function DebitSpreadScenarioVisualizer({
       {!isHeatmapView ? (
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-slate-950 text-balance">
+            <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink text-balance">
               {`How does the ${unitName} shift over time?`}
             </h2>
           </div>
@@ -1180,7 +1180,7 @@ export default function DebitSpreadScenarioVisualizer({
       ) : null}
 
       {isHeatmapView ? (
-        <section className="min-w-0 rounded-lg border border-slate-200 bg-white shadow-sm">
+        <section className="min-w-0 rounded-lg border border-line bg-surface shadow-sm">
           <div className="flex min-w-0 flex-wrap items-center gap-2 px-3 py-2">
             <button
               type="button"
@@ -1189,11 +1189,11 @@ export default function DebitSpreadScenarioVisualizer({
                 isRangeSettingsOpen ? "Close range settings" : "Open range settings"
               }
               onClick={() => setIsRangeSettingsOpen((currentValue) => !currentValue)}
-              className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2 py-1 text-left hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               <span
                 aria-hidden
-                className="flex size-7 shrink-0 items-center justify-center rounded-full border border-slate-300 bg-slate-50 text-slate-700 shadow-sm"
+                className="flex size-7 shrink-0 items-center justify-center rounded-full border border-line-strong bg-surface-muted text-ink-soft shadow-sm"
               >
                 <svg
                   viewBox="0 0 20 20"
@@ -1208,10 +1208,10 @@ export default function DebitSpreadScenarioVisualizer({
                 </svg>
               </span>
               <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-slate-950">
+                <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-ink">
                   Range settings
                 </span>
-                <span className="min-w-0 truncate font-mono text-xs text-slate-600 tabular-nums">
+                <span className="min-w-0 truncate font-mono text-xs text-ink-secondary tabular-nums">
                   {formatCurrency(safeHeatmapMinPrice)}-{formatCurrency(safeHeatmapMaxPrice)} · {heatmapDteSteps} DTE ticks · {formatCompactNumber(heatmapIvPct)}% IV
                 </span>
               </span>
@@ -1220,17 +1220,17 @@ export default function DebitSpreadScenarioVisualizer({
               type="button"
               aria-expanded={isRangeSettingsOpen}
               onClick={() => setIsRangeSettingsOpen((currentValue) => !currentValue)}
-              className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+              className="rounded-md border border-line bg-surface-muted px-2 py-1 text-xs font-semibold text-ink-soft shadow-sm hover:border-accent hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               {isRangeSettingsOpen ? "Done" : "Edit"}
             </button>
           </div>
           {isRangeSettingsOpen ? (
-            <div className="grid min-w-0 gap-2 border-t border-slate-200 bg-slate-50 p-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(15rem,1.25fr)_repeat(5,minmax(8rem,1fr))]">
-              <div className="min-w-0 rounded-md border border-slate-200 bg-white p-2 shadow-sm">
-                <p className="text-[10px] font-semibold uppercase text-slate-500">Cell value</p>
+            <div className="grid min-w-0 gap-2 border-t border-line bg-surface-muted p-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(15rem,1.25fr)_repeat(5,minmax(8rem,1fr))]">
+              <div className="min-w-0 rounded-md border border-line bg-surface p-2 shadow-sm">
+                <p className="text-micro font-semibold uppercase text-ink-muted">Cell value</p>
                 <div
-                  className="mt-1 grid w-full grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-0.5"
+                  className="mt-1 grid w-full grid-cols-2 rounded-md border border-line bg-surface-sunken p-0.5"
                   aria-label="Scenario metric"
                 >
                   {metricOptions.map((option) => (
@@ -1239,8 +1239,8 @@ export default function DebitSpreadScenarioVisualizer({
                       type="button"
                       onClick={() => setMetric(option.value)}
                       className={cn(
-                        "min-w-0 truncate rounded px-1.5 py-1 text-xs font-semibold text-slate-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
-                        activeMetric === option.value && "bg-[var(--accent)] text-white shadow-sm",
+                        "min-w-0 truncate rounded px-1.5 py-1 text-xs font-semibold text-ink-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                        activeMetric === option.value && "bg-accent text-white shadow-sm",
                       )}
                     >
                       {option.label}
@@ -1249,17 +1249,17 @@ export default function DebitSpreadScenarioVisualizer({
                 </div>
               </div>
 
-              <label className="block min-w-0 rounded-md border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-600 shadow-sm">
-                <span className="text-[10px] font-semibold uppercase text-slate-500">Min price</span>
-                <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
-                  <span className="text-slate-500">$</span>
+              <label className="block min-w-0 rounded-md border border-line bg-surface p-2 text-xs font-semibold text-ink-secondary shadow-sm">
+                <span className="text-micro font-semibold uppercase text-ink-muted">Min price</span>
+                <div className="mt-1 hidden items-center rounded-md border border-line-strong bg-surface px-2.5 py-1.5 sm:flex">
+                  <span className="text-ink-muted">$</span>
                   <input
                     type="number"
                     min={1}
                     step={1}
                     value={heatmapMinPrice}
                     onChange={(event) => setHeatmapMinPrice(Number(event.target.value))}
-                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
+                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-ink outline-none tabular-nums"
                   />
                 </div>
                 <MobileRangeValueControl
@@ -1272,17 +1272,17 @@ export default function DebitSpreadScenarioVisualizer({
                 />
               </label>
 
-              <label className="block min-w-0 rounded-md border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-600 shadow-sm">
-                <span className="text-[10px] font-semibold uppercase text-slate-500">Max price</span>
-                <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
-                  <span className="text-slate-500">$</span>
+              <label className="block min-w-0 rounded-md border border-line bg-surface p-2 text-xs font-semibold text-ink-secondary shadow-sm">
+                <span className="text-micro font-semibold uppercase text-ink-muted">Max price</span>
+                <div className="mt-1 hidden items-center rounded-md border border-line-strong bg-surface px-2.5 py-1.5 sm:flex">
+                  <span className="text-ink-muted">$</span>
                   <input
                     type="number"
                     min={2}
                     step={1}
                     value={heatmapMaxPrice}
                     onChange={(event) => setHeatmapMaxPrice(Number(event.target.value))}
-                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
+                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-ink outline-none tabular-nums"
                   />
                 </div>
                 <MobileRangeValueControl
@@ -1299,17 +1299,17 @@ export default function DebitSpreadScenarioVisualizer({
                 />
               </label>
 
-              <label className="block min-w-0 rounded-md border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-600 shadow-sm">
-                <span className="text-[10px] font-semibold uppercase text-slate-500">Price tick</span>
-                <div className="mt-1 hidden items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 sm:flex">
-                  <span className="text-slate-500">$</span>
+              <label className="block min-w-0 rounded-md border border-line bg-surface p-2 text-xs font-semibold text-ink-secondary shadow-sm">
+                <span className="text-micro font-semibold uppercase text-ink-muted">Price tick</span>
+                <div className="mt-1 hidden items-center rounded-md border border-line-strong bg-surface px-2.5 py-1.5 sm:flex">
+                  <span className="text-ink-muted">$</span>
                   <input
                     type="number"
                     min={1}
                     step={1}
                     value={heatmapPriceTickSize}
                     onChange={(event) => setHeatmapPriceTickSize(Number(event.target.value))}
-                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-slate-950 outline-none tabular-nums"
+                    className="w-full border-0 bg-transparent p-0 text-right font-mono text-sm font-semibold text-ink outline-none tabular-nums"
                   />
                 </div>
                 <MobileRangeValueControl
@@ -1322,8 +1322,8 @@ export default function DebitSpreadScenarioVisualizer({
                 />
               </label>
 
-              <label className="block min-w-0 rounded-md border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-600 shadow-sm">
-                <span className="text-[10px] font-semibold uppercase text-slate-500">DTE ticks</span>
+              <label className="block min-w-0 rounded-md border border-line bg-surface p-2 text-xs font-semibold text-ink-secondary shadow-sm">
+                <span className="text-micro font-semibold uppercase text-ink-muted">DTE ticks</span>
                 <div className="mt-2 grid min-h-8 grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-2">
                   <input
                     type="range"
@@ -1336,16 +1336,16 @@ export default function DebitSpreadScenarioVisualizer({
                     onPointerDown={blurFocusedField}
                     onTouchStart={blurFocusedField}
                     style={getRangeTrackStyle(heatmapDteSteps, 2, 15)}
-                    className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
+                    className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-accent"
                   />
-                  <span className="text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">
+                  <span className="text-right font-mono text-sm font-semibold text-ink tabular-nums">
                     {heatmapDteSteps}
                   </span>
                 </div>
               </label>
 
-              <label className="block min-w-0 rounded-md border border-slate-200 bg-white p-2 text-xs font-semibold text-slate-600 shadow-sm">
-                <span className="text-[10px] font-semibold uppercase text-slate-500">IV</span>
+              <label className="block min-w-0 rounded-md border border-line bg-surface p-2 text-xs font-semibold text-ink-secondary shadow-sm">
+                <span className="text-micro font-semibold uppercase text-ink-muted">IV</span>
                 <div className="mt-2 grid min-h-8 grid-cols-[minmax(0,1fr)_3rem] items-center gap-2">
                   <input
                     type="range"
@@ -1360,9 +1360,9 @@ export default function DebitSpreadScenarioVisualizer({
                     onPointerDown={blurFocusedField}
                     onTouchStart={blurFocusedField}
                     style={getRangeTrackStyle(heatmapIvPct, 0, 150)}
-                    className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-[var(--accent)]"
+                    className="h-2 w-full min-w-0 cursor-pointer appearance-none rounded-full bg-slate-200 accent-accent"
                   />
-                  <span className="text-right font-mono text-sm font-semibold text-slate-950 tabular-nums">
+                  <span className="text-right font-mono text-sm font-semibold text-ink tabular-nums">
                     {formatCompactNumber(heatmapIvPct)}%
                   </span>
                 </div>
@@ -1397,12 +1397,12 @@ export default function DebitSpreadScenarioVisualizer({
         />
       )}
 
-      <details className="group rounded-lg border border-slate-200 bg-white shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-slate-700">
+      <details className="group rounded-lg border border-line bg-surface shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-semibold text-ink-soft">
           <span>Scenario table</span>
-          <span className="text-xs text-slate-500">Show exact rows</span>
+          <span className="text-xs text-ink-muted">Show exact rows</span>
         </summary>
-        <div className="border-t border-slate-200">
+        <div className="border-t border-line">
           <ScenarioTable
             selectedPoint={selectedScenario}
             rows={tableRows}

@@ -149,8 +149,8 @@ export function CompactStrategyList({
   };
 
   return (
-    <div className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="hidden grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9rem] gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-[10px] font-semibold uppercase text-slate-500 md:grid">
+    <div className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
+      <div className="hidden grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9rem] gap-2 border-b border-line bg-surface-muted px-3 py-2 text-micro font-semibold uppercase text-ink-muted md:grid">
         <span>Strategy</span>
         <span className="text-right">P/L</span>
         <span className="text-right">Return</span>
@@ -179,7 +179,7 @@ export function CompactStrategyList({
                 event.preventDefault();
                 event.stopPropagation();
               }}
-              className="pointer-events-auto relative z-30 inline-flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:border-[var(--accent)] hover:bg-[var(--accent-faint)] hover:text-slate-950 active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+              className="pointer-events-auto relative z-30 inline-flex size-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-md border border-line bg-surface text-ink-muted shadow-sm transition-colors hover:border-accent hover:bg-accent-faint hover:text-ink active:cursor-grabbing focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               <svg
                 aria-hidden="true"
@@ -204,29 +204,29 @@ export function CompactStrategyList({
                   {dragHandle}
                   <div className="min-w-0">
                     <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                      <span className="truncate font-semibold text-slate-950">
+                      <span className="truncate font-semibold text-ink">
                         {card.label}
                       </span>
                       <span
                         className={cn(
-                          "rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                          "rounded-full border px-1.5 py-0.5 text-micro font-semibold leading-none",
                           tone.badge,
                         )}
                       >
                         {tone.label}
                       </span>
                       {isSelected ? (
-                        <span className="rounded-full bg-[var(--accent)] px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
+                        <span className="rounded-full bg-accent px-1.5 py-0.5 text-micro font-semibold leading-none text-white">
                           Selected
                         </span>
                       ) : null}
                       {isEditing ? (
-                        <span className="rounded-full border border-[var(--accent-border)] bg-white px-1.5 py-0.5 text-[10px] font-semibold leading-none text-[var(--accent-strong)]">
+                        <span className="rounded-full border border-accent-border bg-surface px-1.5 py-0.5 text-micro font-semibold leading-none text-accent-strong">
                           Editing
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-0.5 truncate font-mono text-xs text-slate-500 tabular-nums">
+                    <p className="mt-0.5 truncate font-mono text-xs text-ink-muted tabular-nums">
                       {getComparisonSetupLabel(card)}
                     </p>
                   </div>
@@ -235,13 +235,13 @@ export function CompactStrategyList({
 
               <div className="grid grid-cols-2 gap-x-3 gap-y-1 md:contents">
                 <div className="min-w-0 md:text-right">
-                  <p className="text-[10px] font-semibold uppercase text-slate-500 md:hidden">
+                  <p className="text-micro font-semibold uppercase text-ink-muted md:hidden">
                     P/L
                   </p>
                   <p
                     className={cn(
                       "truncate font-mono font-semibold tabular-nums",
-                      pnlIsPositive ? "text-emerald-700" : "text-rose-700",
+                      pnlIsPositive ? "text-gain" : "text-loss",
                     )}
                   >
                     {pnlIsPositive ? "+" : ""}
@@ -249,39 +249,39 @@ export function CompactStrategyList({
                   </p>
                 </div>
                 <div className="min-w-0 text-right">
-                  <p className="text-[10px] font-semibold uppercase text-slate-500 md:hidden">
+                  <p className="text-micro font-semibold uppercase text-ink-muted md:hidden">
                     Return
                   </p>
                   <p
                     className={cn(
                       "truncate font-mono font-semibold tabular-nums",
-                      pnlIsPositive ? "text-emerald-700" : "text-rose-700",
+                      pnlIsPositive ? "text-gain" : "text-loss",
                     )}
                   >
                     {formatPercent(card.snapshot.roi)}
                   </p>
                 </div>
                 <div className="min-w-0 md:text-right">
-                  <p className="text-[10px] font-semibold uppercase text-slate-500 md:hidden">
+                  <p className="text-micro font-semibold uppercase text-ink-muted md:hidden">
                     {getBreakEvenLabel(card.snapshot)}
                   </p>
-                  <p className="truncate font-mono font-semibold text-slate-950 tabular-nums">
+                  <p className="truncate font-mono font-semibold text-ink tabular-nums">
                     {formatBreakEvenAtExpiry(card.snapshot)}
                   </p>
                 </div>
                 <div className="min-w-0 text-right">
-                  <p className="text-[10px] font-semibold uppercase text-slate-500 md:hidden">
+                  <p className="text-micro font-semibold uppercase text-ink-muted md:hidden">
                     DTE
                   </p>
-                  <p className="truncate font-mono font-semibold text-slate-950 tabular-nums">
+                  <p className="truncate font-mono font-semibold text-ink tabular-nums">
                     {card.expirationDays}
                   </p>
                 </div>
                 <div className="min-w-0 col-span-2 md:col-span-1 md:text-right">
-                  <p className="text-[10px] font-semibold uppercase text-slate-500 md:hidden">
+                  <p className="text-micro font-semibold uppercase text-ink-muted md:hidden">
                     {card.snapshot.reserveOffset > 0 ? "Capital reserved" : "Cost basis"}
                   </p>
-                  <p className="truncate font-mono font-semibold text-slate-950 tabular-nums">
+                  <p className="truncate font-mono font-semibold text-ink tabular-nums">
                     {formatCurrency(card.snapshot.totalCost)}
                   </p>
                 </div>
@@ -299,17 +299,17 @@ export function CompactStrategyList({
               key={card.id}
               data-strategy-row-id={card.id}
               className={cn(
-                "group relative grid min-w-0 bg-white text-sm transition-[background-color,box-shadow,opacity,transform] md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9rem] md:items-stretch",
-                onAnalyzeCard && !isSelected && "hover:bg-[var(--accent-faint)] focus-within:bg-[var(--accent-faint)]",
-                isSelected && "bg-[var(--accent-soft)]",
-                isEditing && "bg-[var(--accent-faint)] ring-1 ring-inset ring-[var(--accent)]",
-                isDragging && "z-30 scale-[0.995] bg-white/80 opacity-70 shadow-lg ring-1 ring-inset ring-slate-300",
+                "group relative grid min-w-0 bg-surface text-sm transition-[background-color,box-shadow,opacity,transform] md:grid-cols-[minmax(12rem,2fr)_7rem_5rem_5rem_4rem_6rem_9rem] md:items-stretch",
+                onAnalyzeCard && !isSelected && "hover:bg-accent-faint focus-within:bg-accent-faint",
+                isSelected && "bg-accent-soft",
+                isEditing && "bg-accent-faint ring-1 ring-inset ring-accent",
+                isDragging && "z-30 scale-[0.995] bg-surface/80 opacity-70 shadow-lg ring-1 ring-inset ring-slate-300",
               )}
             >
               {isSelected ? (
                 <span
                   aria-hidden="true"
-                  className="absolute inset-y-0 left-0 z-20 w-1 bg-[var(--accent)]"
+                  className="absolute inset-y-0 left-0 z-20 w-1 bg-accent"
                 />
               ) : null}
 
@@ -328,7 +328,7 @@ export function CompactStrategyList({
                     onAnalyzeCard(card);
                   }}
                   className={cn(
-                    "absolute inset-0 z-10 bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-[var(--accent)]",
+                    "absolute inset-0 z-10 bg-transparent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent",
                     "cursor-pointer",
                   )}
                 />
@@ -344,10 +344,10 @@ export function CompactStrategyList({
                     aria-label={`Edit ${card.label}`}
                     onClick={() => onEditCard(card)}
                     className={cn(
-                      "inline-flex h-8 cursor-pointer items-center justify-center rounded-md border px-2.5 text-xs font-semibold shadow-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                      "inline-flex h-8 cursor-pointer items-center justify-center rounded-md border px-2.5 text-xs font-semibold shadow-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                       isEditing
-                        ? "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950"
-                        : "border-slate-200 bg-white text-slate-700 hover:border-[var(--accent)] hover:bg-[var(--accent-faint)] hover:text-slate-950",
+                        ? "border-accent bg-accent-soft text-ink"
+                        : "border-line bg-surface text-ink-soft hover:border-accent hover:bg-accent-faint hover:text-ink",
                     )}
                   >
                     {isEditing ? "Editing" : "Edit"}
@@ -359,7 +359,7 @@ export function CompactStrategyList({
                     data-row-control="true"
                     aria-label={`Remove ${card.label}`}
                     onClick={() => onRemoveCard(card.id)}
-                    className="inline-flex h-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-500 shadow-sm transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                    className="inline-flex h-8 cursor-pointer items-center justify-center rounded-md border border-line bg-surface px-2.5 text-xs font-semibold text-ink-muted shadow-sm transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-loss focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                   >
                     Delete
                   </button>

@@ -40,7 +40,7 @@ export function ComparisonCardGrid({
         const isCurrent = card.id === "current";
         const isSelected = card.id === selectedCardId;
         const pnlIsPositive = card.snapshot.pnl >= 0;
-        const pnlTone = pnlIsPositive ? "text-emerald-700" : "text-rose-700";
+        const pnlTone = pnlIsPositive ? "text-gain" : "text-loss";
           const maxAtExpiryLabel =
           card.strategy === "call-calendar"
             ? "Open"
@@ -71,10 +71,10 @@ export function ComparisonCardGrid({
           <article
             key={card.id}
             className={cn(
-              "min-w-0 overflow-hidden rounded-lg border bg-white shadow-sm",
-              "border-slate-200",
-              isCurrent && "border-[var(--accent-border)] ring-1 ring-[var(--accent-ring)]",
-              isSelected && "border-[var(--accent)] ring-1 ring-[var(--accent-ring)]",
+              "min-w-0 overflow-hidden rounded-lg border bg-surface shadow-sm",
+              "border-line",
+              isCurrent && "border-accent-border ring-1 ring-accent-ring",
+              isSelected && "border-accent ring-1 ring-accent-ring",
             )}
           >
             <div
@@ -87,16 +87,16 @@ export function ComparisonCardGrid({
               <div className="flex min-w-0 items-start justify-between gap-2">
                 <div className="min-w-0">
                   <div className="flex min-w-0 items-center gap-2">
-                    <h3 className="truncate text-sm font-semibold text-slate-950 text-balance">
+                    <h3 className="truncate text-sm font-semibold text-ink text-balance">
                       {card.label}
                     </h3>
                     {isSelected ? (
-                      <span className="rounded-full border border-[var(--accent-border)] bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent-strong)]">
+                      <span className="rounded-full border border-accent-border bg-accent-soft px-2 py-0.5 text-micro font-semibold text-accent-strong">
                         Selected
                       </span>
                     ) : null}
                   </div>
-                  <p className="mt-1 truncate font-mono text-xs text-slate-500 tabular-nums">
+                  <p className="mt-1 truncate font-mono text-xs text-ink-muted tabular-nums">
                     {getComparisonStrikeLabel(card)}
                   </p>
                 </div>
@@ -106,7 +106,7 @@ export function ComparisonCardGrid({
                       type="button"
                       aria-label={`Remove ${card.label}`}
                       onClick={() => onRemoveCard(card.id)}
-                      className="inline-flex size-6 items-center justify-center rounded-md border border-slate-200 bg-white text-sm font-semibold text-slate-500 shadow-sm hover:border-rose-300 hover:text-rose-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+                      className="inline-flex size-6 items-center justify-center rounded-md border border-line bg-surface text-sm font-semibold text-ink-muted shadow-sm hover:border-rose-300 hover:text-loss focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
                       x
                     </button>
@@ -114,9 +114,9 @@ export function ComparisonCardGrid({
                 </div>
               </div>
 
-              <div className="mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-slate-50 p-3">
+              <div className="mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-lg bg-surface-muted p-3">
                 <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  <p className="text-micro font-semibold uppercase tracking-wide text-ink-muted">
                     Scenario P/L
                   </p>
                   <p
@@ -130,7 +130,7 @@ export function ComparisonCardGrid({
                   </p>
                 </div>
                 <div className="min-w-[4.5rem] text-right">
-                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  <p className="text-micro font-semibold uppercase tracking-wide text-ink-muted">
                     Return
                   </p>
                   <p
@@ -147,10 +147,10 @@ export function ComparisonCardGrid({
               <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
                 {details.map((detail) => (
                   <div key={detail.label} className="min-w-0">
-                    <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                    <p className="text-micro font-semibold uppercase tracking-wide text-ink-muted">
                       {detail.label}
                     </p>
-                    <p className="mt-0.5 truncate font-mono font-semibold text-slate-950 tabular-nums">
+                    <p className="mt-0.5 truncate font-mono font-semibold text-ink tabular-nums">
                       {detail.value}
                     </p>
                   </div>

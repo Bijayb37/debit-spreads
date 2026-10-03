@@ -52,11 +52,55 @@
   --accent-ring: rgb(4 120 87 / 0.22);
 }
 
+/*
+ * Design tokens. Components use these names (text-ink, bg-surface,
+ * border-line, text-caption, ...) instead of raw palette values, so a
+ * restyle only has to change this block.
+ */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-space-grotesk);
   --font-mono: var(--font-ibm-plex-mono);
+
+  /* Text */
+  --color-ink: var(--color-slate-950);
+  --color-ink-soft: var(--color-slate-700);
+  --color-ink-secondary: var(--color-slate-600);
+  --color-ink-muted: var(--color-slate-500);
+
+  /* Surfaces and lines */
+  --color-surface: var(--color-white);
+  --color-surface-muted: var(--color-slate-50);
+  --color-surface-sunken: var(--color-slate-100);
+  --color-line: var(--color-slate-200);
+  --color-line-strong: var(--color-slate-300);
+
+  /* Profit and loss */
+  --color-gain: var(--color-emerald-700);
+  --color-loss: var(--color-rose-700);
+
+  /* Accent, switched by [data-color-scheme] */
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-faint: var(--accent-faint);
+  --color-accent-border: var(--accent-border);
+  --color-accent-ring: var(--accent-ring);
+
+  /* Small text sizes below Tailwind's text-xs (12px) */
+  --text-caption: 11px;
+  --text-micro: 10px;
+  --text-nano: 9px;
+
+  /* Spacing and radius roles, on Tailwind's 4px scale */
+  --spacing-control: 0.5rem;
+  --spacing-panel: 0.75rem;
+  --spacing-panel-lg: 1rem;
+  --spacing-section: 1.5rem;
+  --radius-control: var(--radius-md);
+  --radius-panel: var(--radius-lg);
 }
 
 * {

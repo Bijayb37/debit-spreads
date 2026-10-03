@@ -26,7 +26,7 @@ export function SettingsWidget({
     <details className="relative z-50 h-full">
       <summary
         aria-label="Settings"
-        className="flex h-full min-h-10 w-10 list-none items-center justify-center rounded-lg border border-slate-300 bg-white px-0 text-sm font-semibold text-slate-700 shadow-sm hover:border-[var(--accent)] hover:text-slate-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] sm:min-h-[2.875rem] sm:w-auto sm:px-4"
+        className="flex h-full min-h-10 w-10 list-none items-center justify-center rounded-lg border border-line-strong bg-surface px-0 text-sm font-semibold text-ink-soft shadow-sm hover:border-accent hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:min-h-[2.875rem] sm:w-auto sm:px-4"
       >
         <svg
           aria-hidden="true"
@@ -45,9 +45,9 @@ export function SettingsWidget({
         </svg>
         <span className="hidden sm:inline">Settings</span>
       </summary>
-      <div className="absolute right-0 z-50 mt-2 max-h-[calc(100dvh-7rem)] w-56 overflow-y-auto rounded-lg border border-slate-200 bg-white p-3 shadow-xl sm:w-64">
+      <div className="absolute right-0 z-50 mt-2 max-h-[calc(100dvh-7rem)] w-56 overflow-y-auto rounded-lg border border-line bg-surface p-3 shadow-xl sm:w-64">
         <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase text-slate-500">Color scheme</p>
+          <p className="text-xs font-semibold uppercase text-ink-muted">Color scheme</p>
           <div className="mt-2 grid gap-1.5" role="radiogroup" aria-label="Color scheme">
             {COLOR_SCHEME_OPTIONS.map((option) => {
               const isSelected = colorScheme === option.value;
@@ -63,10 +63,10 @@ export function SettingsWidget({
                     event.currentTarget.closest("details")?.removeAttribute("open");
                   }}
                   className={cn(
-                    "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm font-semibold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                    "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm font-semibold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                     isSelected
-                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-[var(--accent)] hover:bg-slate-50",
+                      ? "border-accent bg-accent-soft text-ink"
+                      : "border-line bg-surface text-ink-soft hover:border-accent hover:bg-surface-muted",
                   )}
                 >
                   <span
@@ -75,15 +75,15 @@ export function SettingsWidget({
                   />
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
                   {isSelected ? (
-                    <span className="font-mono text-xs text-[var(--accent-strong)]">On</span>
+                    <span className="font-mono text-xs text-accent-strong">On</span>
                   ) : null}
                 </button>
               );
             })}
           </div>
         </div>
-        <div className="mt-3 border-t border-slate-200 pt-3">
-          <p className="text-xs font-semibold uppercase text-slate-500">Money units</p>
+        <div className="mt-3 border-t border-line pt-3">
+          <p className="text-xs font-semibold uppercase text-ink-muted">Money units</p>
           <div className="mt-2 grid gap-1.5" role="radiogroup" aria-label="Money units">
             {MONEY_DISPLAY_UNIT_OPTIONS.map((option) => {
               const isSelected = moneyDisplayUnit === option.value;
@@ -96,25 +96,25 @@ export function SettingsWidget({
                   aria-checked={isSelected}
                   onClick={() => onMoneyDisplayUnitChange(option.value)}
                   className={cn(
-                    "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm font-semibold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                    "flex min-w-0 items-center gap-2 rounded-md border px-2.5 py-2 text-left text-sm font-semibold shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                     isSelected
-                      ? "border-[var(--accent)] bg-[var(--accent-soft)] text-slate-950"
-                      : "border-slate-200 bg-white text-slate-700 hover:border-[var(--accent)] hover:bg-slate-50",
+                      ? "border-accent bg-accent-soft text-ink"
+                      : "border-line bg-surface text-ink-soft hover:border-accent hover:bg-surface-muted",
                   )}
                 >
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
-                  <span className="font-mono text-xs text-slate-500">{option.helper}</span>
+                  <span className="font-mono text-xs text-ink-muted">{option.helper}</span>
                 </button>
               );
             })}
           </div>
         </div>
-        <div className="mt-3 border-t border-slate-200 pt-3">
-          <p className="text-xs font-semibold uppercase text-slate-500">
+        <div className="mt-3 border-t border-line pt-3">
+          <p className="text-xs font-semibold uppercase text-ink-muted">
             When price changes
           </p>
           <div
-            className="mt-2 grid grid-cols-2 rounded-md border border-slate-200 bg-slate-100 p-1"
+            className="mt-2 grid grid-cols-2 rounded-md border border-line bg-surface-sunken p-1"
             role="radiogroup"
             aria-label="Strike behavior"
           >
@@ -126,10 +126,10 @@ export function SettingsWidget({
               onMouseDown={() => onUpdateStrikesWithPriceChange(true)}
               onClick={() => onUpdateStrikesWithPriceChange(true)}
               className={cn(
-                "min-w-0 rounded px-2 py-1.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                "min-w-0 rounded px-2 py-1.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                 updateStrikesWithPrice
-                  ? "bg-white text-slate-950 shadow-sm"
-                  : "text-slate-600 hover:text-slate-950",
+                  ? "bg-surface text-ink shadow-sm"
+                  : "text-ink-secondary hover:text-ink",
               )}
             >
               Update strikes
@@ -142,10 +142,10 @@ export function SettingsWidget({
               onMouseDown={() => onUpdateStrikesWithPriceChange(false)}
               onClick={() => onUpdateStrikesWithPriceChange(false)}
               className={cn(
-                "min-w-0 rounded px-2 py-1.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]",
+                "min-w-0 rounded px-2 py-1.5 text-xs font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
                 !updateStrikesWithPrice
-                  ? "bg-white text-slate-950 shadow-sm"
-                  : "text-slate-600 hover:text-slate-950",
+                  ? "bg-surface text-ink shadow-sm"
+                  : "text-ink-secondary hover:text-ink",
               )}
             >
               Keep strikes
