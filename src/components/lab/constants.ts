@@ -207,6 +207,8 @@ export const STRIKE_DECIMAL_DIGITS = 4;
 
 export const STRIKE_MIN_GAP = 0.01;
 
+export const DEFAULT_SPOT = 100;
+
 export const WORKFLOW_TABS: Array<{
   value: WorkflowTab;
   label: string;

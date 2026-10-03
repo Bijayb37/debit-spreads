@@ -8,6 +8,7 @@ import {
 import type { OptionStrategy } from "@/lib/debit-call-spread";
 import {
   DEFAULT_SCENARIO_GRAPH_VIEW,
+  DEFAULT_SPOT,
   DEFAULT_WORKFLOW_TAB,
   ORDERED_CUSTOM_COMPARISONS_PREFIX,
   SAVED_STRATEGIES_STORAGE_KEY,
@@ -576,7 +577,7 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
     1095,
   );
   const strategy = decodeStrategyToken(strategyToken);
-  const spot = normalizePriceValue(parseShareNumber(spotToken, 100));
+  const spot = normalizePriceValue(parseShareNumber(spotToken, DEFAULT_SPOT));
   const longStrike = normalizeStrikeValue(parseShareNumber(longStrikeToken, 120));
   const decodedShortStrike = normalizeShortStrikeForStrategy(
     strategy,
@@ -625,7 +626,7 @@ function decodeShareState(value: string | null, defaultExpirationDays: number): 
   const graphComparisonToken = parts[comparisonPanelIndex + 2];
   const workflowTabToken = parts[comparisonPanelIndex + 3];
   const scenarioPrice = normalizePriceValue(
-    parseShareNumber(scenarioPriceToken, 145),
+    parseShareNumber(scenarioPriceToken, spot),
   );
 
   return {

@@ -713,6 +713,78 @@ function findEquivalentDebitSpreadDte({
   });
 }
 
+// Typical listed strike spacing, so suggested strikes are ones a chain offers.
+export function getListedStrikeIncrement(spot: number): number {
+  if (spot < 25) {
+    return 0.5;
+  }
+
+  return spot < 200 ? 1 : 5;
+}
+
+function getNearbyListedValues(
+  value: number,
+  increment: number,
+  minimum: number,
+): number[] {
+  const steps = value / increment;
+
+  return [Math.floor(steps), Math.ceil(steps)]
+    .map((step) => Math.round(step * increment * 10000) / 10000)
+    .map((listedValue) => Math.max(listedValue, minimum))
+    .filter((listedValue, index, values) => values.indexOf(listedValue) === index);
+}
+
+function getListedStrikePairs({
+  instrument,
+  longStrike,
+  shortStrike,
+  minimumLongStrike,
+  increment,
+  keepLongStrike,
+}: {
+  instrument: IvComparisonInstrument;
+  longStrike: number;
+  shortStrike: number;
+  minimumLongStrike: number;
+  increment: number;
+  keepLongStrike: boolean;
+}): Array<{ longStrike: number; shortStrike: number }> {
+  const longStrikes = keepLongStrike
+    ? [longStrike]
+    : getNearbyListedValues(longStrike, increment, minimumLongStrike);
+
+  if (instrument === "long-call") {
+    return longStrikes.map((listedLongStrike) => ({
+      longStrike: listedLongStrike,
+      shortStrike: listedLongStrike,
+    }));
+  }
+
+  const widths = getNearbyListedValues(
+    shortStrike - longStrike,
+    increment,
+    increment,
+  );
+
+  return longStrikes.flatMap((listedLongStrike) =>
+    widths.map((width) => ({
+      longStrike: listedLongStrike,
+      shortStrike: Math.round((listedLongStrike + width) * 10000) / 10000,
+    })),
+  );
+}
+
+function pickClosestMatch<Match extends { matchDifferencePoints: number }>(
+  matches: Match[],
+): Match {
+  return matches.reduce((best, match) =>
+    Math.abs(match.matchDifferencePoints) < Math.abs(best.matchDifferencePoints)
+      ? match
+      : best,
+  );
+}
+
 export function calculateIvEquivalentStrategy({
   instrument,
   spot,
@@ -769,7 +841,7 @@ export function calculateIvEquivalentStrategy({
       ? "maximum-return"
       : "expected-move-return";
   const targetMetricPct = getMatchMetricValue(baseline, matchMetric);
-  const equivalentStrike =
+  const solvedStrike =
     instrument === "debit-call-spread"
       ? findEquivalentDebitSpread({
           ...commonInputs,
@@ -788,7 +860,7 @@ export function calculateIvEquivalentStrategy({
           matchMetric,
           targetMetricPct,
         });
-  const equivalentDte =
+  const solvedDte =
     instrument === "debit-call-spread"
       ? findEquivalentDebitSpreadDte({
           ...commonInputs,
@@ -802,6 +874,76 @@ export function calculateIvEquivalentStrategy({
           matchMetric,
           targetMetricPct,
         });
+
+  const strikeIncrement = getListedStrikeIncrement(safeSpot);
+  const isUnmovedStrike = solvedStrike.strikeShiftDollar < 0.005;
+  const isUnchangedStrikeWidth =
+    Math.abs(solvedStrike.shortStrike - solvedStrike.longStrike -
+      (safeShortStrike - safeLongStrike)) < 0.005;
+  const equivalentStrike =
+    isUnmovedStrike && (instrument === "long-call" || isUnchangedStrikeWidth)
+      ? solvedStrike
+      : pickClosestMatch(
+          getListedStrikePairs({
+            instrument,
+            longStrike: solvedStrike.longStrike,
+            shortStrike: solvedStrike.shortStrike,
+            minimumLongStrike: safeLongStrike,
+            increment: strikeIncrement,
+            keepLongStrike: isUnmovedStrike,
+          }).map((strikes) => {
+            const listedResult = calculateStrategyReturn({
+              ...commonInputs,
+              ...strikes,
+              scenarioPrice: comparisonScenarioPrice,
+              volatility: comparisonVolatility,
+            });
+            const strikeShiftDollar = strikes.longStrike - safeLongStrike;
+
+            return {
+              ...listedResult,
+              ...strikes,
+              strikeShiftDollar,
+              strikeShiftPct: strikeShiftDollar / safeSpot * 100,
+              matchDifferencePoints:
+                getMatchMetricValue(listedResult, matchMetric) -
+                targetMetricPct,
+            };
+          }),
+        );
+  const isUnchangedDteShortStrike =
+    Math.abs(solvedDte.shortStrike - safeShortStrike) < 0.005;
+  const equivalentDte =
+    instrument === "long-call" || isUnchangedDteShortStrike
+      ? solvedDte
+      : pickClosestMatch(
+          getListedStrikePairs({
+            instrument,
+            longStrike: solvedDte.longStrike,
+            shortStrike: solvedDte.shortStrike,
+            minimumLongStrike: safeLongStrike,
+            increment: strikeIncrement,
+            keepLongStrike: true,
+          }).map((strikes) => {
+            const listedResult = calculateStrategyReturn({
+              ...commonInputs,
+              ...strikes,
+              entryDte: solvedDte.entryDte,
+              elapsedDays: solvedDte.elapsedDays,
+              scenarioPrice: solvedDte.scenarioPrice,
+              volatility: comparisonVolatility,
+            });
+
+            return {
+              ...solvedDte,
+              ...listedResult,
+              ...strikes,
+              matchDifferencePoints:
+                getMatchMetricValue(listedResult, matchMetric) -
+                targetMetricPct,
+            };
+          }),
+        );
 
   return {
     matchMetric,

@@ -39,6 +39,7 @@ import {
   COLOR_SCHEME_STORAGE_KEY,
   DEFAULT_DECISION_COMPARISON_VIEW,
   DEFAULT_SCENARIO_GRAPH_VIEW,
+  DEFAULT_SPOT,
   DEFAULT_WORKFLOW_TAB,
   INITIAL_IV_MODE_STORAGE_KEY,
   MONEY_DISPLAY_UNIT_STORAGE_KEY,
@@ -152,13 +153,15 @@ export default function DebitCallSpreadLab({
   const defaultExpirationDays = Math.max(1, daysBetween(todayIso, defaultExpiryIso));
   const [strategy, setStrategy] = useState<OptionStrategy>("debit-call-spread");
   const [symbol, setSymbol] = useState("NVDA");
-  const [spot, setSpot] = useState(100);
+  const [spot, setSpot] = useState(DEFAULT_SPOT);
   const [volatilityPct, setVolatilityPct] = useState(50);
   const [futureVolatilityPct, setFutureVolatilityPct] = useState(50);
   const [useInitialIvForStrategies, setUseInitialIvForStrategies] =
     useState(false);
-  const [longStrike, setLongStrike] = useState(100);
-  const [shortStrike, setShortStrike] = useState(() => getNearCallShortStrike(100));
+  const [longStrike, setLongStrike] = useState(DEFAULT_SPOT);
+  const [shortStrike, setShortStrike] = useState(() =>
+    getNearCallShortStrike(DEFAULT_SPOT),
+  );
   const [putRatioShortCount, setPutRatioShortCount] = useState(2);
   const [capital, setCapital] = useState(10000);
   const [allowFractionalContracts, setAllowFractionalContracts] =
@@ -169,8 +172,8 @@ export default function DebitCallSpreadLab({
   const [shortExpirationDays, setShortExpirationDays] = useState(() =>
     getDefaultCallCalendarShortExpirationDays(defaultExpirationDays),
   );
-  const [scenarioPrice, setScenarioPrice] = useState(145);
-  const [calendarShortPrice, setCalendarShortPrice] = useState(145);
+  const [scenarioPrice, setScenarioPrice] = useState(DEFAULT_SPOT);
+  const [calendarShortPrice, setCalendarShortPrice] = useState(DEFAULT_SPOT);
   const [scenarioPriceDraft, setScenarioPriceDraft] = useState<string | null>(
     null,
   );
