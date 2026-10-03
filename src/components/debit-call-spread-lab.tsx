@@ -1914,10 +1914,19 @@ export default function DebitCallSpreadLab({
     label: string;
     shortLabel: string;
   }> = [
-    { value: "map", label: "Heat map", shortLabel: "Heat" },
     { value: "decay", label: "Time value", shortLabel: "Time" },
     { value: "overlay", label: "Multi-date", shortLabel: "Dates" },
+    { value: "map", label: "Heat map", shortLabel: "Heat" },
   ];
+  const changeAnalysisView = (view: ScenarioGraphView) => {
+    if (view === "map") {
+      setActiveWorkflowTab("heatmap");
+      return;
+    }
+
+    setScenarioGraphView(view);
+    setActiveWorkflowTab("analysis");
+  };
   const isTabbedAnalysis = activeWorkflowTab === "analysis";
   const isTabbedHeatMap = activeWorkflowTab === "heatmap";
   const activeDisplayGraphView: ScenarioGraphView = isTabbedHeatMap
@@ -1925,9 +1934,6 @@ export default function DebitCallSpreadLab({
     : isTabbedAnalysis && activeScenarioGraphView === "map"
       ? "overlay"
       : activeScenarioGraphView;
-  const visibleScenarioGraphOptions = isTabbedAnalysis
-    ? scenarioGraphOptions.filter((option) => option.value !== "map")
-    : scenarioGraphOptions;
   const showScenarioSelectionControls = activeDisplayGraphView !== "map";
   const comparisonCards = useMemo<ComparisonCardData[]>(() => {
     if (!canModel) {
@@ -3425,10 +3431,30 @@ export default function DebitCallSpreadLab({
                   />
                 ) : (
                   <div className="rounded-lg border border-dashed border-line-strong bg-surface p-6 text-sm text-ink-secondary shadow-sm">
-                    <p className="font-medium text-slate-900">Create a strategy first.</p>
-                    <p className="mt-1 text-xs text-ink-muted">
-                      Use Create Strategy in setup, then the comparison board will show the available outcomes.
+                    <p className="font-medium text-slate-900">Nothing to compare yet.</p>
+                    <p className="mt-1 text-sm text-ink-muted">
+                      Save the strategy from Setup to see its outcomes here, then add more to compare side by side.
                     </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={!canModel}
+                        onClick={() => {
+                          addCurrentStrategyComparison();
+                          changeWorkflowTab("decision");
+                        }}
+                        className="rounded-md border border-accent bg-accent px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-hover disabled:cursor-not-allowed disabled:border-line-strong disabled:bg-slate-200 disabled:text-ink-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        Save current setup
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => changeWorkflowTab("setup")}
+                        className="rounded-md border border-line-strong bg-surface px-3 py-2 text-sm font-semibold text-ink-soft shadow-sm hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                      >
+                        Back to Setup
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -3461,7 +3487,6 @@ export default function DebitCallSpreadLab({
 
             <SectionCard
               title={isTabbedHeatMap ? "Heat map" : "Scenario curve"}
-              hideHeader={isTabbedHeatMap}
                 eyebrow={
                   isTabbedHeatMap
                     ? "Value across stock price and DTE"
@@ -3487,28 +3512,18 @@ export default function DebitCallSpreadLab({
                       ))}
                     </select>
                   </label>
-                    {!isTabbedHeatMap ? (
                     <div
-                      className={cn(
-                        "grid w-full min-w-0 rounded-lg border border-line bg-surface-sunken p-1 sm:inline-flex sm:w-auto sm:grid-cols-none",
-                        "grid-cols-2",
-                      )}
-                      aria-label="Scenario graph view"
+                      className="grid w-full min-w-0 grid-cols-3 rounded-lg border border-line bg-surface-sunken p-1 sm:inline-flex sm:w-auto sm:grid-cols-none"
+                      aria-label="Analysis view"
                     >
-                      {visibleScenarioGraphOptions.map((option) => (
+                      {scenarioGraphOptions.map((option) => (
                         <button
                           key={option.value}
                           type="button"
                           aria-pressed={activeDisplayGraphView === option.value}
-                        onPointerDown={() =>
-                          setScenarioGraphView(option.value as ScenarioGraphView)
-                        }
-                        onMouseDown={() =>
-                          setScenarioGraphView(option.value as ScenarioGraphView)
-                        }
-                        onClick={() =>
-                          setScenarioGraphView(option.value as ScenarioGraphView)
-                        }
+                        onPointerDown={() => changeAnalysisView(option.value)}
+                        onMouseDown={() => changeAnalysisView(option.value)}
+                        onClick={() => changeAnalysisView(option.value)}
                         className={cn(
                           "min-w-0 truncate rounded-md px-1.5 py-1.5 text-center text-xs font-medium text-ink-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent min-[360px]:text-sm sm:px-3",
                             activeDisplayGraphView === option.value &&
@@ -3520,7 +3535,6 @@ export default function DebitCallSpreadLab({
                         </button>
                       ))}
                     </div>
-                    ) : null}
                 </div>
               }
             >

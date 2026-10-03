@@ -13,11 +13,14 @@ export function WorkflowTabs({
 }) {
   return (
     <div
-      className="grid min-w-0 grid-cols-5 rounded-lg border border-line bg-surface-sunken p-1 shadow-sm"
+      className="grid min-w-0 grid-cols-4 rounded-lg border border-line bg-surface-sunken p-1 shadow-sm"
       aria-label="Workflow"
     >
       {WORKFLOW_TABS.map((tab) => {
-        const isActive = activeTab === tab.value;
+        // The heat map is a view inside Analyze, not a step of its own.
+        const isActive =
+          activeTab === tab.value ||
+          (tab.value === "analysis" && activeTab === "heatmap");
         return (
           <button
             key={tab.value}
@@ -31,6 +34,7 @@ export function WorkflowTabs({
               isActive && "bg-surface text-ink shadow-sm",
             )}
           >
+            {tab.step ? (
             <span
               className={cn(
                 "hidden size-5 shrink-0 items-center justify-center rounded-full font-mono text-micro font-semibold tabular-nums sm:flex",
@@ -42,6 +46,7 @@ export function WorkflowTabs({
             >
               {tab.step}
             </span>
+            ) : null}
             <span className="truncate sm:hidden">{tab.shortLabel}</span>
             <span className="hidden truncate sm:inline">{tab.label}</span>
           </button>
