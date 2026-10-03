@@ -167,7 +167,7 @@ export function DetailedDecisionOutcomeCards({
             <div className="pointer-events-none border-b border-line bg-slate-950 px-3 py-2.5 text-white">
               <div className="flex min-w-0 items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <h3 className="truncate font-sans text-base font-semibold leading-tight text-balance">
+                  <h3 className="truncate font-[family:var(--font-space-grotesk)] text-base font-semibold leading-tight text-balance">
                     {card.label}
                   </h3>
                   <p className="mt-1 truncate font-mono text-xs text-slate-300 tabular-nums">
@@ -185,7 +185,7 @@ export function DetailedDecisionOutcomeCards({
                   <p className="text-caption font-medium text-slate-300">P/L</p>
                   <p
                     className={cn(
-                      "mt-1 truncate font-sans text-3xl font-semibold leading-none tabular-nums",
+                      "mt-1 truncate font-[family:var(--font-space-grotesk)] text-3xl font-semibold leading-none tabular-nums",
                       pnlIsPositive ? "text-emerald-300" : "text-rose-300",
                     )}
                   >
@@ -197,7 +197,7 @@ export function DetailedDecisionOutcomeCards({
                   <p className="text-caption font-medium text-slate-300">Return</p>
                   <p
                     className={cn(
-                      "mt-1 font-sans text-xl font-semibold leading-none tabular-nums",
+                      "mt-1 font-[family:var(--font-space-grotesk)] text-xl font-semibold leading-none tabular-nums",
                       pnlIsPositive ? "text-emerald-300" : "text-rose-300",
                     )}
                   >

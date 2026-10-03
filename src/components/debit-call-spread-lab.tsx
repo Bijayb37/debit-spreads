@@ -1914,19 +1914,10 @@ export default function DebitCallSpreadLab({
     label: string;
     shortLabel: string;
   }> = [
+    { value: "map", label: "Heat map", shortLabel: "Heat" },
     { value: "decay", label: "Time value", shortLabel: "Time" },
     { value: "overlay", label: "Multi-date", shortLabel: "Dates" },
-    { value: "map", label: "Heat map", shortLabel: "Heat" },
   ];
-  const changeAnalysisView = (view: ScenarioGraphView) => {
-    if (view === "map") {
-      setActiveWorkflowTab("heatmap");
-      return;
-    }
-
-    setScenarioGraphView(view);
-    setActiveWorkflowTab("analysis");
-  };
   const isTabbedAnalysis = activeWorkflowTab === "analysis";
   const isTabbedHeatMap = activeWorkflowTab === "heatmap";
   const activeDisplayGraphView: ScenarioGraphView = isTabbedHeatMap
@@ -1934,6 +1925,9 @@ export default function DebitCallSpreadLab({
     : isTabbedAnalysis && activeScenarioGraphView === "map"
       ? "overlay"
       : activeScenarioGraphView;
+  const visibleScenarioGraphOptions = isTabbedAnalysis
+    ? scenarioGraphOptions.filter((option) => option.value !== "map")
+    : scenarioGraphOptions;
   const showScenarioSelectionControls = activeDisplayGraphView !== "map";
   const comparisonCards = useMemo<ComparisonCardData[]>(() => {
     if (!canModel) {
@@ -2511,7 +2505,7 @@ export default function DebitCallSpreadLab({
         {number}
       </span>
       <div className="min-w-0">
-        <h3 className="font-sans text-base font-semibold leading-tight text-ink text-balance">
+        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold leading-tight text-ink text-balance">
           {title}
         </h3>
         <p className="mt-0.5 text-xs leading-5 text-ink-muted text-pretty">{hint}</p>
@@ -2522,13 +2516,13 @@ export default function DebitCallSpreadLab({
   const setupInputControls = (
     <div
       className={cn(
-        "grid min-w-0 gap-section",
+        "grid min-w-0 gap-3",
         "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]",
       )}
     >
-      <section className="min-w-0 space-y-3">
+      <section className="min-w-0 space-y-3 rounded-lg border border-line bg-surface p-4 shadow-sm">
         {stepHeader("1", "Stock setup", "Set the underlying assumptions.")}
-        <label className="flex min-w-0 items-center gap-3 rounded-panel bg-surface-muted px-panel py-2">
+        <label className="flex min-w-0 items-center gap-3 rounded-md border border-line bg-surface-muted px-3 py-2 shadow-sm">
           <span className="shrink-0 text-caption font-medium uppercase tracking-wide text-ink-muted">
             Ticker
           </span>
@@ -2580,7 +2574,7 @@ export default function DebitCallSpreadLab({
           }))}
         />
 
-        <details className="group rounded-panel bg-surface-muted">
+        <details className="group rounded-md border border-line bg-surface-muted shadow-sm">
           <summary className="flex cursor-pointer list-none items-center justify-between px-3 py-2 text-sm font-medium text-ink-soft">
             <span>Advanced pricing</span>
             <span className="text-xs text-ink-muted transition-transform group-open:rotate-180">
@@ -2621,7 +2615,7 @@ export default function DebitCallSpreadLab({
         </details>
       </section>
 
-      <section className="min-w-0 space-y-3 border-t border-line pt-section lg:border-l lg:border-t-0 lg:pl-section lg:pt-0">
+      <section className="min-w-0 space-y-3 rounded-lg border border-line bg-surface p-4 shadow-sm">
         {stepHeader(
           "2",
           "Pick a strategy",
@@ -2680,7 +2674,7 @@ export default function DebitCallSpreadLab({
         {isDebitSpread && (
           isPutDownsideSpread ? shortStrike < longStrike : shortStrike > longStrike
         ) ? (
-          <p className="rounded-panel bg-surface-muted px-panel py-2 text-xs text-ink-secondary">
+          <p className="rounded-md border border-line bg-surface-muted px-3 py-2 text-xs text-ink-secondary">
             <span className="font-semibold text-slate-900">
               {formatStrikeCurrency(Math.abs(shortStrike - longStrike))} wide
             </span>{" "}
@@ -2850,7 +2844,7 @@ export default function DebitCallSpreadLab({
         />
 
         <div
-          className="flex min-w-0 flex-col gap-3 rounded-panel bg-surface-muted px-panel py-2 min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between"
+          className="flex min-w-0 flex-col gap-3 rounded-md border border-line bg-surface-muted px-3 py-2 shadow-sm min-[360px]:flex-row min-[360px]:items-center min-[360px]:justify-between"
           role="group"
           aria-label="Position sizing"
         >
@@ -3226,7 +3220,7 @@ export default function DebitCallSpreadLab({
             </svg>
           </span>
           <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="font-sans text-sm font-semibold text-ink">
+            <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-ink">
               Market scenario
             </span>
             <span className="min-w-0 truncate font-mono text-xs text-ink-secondary tabular-nums">
@@ -3298,11 +3292,11 @@ export default function DebitCallSpreadLab({
                 isTopBarVisible
                   ? "translate-y-0 opacity-100"
                   : "pointer-events-none -translate-y-[calc(100%+0.75rem)] opacity-0",
-                "grid-cols-[minmax(0,1fr)_auto] rounded-xl border border-line bg-surface/95 p-1 shadow-lg shadow-slate-900/10 backdrop-blur sm:p-1.5",
+                "grid-cols-1 rounded-xl border border-line bg-surface/95 p-1.5 shadow-lg shadow-slate-900/10 backdrop-blur md:grid-cols-[minmax(0,1fr)_auto]",
               )}
             >
               <WorkflowTabs activeTab={activeWorkflowTab} onChange={changeWorkflowTab} />
-              <div className="flex min-w-0 items-stretch justify-end gap-1 sm:gap-2">
+              <div className="flex min-w-0 items-stretch justify-end gap-2">
 
                 <SettingsWidget
                   colorScheme={colorScheme}
@@ -3431,30 +3425,10 @@ export default function DebitCallSpreadLab({
                   />
                 ) : (
                   <div className="rounded-lg border border-dashed border-line-strong bg-surface p-6 text-sm text-ink-secondary shadow-sm">
-                    <p className="font-medium text-slate-900">Nothing to compare yet.</p>
-                    <p className="mt-1 text-sm text-ink-muted">
-                      Save the strategy from Setup to see its outcomes here, then add more to compare side by side.
+                    <p className="font-medium text-slate-900">Create a strategy first.</p>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      Use Create Strategy in setup, then the comparison board will show the available outcomes.
                     </p>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={!canModel}
-                        onClick={() => {
-                          addCurrentStrategyComparison();
-                          changeWorkflowTab("decision");
-                        }}
-                        className="rounded-md border border-accent bg-accent px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-accent-hover disabled:cursor-not-allowed disabled:border-line-strong disabled:bg-slate-200 disabled:text-ink-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                      >
-                        Save current setup
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => changeWorkflowTab("setup")}
-                        className="rounded-md border border-line-strong bg-surface px-3 py-2 text-sm font-semibold text-ink-soft shadow-sm hover:bg-surface-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                      >
-                        Back to Setup
-                      </button>
-                    </div>
                   </div>
                 )}
               </div>
@@ -3487,6 +3461,7 @@ export default function DebitCallSpreadLab({
 
             <SectionCard
               title={isTabbedHeatMap ? "Heat map" : "Scenario curve"}
+              hideHeader={isTabbedHeatMap}
                 eyebrow={
                   isTabbedHeatMap
                     ? "Value across stock price and DTE"
@@ -3512,18 +3487,28 @@ export default function DebitCallSpreadLab({
                       ))}
                     </select>
                   </label>
+                    {!isTabbedHeatMap ? (
                     <div
-                      className="grid w-full min-w-0 grid-cols-3 rounded-lg border border-line bg-surface-sunken p-1 sm:inline-flex sm:w-auto sm:grid-cols-none"
-                      aria-label="Analysis view"
+                      className={cn(
+                        "grid w-full min-w-0 rounded-lg border border-line bg-surface-sunken p-1 sm:inline-flex sm:w-auto sm:grid-cols-none",
+                        "grid-cols-2",
+                      )}
+                      aria-label="Scenario graph view"
                     >
-                      {scenarioGraphOptions.map((option) => (
+                      {visibleScenarioGraphOptions.map((option) => (
                         <button
                           key={option.value}
                           type="button"
                           aria-pressed={activeDisplayGraphView === option.value}
-                        onPointerDown={() => changeAnalysisView(option.value)}
-                        onMouseDown={() => changeAnalysisView(option.value)}
-                        onClick={() => changeAnalysisView(option.value)}
+                        onPointerDown={() =>
+                          setScenarioGraphView(option.value as ScenarioGraphView)
+                        }
+                        onMouseDown={() =>
+                          setScenarioGraphView(option.value as ScenarioGraphView)
+                        }
+                        onClick={() =>
+                          setScenarioGraphView(option.value as ScenarioGraphView)
+                        }
                         className={cn(
                           "min-w-0 truncate rounded-md px-1.5 py-1.5 text-center text-xs font-medium text-ink-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent min-[360px]:text-sm sm:px-3",
                             activeDisplayGraphView === option.value &&
@@ -3535,6 +3520,7 @@ export default function DebitCallSpreadLab({
                         </button>
                       ))}
                     </div>
+                    ) : null}
                 </div>
               }
             >
@@ -3553,7 +3539,7 @@ export default function DebitCallSpreadLab({
                             </div>
                             <p
                               className={cn(
-                                  "overflow-hidden whitespace-nowrap font-sans text-2xl font-semibold leading-none tabular-nums",
+                                  "overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none tabular-nums",
                                 visualizedSnapshot.pnl >= 0 ? "text-gain" : "text-loss",
                               )}
                             >
@@ -3595,7 +3581,7 @@ export default function DebitCallSpreadLab({
                                   : "≥"} ${formatStrikeCurrency(visualizedInputs.shortStrike)}`}
                             </p>
                           </div>
-                            <p className="overflow-hidden whitespace-nowrap font-sans text-2xl font-semibold leading-none text-gain tabular-nums">
+                            <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-gain tabular-nums">
                             +{formatCurrency(visualizedMaxProfitAtExpiry ?? 0)}
                           </p>
                             <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
@@ -3622,7 +3608,7 @@ export default function DebitCallSpreadLab({
                                   : `≥ ${formatCurrencyWithCents(visualizedSnapshot.breakEvenAtExpiry)}`}
                               </p>
                             </div>
-                          <p className="overflow-hidden whitespace-nowrap font-sans text-2xl font-semibold leading-none text-gain tabular-nums">
+                          <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-gain tabular-nums">
                             {visualizedIsCallCalendar ? "Open" : "Uncapped"}
                           </p>
                             <div className="grid grid-cols-[minmax(0,1fr)_6rem] items-baseline gap-2 text-sm">
@@ -3659,7 +3645,7 @@ export default function DebitCallSpreadLab({
                                 : formatStrikeCurrency(visualizedInputs.longStrike)}
                             </p>
                           </div>
-                              <p className="overflow-hidden whitespace-nowrap font-sans text-2xl font-semibold leading-none text-loss tabular-nums">
+                              <p className="overflow-hidden whitespace-nowrap font-[family:var(--font-space-grotesk)] text-2xl font-semibold leading-none text-loss tabular-nums">
                               {visualizedMaxLossAtExpiry === null
                                 ? "Uncapped"
                                 : formatCurrency(visualizedMaxLossAtExpiry)}
@@ -3746,7 +3732,7 @@ export default function DebitCallSpreadLab({
                 className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 <span>
-                  <span className="block font-sans text-base font-semibold text-ink">
+                  <span className="block font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink">
                     Detailed tables
                   </span>
                   <span className="block text-xs text-ink-muted">

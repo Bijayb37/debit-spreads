@@ -92,7 +92,7 @@ export function InfoIcon({ label }: InfoIconProps) {
           setIsHovered(true);
         }}
         onPointerLeave={() => setIsHovered(false)}
-        className="inline-flex size-5 items-center justify-center rounded-full border border-line-strong bg-surface font-sans text-xs font-semibold text-ink-muted shadow-sm hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        className="inline-flex size-5 items-center justify-center rounded-full border border-line-strong bg-surface font-[family:var(--font-space-grotesk)] text-xs font-semibold text-ink-muted shadow-sm hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
       >
         i
       </button>

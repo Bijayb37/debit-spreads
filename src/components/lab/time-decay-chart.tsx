@@ -54,12 +54,10 @@ export function TimeDecayChart({
   const maxOffset = expirationDays;
   const valueValues = points.map((p) => p.positionValue);
   const valueMax = Math.max(...valueValues, selectedPositionValue, totalCost);
-  // Fit the axis to the data instead of always starting at zero, so the
-  // line uses the plot height.
-  const valueMin = Math.min(...valueValues, selectedPositionValue, totalCost);
-  const valueSpan = Math.max(valueMax - valueMin, Math.abs(valueMax) * 0.02, 1);
-  const yMin = valueMin - valueSpan * 0.1;
-  const yMax = valueMax + valueSpan * 0.1;
+  const valueMin = Math.min(...valueValues, 0);
+  const valueSpan = Math.max(valueMax - valueMin, 1);
+  const yMin = valueMin - valueSpan * 0.06;
+  const yMax = valueMax + valueSpan * 0.08;
 
   const x = (offset: number) =>
     padding.left +
@@ -70,29 +68,20 @@ export function TimeDecayChart({
     padding.top +
     ((yMax - clamp(value, yMin, yMax)) / Math.max(yMax - yMin, 1)) * chartHeight;
 
-  const getEvenTicks = (targetCount: number) => {
-    const rawStep = (yMax - yMin) / targetCount;
-    const magnitude = 10 ** Math.floor(Math.log10(rawStep));
-    const normalized = rawStep / magnitude;
-    const step =
-      (normalized < 1.5 ? 1 : normalized < 3 ? 2 : normalized < 7 ? 5 : 10) *
-      magnitude;
-    const ticks: number[] = [];
-
-    for (let tick = Math.ceil(yMin / step) * step; tick <= yMax; tick += step) {
-      ticks.push(Math.round(tick * 100) / 100);
-    }
-
-    return ticks;
+  const niceTick = (raw: number) => {
+    const abs = Math.abs(raw);
+    if (abs >= 1000) return Math.round(raw / 1000) * 1000;
+    if (abs >= 100) return Math.round(raw / 100) * 100;
+    return Math.round(raw);
   };
-  const hasDistinctLabels = (ticks: number[]) =>
-    [
-      ticks.map((tick) => formatCompactCurrency(tick)),
-      ticks.map((tick) => formatCompactCurrency(tick - totalCost)),
-    ].every((labels) => new Set(labels).size === labels.length);
-  // Evenly spaced ticks; use fewer when rounding would repeat a label.
-  const yTickValues =
-    [5, 4, 3, 2].map(getEvenTicks).find(hasDistinctLabels) ?? getEvenTicks(1);
+  const yTickValues = Array.from(new Set([
+    niceTick(yMin + (yMax - yMin) * 0.1),
+    niceTick(valueMin),
+    niceTick(totalCost),
+    niceTick(valueMax),
+    niceTick(yMin + (yMax - yMin) * 0.9),
+  ].filter((tick) => tick >= yMin && tick <= yMax)));
+  yTickValues.sort((a, b) => a - b);
 
   const dteTicks = Array.from(
     new Set([0, Math.round(maxOffset * 0.25), Math.round(maxOffset * 0.5), Math.round(maxOffset * 0.75), maxOffset]),

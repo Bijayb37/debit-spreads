@@ -19,7 +19,7 @@ export function ResultsTable<Row extends { id: string; isHighlighted?: boolean }
   return (
     <div className="rounded-lg border border-line bg-surface shadow-sm">
       <div className="border-b border-line px-3 py-2.5">
-        <h3 className="font-sans text-base font-semibold text-ink">
+        <h3 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink">
           {title}
         </h3>
         <p className="mt-1 text-xs text-ink-muted text-pretty">{subtitle}</p>

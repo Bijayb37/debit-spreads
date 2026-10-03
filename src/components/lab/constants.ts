@@ -209,21 +209,21 @@ export const STRIKE_MIN_GAP = 0.01;
 
 export const DEFAULT_SPOT = 100;
 
-// Setup, Analyze and Compare are the working flow; the IV guide is a
-// side reference, so it carries no step number.
 export const WORKFLOW_TABS: Array<{
   value: WorkflowTab;
   label: string;
   shortLabel: string;
-  step?: string;
+  step: string;
 }> = [
   { value: "setup", label: "Setup", shortLabel: "Setup", step: "1" },
-  { value: "analysis", label: "Analyze", shortLabel: "Analyze", step: "2" },
-  { value: "decision", label: "Compare", shortLabel: "Compare", step: "3" },
+  { value: "decision", label: "Compare", shortLabel: "Compare", step: "2" },
+  { value: "heatmap", label: "Heat map", shortLabel: "Heat", step: "3" },
+  { value: "analysis", label: "Analyze", shortLabel: "Analyze", step: "4" },
   {
     value: "understanding-iv",
-    label: "IV guide",
+    label: "Understanding IV",
     shortLabel: "IV",
+    step: "5",
   },
 ];
 

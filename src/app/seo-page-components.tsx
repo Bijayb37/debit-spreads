@@ -14,7 +14,7 @@ function SiteHeader() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between md:px-6">
         <Link
           href="/"
-          className="font-sans text-lg font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           {siteConfig.name}
         </Link>
@@ -91,7 +91,7 @@ export function SeoPageArticle({ page }: { page: SeoPage }) {
       <section className="border-b border-line bg-surface">
         <div className="mx-auto w-full max-w-6xl px-4 py-10 md:px-6 md:py-12">
           <p className="text-sm font-semibold text-accent">{page.heroEyebrow}</p>
-          <h1 className="mt-2 max-w-3xl font-sans text-4xl font-semibold text-balance text-ink sm:text-5xl">
+          <h1 className="mt-2 max-w-3xl font-[family:var(--font-space-grotesk)] text-4xl font-semibold text-balance text-ink sm:text-5xl">
             {page.heroTitle}
           </h1>
           <p className="mt-4 max-w-3xl text-lg leading-8 text-pretty text-ink-secondary">
@@ -123,7 +123,7 @@ export function SeoPageArticle({ page }: { page: SeoPage }) {
                 key={section.heading}
                 className="rounded-lg border border-line bg-surface p-4 shadow-sm"
               >
-                <h2 className="font-sans text-2xl font-semibold text-balance text-ink">
+                <h2 className="font-[family:var(--font-space-grotesk)] text-2xl font-semibold text-balance text-ink">
                   {section.heading}
                 </h2>
                 <p className="mt-3 leading-7 text-pretty text-ink-secondary">{section.body}</p>
@@ -144,7 +144,7 @@ export function SeoPageArticle({ page }: { page: SeoPage }) {
           <aside className="space-y-4">
             {page.example ? (
               <section className="rounded-lg border border-line bg-surface p-4 shadow-sm">
-                <h2 className="font-sans text-xl font-semibold text-balance text-ink">
+                <h2 className="font-[family:var(--font-space-grotesk)] text-xl font-semibold text-balance text-ink">
                   {page.example.heading}
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-pretty text-ink-secondary">
@@ -168,7 +168,7 @@ export function SeoPageArticle({ page }: { page: SeoPage }) {
 
             {page.steps ? (
               <section className="rounded-lg border border-line bg-surface p-4 shadow-sm">
-                <h2 className="font-sans text-xl font-semibold text-balance text-ink">
+                <h2 className="font-[family:var(--font-space-grotesk)] text-xl font-semibold text-balance text-ink">
                   How to use it
                 </h2>
                 <ol className="mt-4 grid gap-3 text-sm text-ink-secondary">
@@ -189,7 +189,7 @@ export function SeoPageArticle({ page }: { page: SeoPage }) {
 
       <section className="border-t border-line bg-surface">
         <div className="mx-auto w-full max-w-6xl px-4 py-8 md:px-6">
-          <h2 className="font-sans text-2xl font-semibold text-balance text-ink">
+          <h2 className="font-[family:var(--font-space-grotesk)] text-2xl font-semibold text-balance text-ink">
             Common questions
           </h2>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -211,7 +211,7 @@ export function SeoPageArticle({ page }: { page: SeoPage }) {
       {relatedPages.length > 0 ? (
         <section className="border-t border-line bg-stone-100">
           <div className="mx-auto w-full max-w-6xl px-4 py-8 md:px-6">
-            <h2 className="font-sans text-2xl font-semibold text-balance text-ink">
+            <h2 className="font-[family:var(--font-space-grotesk)] text-2xl font-semibold text-balance text-ink">
               Related calculators and pages
             </h2>
             <div className="mt-4 grid gap-3 md:grid-cols-3">

@@ -484,7 +484,7 @@ export function CustomComparisonBoard({
       <div id="strategy-shelf" className="min-w-0 space-y-2">
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="font-sans text-sm font-semibold text-ink text-balance">
+            <h3 className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-ink text-balance">
               Saved strategies
             </h3>
           </div>

@@ -95,10 +95,10 @@ export default function AiHelp({ context }: { context: string }) {
 
   return (
     <>
-      <button ref={trigger} type="button" aria-label="Ask AI for help" aria-haspopup="dialog" aria-expanded={Boolean(drawerHost)} aria-controls="ai-help-drawer"
+      <button ref={trigger} type="button" aria-haspopup="dialog" aria-expanded={Boolean(drawerHost)} aria-controls="ai-help-drawer"
         onClick={(event) => setDrawerHost(event.currentTarget.closest("main") ?? document.body)}
-        className="inline-flex shrink-0 items-center justify-center gap-2 self-center rounded-full border border-accent-border bg-accent-faint px-2.5 py-2 text-xs font-semibold text-accent-strong shadow-sm transition hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:px-4 sm:text-sm">
-        <Sparkles /> <span className="hidden sm:inline">Ask AI for help</span>
+        className="inline-flex shrink-0 items-center justify-center gap-2 self-center rounded-full border border-accent-border bg-accent-faint px-3 py-2 text-xs font-semibold text-accent-strong shadow-sm transition hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:px-4 sm:text-sm">
+        <Sparkles /> Ask AI for help
       </button>
       {drawerHost && createPortal(<dialog ref={dialog} id="ai-help-drawer" aria-labelledby="ai-help-title"
         onClose={() => { request.current?.abort(); setDrawerHost(null); trigger.current?.focus({ preventScroll: true }); }}

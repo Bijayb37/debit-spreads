@@ -25,7 +25,7 @@ export function SectionCard({
   return (
     <section
       className={cn(
-        "min-w-0 rounded-panel border border-line bg-surface p-panel shadow-sm sm:p-panel-lg",
+        "min-w-0 rounded-lg border border-line bg-surface p-3 shadow-sm",
         className,
       )}
     >
@@ -42,7 +42,7 @@ export function SectionCard({
                 {eyebrow}
               </p>
             ) : null}
-            <h2 className="font-sans text-lg font-semibold text-balance text-ink">
+            <h2 className="font-[family:var(--font-space-grotesk)] text-lg font-semibold text-balance text-ink">
               {title}
             </h2>
           </div>

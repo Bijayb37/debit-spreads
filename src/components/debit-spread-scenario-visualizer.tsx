@@ -139,33 +139,25 @@ function scenarioTooltip(
   return rows.join("\n");
 }
 
-// Blue for profit and orange for loss stay distinguishable with red-green
-// colour blindness; lightness carries the size of the result.
 function cellColor(point: DebitSpreadScenarioPoint, maxProfit: number | null, maxLoss: number | null): string {
-  const nearBreakEvenLimit = Math.max(maxProfit ?? 0, maxLoss ?? 0) * 0.02;
-
-  if (Math.abs(point.profitLoss) <= nearBreakEvenLimit) {
-    return "border border-line-strong bg-slate-200 text-ink";
-  }
-
   if (point.profitLoss > 0) {
     const ratio = Math.min(point.profitLoss / Math.max(maxProfit ?? Math.abs(point.profitLoss), 1), 1);
 
-    if (ratio > 0.75) return "bg-blue-800 text-white";
-    if (ratio > 0.45) return "bg-blue-600 text-white";
-    if (ratio > 0.2) return "bg-blue-200 text-blue-950";
-    return "border border-blue-200 bg-blue-50 text-blue-950";
+    if (ratio > 0.75) return "bg-emerald-800 text-white";
+    if (ratio > 0.45) return "bg-emerald-600 text-white";
+    if (ratio > 0.2) return "bg-emerald-200 text-emerald-950";
+    return "border border-emerald-100 bg-emerald-50 text-emerald-900";
   }
 
   if (point.profitLoss < 0) {
     const ratio = Math.min(Math.abs(point.profitLoss) / Math.max(maxLoss ?? Math.abs(point.profitLoss), 1), 1);
 
-    if (ratio > 0.65) return "bg-orange-700 text-white";
-    if (ratio > 0.35) return "bg-orange-300 text-orange-950";
-    return "border border-orange-200 bg-orange-50 text-orange-950";
+    if (ratio > 0.65) return "bg-rose-700 text-white";
+    if (ratio > 0.35) return "bg-rose-200 text-rose-950";
+    return "border border-rose-100 bg-rose-50 text-rose-900";
   }
 
-  return "border border-line-strong bg-slate-200 text-ink";
+  return "border border-line bg-surface text-ink-soft";
 }
 
 function buildPriceSeries(currentPrice: number, steps = 61): number[] {
@@ -403,11 +395,11 @@ function HeatmapTab({
           </p>
         </div>
         <div className="flex items-center gap-2 text-caption text-ink-secondary">
-          <span className="size-3 rounded-sm bg-orange-700" />
+          <span className="size-3 rounded-sm bg-rose-700" />
           Loss
-          <span className="size-3 rounded-sm border border-line-strong bg-slate-200" />
+          <span className="size-3 rounded-sm border border-line bg-surface" />
           Near B/E
-          <span className="size-3 rounded-sm bg-blue-800" />
+          <span className="size-3 rounded-sm bg-emerald-800" />
           Profit
         </div>
       </div>
@@ -447,7 +439,7 @@ function HeatmapTab({
                   "grid min-h-12 w-full grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-3 py-2 text-left shadow-sm outline-none",
                   "focus-visible:ring-2 focus-visible:ring-accent",
                   cellColor(point, grid.summary.maxProfit, grid.summary.maxLoss),
-                  isSelected && "relative z-10 ring-2 ring-slate-950 ring-offset-2",
+                  isSelected && "ring-2 ring-accent",
                 )}
               >
                 <span className="font-mono text-xs font-semibold tabular-nums">
@@ -508,7 +500,7 @@ function HeatmapTab({
                       "min-h-8 rounded-md px-1.5 py-1 text-center font-mono text-caption font-semibold shadow-sm outline-none tabular-nums",
                       "focus-visible:ring-2 focus-visible:ring-accent",
                       cellColor(point, grid.summary.maxProfit, grid.summary.maxLoss),
-                      isSelected && "relative z-10 ring-2 ring-slate-950 ring-offset-2",
+                      isSelected && "ring-2 ring-accent",
                     )}
                   >
                     {formatMetricValue(point, metric)}
@@ -1180,7 +1172,7 @@ export default function DebitSpreadScenarioVisualizer({
       {!isHeatmapView ? (
         <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="font-sans text-base font-semibold text-ink text-balance">
+            <h2 className="font-[family:var(--font-space-grotesk)] text-base font-semibold text-ink text-balance">
               {`How does the ${unitName} shift over time?`}
             </h2>
           </div>
@@ -1216,7 +1208,7 @@ export default function DebitSpreadScenarioVisualizer({
                 </svg>
               </span>
               <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="font-sans text-sm font-semibold text-ink">
+                <span className="font-[family:var(--font-space-grotesk)] text-sm font-semibold text-ink">
                   Range settings
                 </span>
                 <span className="min-w-0 truncate font-mono text-xs text-ink-secondary tabular-nums">
