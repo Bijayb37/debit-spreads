@@ -14,6 +14,7 @@ export function SettingsWidget({
   onColorSchemeChange,
   onMoneyDisplayUnitChange,
   onUpdateStrikesWithPriceChange,
+  triggerClassName,
 }: {
   colorScheme: ColorScheme;
   moneyDisplayUnit: MoneyDisplayUnit;
@@ -21,12 +22,17 @@ export function SettingsWidget({
   onColorSchemeChange: (scheme: ColorScheme) => void;
   onMoneyDisplayUnitChange: (unit: MoneyDisplayUnit) => void;
   onUpdateStrikesWithPriceChange: (enabled: boolean) => void;
+  // Lets a host with a smaller header size the button to match.
+  triggerClassName?: string;
 }) {
   return (
     <details className="relative z-50 h-full">
       <summary
         aria-label="Settings"
-        className="flex h-full min-h-10 w-10 list-none items-center justify-center rounded-lg border border-line-strong bg-surface px-0 text-sm font-semibold text-ink-soft shadow-sm hover:border-accent hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:min-h-[2.875rem] sm:w-auto sm:px-4"
+        className={cn(
+          "flex h-full min-h-10 w-10 list-none items-center justify-center rounded-lg border border-line-strong bg-surface px-0 text-sm font-semibold text-ink-soft shadow-sm hover:border-accent hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent sm:min-h-[2.875rem] sm:w-auto sm:px-4",
+          triggerClassName,
+        )}
       >
         <svg
           aria-hidden="true"

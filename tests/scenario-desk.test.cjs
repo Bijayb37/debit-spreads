@@ -73,7 +73,6 @@ test('each strategy carries the figures its card shows', () => {
   assert.ok(spread.breakEven > 840 && spread.breakEven < 925);
   assert.equal(ratio.problem, null);
   assert.ok(ratio.unitCredit > 0, 'this ratio spread is entered for a credit');
-  assert.equal(desks.formatCents(356.8), '$356.80');
 });
 
 test('the price and date map agrees with single points', () => {
@@ -99,6 +98,8 @@ test('changing the stock price rescales strikes and generated names', () => {
   ]);
   assert.ok(desks.evaluateDesk(moved, today).rows.every((row) => row.problem === null));
   assert.deepEqual(desks.withMarket(desk, { ivPct: 35 }).strategies, desk.strategies, 'an IV change leaves strikes alone');
+  const kept = desks.withMarket(desk, { spot: 840 }, false);
+  assert.deepEqual([kept.market.spot, kept.strategies.map((strategy) => strategy.longStrike)], [840, [100, 100, 85]], 'strikes can be kept when the price changes');
   assert.ok(desks.withMarket(desk, { spot: 2 }).strategies.every((strategy) => desks.strategyProblem(strategy) === null));
 });
 

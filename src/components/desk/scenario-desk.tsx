@@ -17,6 +17,16 @@ import {
   type Desk,
 } from "@/lib/scenario-desk";
 import { Assistant, type AssistantHandle } from "@/components/desk/assistant";
+import {
+  COLOR_SCHEME_STORAGE_KEY,
+  DEFAULT_MONEY_DISPLAY_UNIT,
+  MONEY_DISPLAY_UNIT_STORAGE_KEY,
+  UPDATE_STRIKES_WITH_PRICE_STORAGE_KEY,
+} from "@/components/lab/constants";
+import { setActiveMoneyDisplayUnit } from "@/components/lab/format";
+import { SettingsWidget } from "@/components/lab/settings-widget";
+import { decodeColorScheme, decodeMoneyDisplayUnit } from "@/components/lab/share-state";
+import type { ColorScheme, MoneyDisplayUnit } from "@/components/lab/types";
 import { PriceTimeMap } from "@/components/desk/price-time-map";
 import { Setup } from "@/components/desk/setup";
 import { WhatIfCard } from "@/components/desk/what-if";
@@ -43,6 +53,11 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
   const [isEditorOpen, setIsEditorOpen] = useState(true);
   const [notice, setNotice] = useState("");
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  // The same settings, under the same keys, as the classic calculator.
+  const [colorScheme, setColorScheme] = useState<ColorScheme>("blue");
+  const [moneyUnit, setMoneyUnit] = useState<MoneyDisplayUnit>(DEFAULT_MONEY_DISPLAY_UNIT);
+  const [updateStrikesWithPrice, setUpdateStrikesWithPrice] = useState(true);
+  setActiveMoneyDisplayUnit(moneyUnit);
   const history = useRef<{ desk: Desk; group?: string }[]>([]);
   const assistant = useRef<AssistantHandle>(null);
 
@@ -61,6 +76,9 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
           if (stored) setDesk(cleanDesk(JSON.parse(stored)));
         }
         setIsEditorOpen(window.localStorage.getItem(EDITOR_OPEN_KEY) !== "0");
+        setColorScheme(decodeColorScheme(window.localStorage.getItem(COLOR_SCHEME_STORAGE_KEY)));
+        setMoneyUnit(decodeMoneyDisplayUnit(window.localStorage.getItem(MONEY_DISPLAY_UNIT_STORAGE_KEY)));
+        setUpdateStrikesWithPrice(window.localStorage.getItem(UPDATE_STRIKES_WITH_PRICE_STORAGE_KEY) !== "0");
       } catch {
         // Unreadable link or blocked storage: keep the example desk.
       }
@@ -76,10 +94,13 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(desk));
       window.localStorage.setItem(EDITOR_OPEN_KEY, isEditorOpen ? "1" : "0");
+      window.localStorage.setItem(COLOR_SCHEME_STORAGE_KEY, colorScheme);
+      window.localStorage.setItem(MONEY_DISPLAY_UNIT_STORAGE_KEY, moneyUnit);
+      window.localStorage.setItem(UPDATE_STRIKES_WITH_PRICE_STORAGE_KEY, updateStrikesWithPrice ? "1" : "0");
     } catch {
       // Storage can fail in private browsing or when quota is full.
     }
-  }, [desk, isEditorOpen, isLoaded]);
+  }, [colorScheme, desk, isEditorOpen, isLoaded, moneyUnit, updateStrikesWithPrice]);
 
   // Edits in the same group (typing in one field, say) share one undo step.
   const commit = (next: Desk, group?: string) => {
@@ -113,28 +134,37 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
   const board = useMemo(() => evaluateDesk(desk, todayIso), [desk, todayIso]);
 
   return (
-    <main className={cn("h-dvh overflow-y-auto bg-stone-100 text-ink", isAssistantOpen && "lg:pr-[24rem]")}>
+    <main data-color-scheme={colorScheme} className={cn("h-dvh overflow-y-auto bg-stone-100 text-ink", isAssistantOpen && "lg:pr-[24rem]")}>
       <div className="mx-auto w-full max-w-3xl space-y-4 px-3 pb-10 pt-3 sm:px-5">
-        <header className="flex items-center gap-3">
+        <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <Link href="/" className="text-lg font-bold tracking-tight text-ink">
             Callculator
           </Link>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <button
               type="button"
               disabled={undoCount === 0}
               onClick={undo}
-              className="rounded-lg px-3 py-1.5 text-sm font-semibold text-ink-soft hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
+              className="rounded-lg px-2 py-1.5 text-sm font-semibold text-ink-soft hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40 sm:px-3"
             >
               Undo
             </button>
             <button
               type="button"
               onClick={() => void copyLink()}
-              className="rounded-lg px-3 py-1.5 text-sm font-semibold text-ink-soft hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"
+              className="rounded-lg px-2 py-1.5 text-sm font-semibold text-ink-soft hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent sm:px-3"
             >
               Copy link
             </button>
+            <SettingsWidget
+              colorScheme={colorScheme}
+              moneyDisplayUnit={moneyUnit}
+              updateStrikesWithPrice={updateStrikesWithPrice}
+              onColorSchemeChange={setColorScheme}
+              onMoneyDisplayUnitChange={setMoneyUnit}
+              onUpdateStrikesWithPriceChange={setUpdateStrikesWithPrice}
+              triggerClassName="h-auto min-h-0 w-9 border-transparent bg-transparent py-1.5 shadow-none hover:bg-surface sm:min-h-0 sm:px-3"
+            />
             <button
               type="button"
               aria-expanded={isAssistantOpen}
@@ -169,10 +199,12 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
             setIsEditorOpen(true);
           }}
           onMarket={(patch) => {
-            const next = withMarket(desk, patch);
+            const next = withMarket(desk, patch, updateStrikesWithPrice);
             if (JSON.stringify(next.market) === JSON.stringify(desk.market)) return;
             commit(next, `market-${Object.keys(patch).join()}`);
-            if (next.market.spot !== desk.market.spot && desk.strategies.length > 0) setNotice("Strikes were rescaled to the new price.");
+            if (next.market.spot !== desk.market.spot && desk.strategies.length > 0) {
+              setNotice(updateStrikesWithPrice ? "Strikes were rescaled to the new price." : "Strikes were kept. Settings can rescale them with the price.");
+            }
           }}
           onStrategy={(strategy) =>
             commit({ ...desk, strategies: desk.strategies.map((item) => (item.id === strategy.id ? strategy : item)) }, `strategy-${strategy.id}`)

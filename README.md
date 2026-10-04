@@ -8,10 +8,11 @@ The home page answers one question with as little on screen as possible: what do
 
 - **Setup** is one card: the stock (ticker, price today, IV today) and one strategy with its type, strikes, expiry and budget as plain inputs. A sentence underneath says what it costs, where it breaks even and what it can make or lose. "Compare with another" adds more strategies, up to six.
 - **What if** has three sliders: stock price, days from today, and IV. The result updates as they move.
-- **Strategy cards** show the result, one card per strategy, in the style of the classic calculator's cards: position value, profit or loss and return on top, then expiry and initial price, break-even, cost per contract, initial cost, contracts, IV, max profit % and max loss. The strategy that is ahead is marked.
+- **Strategy cards** show the result, one card per strategy, in the style of the classic calculator's cards: position value, profit or loss and return on top, then expiry and initial price, break-even, cost per contract, initial cost, IV and max profit %. The strategy that is ahead is marked.
 - **Bookmarks** keep points to come back to, such as $960 on day 20 and $850 on day 45. They sit as chips under the sliders, each showing its result, with a tick on each slider; selecting one jumps the sliders there.
 - **Every price and every date at once** is a collapsed grid for when the sliders are not enough.
-- **Changing the stock price** rescales existing strikes so each strategy keeps its moneyness.
+- **Settings** in the header are the classic calculator's, stored under the same keys so both pages share them: colour scheme, money units (thousands or millions), and whether strikes follow the stock price.
+- **Changing the stock price** rescales existing strikes so each strategy keeps its moneyness, unless Settings is set to keep strikes.
 - **Everyday controls:** each strategy has an × to remove it, plus Duplicate and an optional name; "Hide details" folds the strategy inputs down to a row of chips (selecting a chip opens them again); "Start over" returns to the example; "Reset" puts the what-if back to today; "Copy link" shares the exact setup; Undo reverses edits and removals.
 - **Ask AI** (`/api/desk-assistant`) opens a side panel. The assistant can set up the stock and strategies, move the what-if, save moments and look up any point. It runs its tools on the server against the same pricing code as the page, sees the recalculated numbers, then answers. Gemini uses `GEMINI_API_KEY`; ChatGPT uses a key you paste in. Its changes can be undone.
 - The page is saved in the browser. The earlier calculator is at `/classic`.

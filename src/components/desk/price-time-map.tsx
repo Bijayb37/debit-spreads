@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/cn";
 import {
-  formatMoney,
   formatPct,
   formatPrice,
   priceTimeMap,
@@ -11,6 +10,9 @@ import {
   type Desk,
 } from "@/lib/scenario-desk";
 import { outcomeTint, seriesColor } from "@/components/desk/colors";
+import { formatCurrency } from "@/components/lab/format";
+
+const signedCurrency = (value: number) => `${value > 0.5 ? "+" : ""}${formatCurrency(value)}`;
 
 // Every stock price against every date, for all strategies at once. "Best" shows
 // which strategy is ahead in each cell; picking one strategy shows only its values.
@@ -137,14 +139,14 @@ export function PriceTimeMap({ desk, board, todayIso }: { desk: Desk; board: Boa
                               onPointerEnter={() => setActive({ row: rowIndex, column: columnIndex })}
                               onFocus={() => setActive({ row: rowIndex, column: columnIndex })}
                               onClick={() => setActive({ row: rowIndex, column: columnIndex })}
-                              aria-label={`${formatPrice(price)} on day ${day}: ${entry.row.strategy.name} ${formatMoney(entry.pnl)}`}
+                              aria-label={`${formatPrice(price)} on day ${day}: ${entry.row.strategy.name} ${signedCurrency(entry.pnl)}`}
                               className="flex w-full items-center justify-end gap-1.5 px-2 py-1 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
                             >
                               {shown ? null : (
                                 <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: seriesColor(entry.row.strategy.id) }} />
                               )}
                               <span className={cn("font-mono text-xs font-semibold tabular-nums", entry.pnl > 0.5 ? "text-gain" : entry.pnl < -0.5 ? "text-loss" : "text-ink-secondary")}>
-                                {formatMoney(entry.pnl)}
+                                {signedCurrency(entry.pnl)}
                               </span>
                             </button>
                           </td>
@@ -168,7 +170,7 @@ export function PriceTimeMap({ desk, board, todayIso }: { desk: Desk; board: Boa
                     <li key={row.strategy.id} className="flex items-center gap-1.5">
                       <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: seriesColor(row.strategy.id) }} />
                       <span className="text-ink-secondary">{row.strategy.name}</span>
-                      <span className={cn("font-mono font-semibold tabular-nums", pnl > 0.5 ? "text-gain" : pnl < -0.5 ? "text-loss" : "text-ink-secondary")}>{formatMoney(pnl)}</span>
+                      <span className={cn("font-mono font-semibold tabular-nums", pnl > 0.5 ? "text-gain" : pnl < -0.5 ? "text-loss" : "text-ink-secondary")}>{signedCurrency(pnl)}</span>
                       {map.days[cell.column] > row.strategy.expirationDays ? (
                         <span className="text-ink-muted">(expired day {row.strategy.expirationDays})</span>
                       ) : null}

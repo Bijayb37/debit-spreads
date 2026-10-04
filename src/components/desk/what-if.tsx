@@ -4,8 +4,6 @@ import { cn } from "@/lib/cn";
 import {
   KINDS,
   MAX_MOMENTS,
-  formatCents,
-  formatDollars,
   formatPct,
   formatPrice,
   horizonDays,
@@ -20,9 +18,13 @@ import {
   type WhatIfInput,
 } from "@/lib/scenario-desk";
 import { seriesColor } from "@/components/desk/colors";
+import { compactNumber, formatCurrency, formatCurrencyWithCents, formatPercent, formatPriceCurrency } from "@/components/lab/format";
 import { NumberField } from "@/components/desk/fields";
 
 const noteLink = "font-semibold text-accent underline-offset-2 hover:underline";
+
+// Profit or loss in the chosen money units, with a plus sign on gains.
+const signedCurrency = (value: number) => `${value > 0.5 ? "+" : ""}${formatCurrency(value)}`;
 
 const tone = (value: number) => (value > 0.5 ? "text-gain" : value < -0.5 ? "text-loss" : "text-ink-secondary");
 
@@ -95,14 +97,17 @@ function StrategyCards({ desk, rows, bestId }: { desk: Desk; rows: BoardRow[]; b
         const { strategy } = row;
         const kind = KINDS[strategy.kind];
         const details = [
-          ...(row.unitCredit !== null ? [{ label: "Credit / spread", value: formatCents(row.unitCredit), className: "text-gain" }] : []),
+          ...(row.unitCredit !== null ? [{ label: "Credit / spread", value: formatCurrencyWithCents(row.unitCredit), className: "text-gain" }] : []),
           {
             label: "DTE · Initial price",
-            value: `${kind.calendar ? `${strategy.shortExpirationDays}/${strategy.expirationDays}` : strategy.expirationDays} · ${formatPrice(desk.market.spot)}`,
+            value: `${kind.calendar ? `${strategy.shortExpirationDays}/${strategy.expirationDays}` : strategy.expirationDays} · ${formatPriceCurrency(desk.market.spot)}`,
           },
           {
             label: kind.calendar ? "Target" : row.lowerBreakEven !== null ? "B/Es" : "B/E",
-            value: row.lowerBreakEven !== null ? `${formatCents(row.lowerBreakEven)} / ${formatCents(row.breakEven)}` : formatCents(row.breakEven),
+            value:
+              row.lowerBreakEven !== null
+                ? `${formatCurrencyWithCents(row.lowerBreakEven)} / ${formatCurrencyWithCents(row.breakEven)}`
+                : formatCurrencyWithCents(row.breakEven),
           },
           {
             label:
@@ -119,17 +124,15 @@ function StrategyCards({ desk, rows, bestId }: { desk: Desk; rows: BoardRow[]; b
                         : kind.short === "below"
                           ? "Put spread cost"
                           : "Spread cost",
-            value: formatCents(row.unitCost),
+            value: formatCurrencyWithCents(row.unitCost),
           },
-          { label: row.unitCredit !== null ? "Capital reserved" : "Initial cost", value: formatDollars(row.cost, false) },
-          { label: "Contracts", value: String(row.contracts) },
-          { label: "IV", value: `${desk.market.ivPct}%` },
+          { label: row.unitCredit !== null ? "Capital reserved" : "Initial cost", value: formatCurrency(row.cost) },
+          { label: "IV", value: `${compactNumber(desk.market.ivPct)}%` },
           {
             label: "Max profit %",
-            value: kind.calendar ? "Open" : row.maxReturnPct === null ? "Uncapped" : formatPct(row.maxReturnPct),
+            value: kind.calendar ? "Open" : row.maxReturnPct === null ? "Uncapped" : formatPercent(row.maxReturnPct / 100),
             className: "text-gain",
           },
-          { label: "Max loss", value: row.maxLoss === null ? "Uncapped" : formatDollars(-row.maxLoss), className: "text-loss" },
         ];
 
         return (
@@ -144,15 +147,15 @@ function StrategyCards({ desk, rows, bestId }: { desk: Desk; rows: BoardRow[]; b
               <div className="grid min-w-0 grid-cols-3 gap-2 rounded-md bg-surface-muted p-2.5">
                 <div className="min-w-0">
                   <p className="text-caption font-medium text-ink-muted">Position value</p>
-                  <p className="mt-1 truncate font-mono text-sm font-semibold leading-none text-ink tabular-nums">{formatDollars(row.now.value, false)}</p>
+                  <p className="mt-1 truncate font-mono text-sm font-semibold leading-none text-ink tabular-nums">{formatCurrency(row.now.value)}</p>
                 </div>
                 <div className="min-w-0">
                   <p className="text-caption font-medium text-ink-muted">P/L</p>
-                  <p className={cn("mt-1 truncate font-mono text-xl font-semibold leading-none tabular-nums", tone(row.now.pnl))}>{formatDollars(row.now.pnl)}</p>
+                  <p className={cn("mt-1 truncate font-mono text-xl font-semibold leading-none tabular-nums", tone(row.now.pnl))}>{signedCurrency(row.now.pnl)}</p>
                 </div>
                 <div className="min-w-0 text-right">
                   <p className="text-caption font-medium text-ink-muted">Return</p>
-                  <p className={cn("mt-1 truncate font-mono text-sm font-semibold leading-none tabular-nums", tone(row.now.pnl))}>{formatPct(row.now.returnPct)}</p>
+                  <p className="mt-1 truncate font-mono text-sm font-semibold leading-none text-ink tabular-nums">{formatPercent(row.now.returnPct / 100)}</p>
                 </div>
               </div>
               <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3">
@@ -217,7 +220,7 @@ function Bookmarks({
               {lead ? (
                 <span className="flex items-center gap-1">
                   {rows.length > 1 ? <span aria-hidden className="size-2 rounded-full" style={{ background: seriesColor(lead.strategy.id) }} /> : null}
-                  <span className={cn("font-mono font-semibold tabular-nums", isActive ? "text-white" : tone(lead.moments[index].pnl))}>{formatDollars(lead.moments[index].pnl)}</span>
+                  <span className={cn("font-mono font-semibold tabular-nums", isActive ? "text-white" : tone(lead.moments[index].pnl))}>{signedCurrency(lead.moments[index].pnl)}</span>
                 </span>
               ) : null}
             </button>

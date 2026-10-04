@@ -6,7 +6,6 @@ import {
   KINDS,
   KIND_IDS,
   MAX_STRATEGIES,
-  formatDollars,
   formatPrice,
   makeStrategy,
   strikeIncrement,
@@ -16,6 +15,7 @@ import {
   type Strategy,
 } from "@/lib/scenario-desk";
 import { seriesColor } from "@/components/desk/colors";
+import { formatCurrency } from "@/components/lab/format";
 import { NumberField, TextField, fieldLabel } from "@/components/desk/fields";
 
 // What a strategy costs and where it stops making or losing money, in one sentence.
@@ -24,10 +24,10 @@ function Facts({ row }: { row: BoardRow }) {
   return (
     <p className="text-sm leading-relaxed text-ink-secondary">
       Buys <strong className="font-semibold text-ink">{row.contracts} contract{row.contracts === 1 ? "" : "s"}</strong> for{" "}
-      <strong className="font-semibold text-ink">{formatDollars(row.cost, false)}</strong>. Breaks even at{" "}
+      <strong className="font-semibold text-ink">{formatCurrency(row.cost)}</strong>. Breaks even at{" "}
       <strong className="font-semibold text-ink">{formatPrice(row.breakEven)}</strong> at expiry. Can lose{" "}
-      {row.maxLoss === null ? "more than it cost" : `up to ${formatDollars(row.maxLoss, false)}`} and make{" "}
-      {row.maxProfit === null ? "an unlimited amount" : `up to ${formatDollars(row.maxProfit, false)}`}.
+      {row.maxLoss === null ? "more than it cost" : `up to ${formatCurrency(row.maxLoss)}`} and make{" "}
+      {row.maxProfit === null ? "an unlimited amount" : `up to ${formatCurrency(row.maxProfit)}`}.
     </p>
   );
 }

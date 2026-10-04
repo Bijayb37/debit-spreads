@@ -111,34 +111,6 @@ export function formatPrice(value: number): string {
   return `$${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 }
 
-// Dollars and cents, e.g. $356.83.
-export function formatCents(value: number): string {
-  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-// Whole dollars with an explicit sign, e.g. +$6,540 or -$850.
-export function formatDollars(value: number, signed = true): string {
-  const rounded = Math.round(value);
-  const sign = rounded < 0 ? "-" : signed && rounded > 0 ? "+" : "";
-  return `${sign}$${Math.abs(rounded).toLocaleString("en-US")}`;
-}
-
-// Compact dollars for tight spaces, e.g. +$9.6K.
-export function formatMoney(value: number, signed = true): string {
-  const rounded = Math.round(value);
-  const size = Math.abs(rounded);
-  const sign = rounded < 0 ? "-" : signed && rounded > 0 ? "+" : "";
-  const body =
-    size >= 1e6
-      ? `${round(size / 1e6, 2)}M`
-      : size >= 1e4
-        ? `${round(size / 1e3, 1)}K`
-        : size >= 1e3
-          ? `${round(size / 1e3, 2)}K`
-          : String(size);
-  return `${sign}$${body}`;
-}
-
 export function formatPct(value: number, digits = 0): string {
   const rounded = round(value, digits);
   return `${rounded > 0 ? "+" : ""}${rounded}%`;
@@ -334,11 +306,12 @@ export function cleanDesk(value: unknown): Desk {
 }
 
 // Changes the stock, price or IV. When the price changes, strikes are rescaled so
-// each strategy stays as far in or out of the money as it was; the what-if and saved
-// moments are stored as moves from today's price, so they follow on their own.
-export function withMarket(desk: Desk, patch: Partial<Market>): Desk {
+// each strategy stays as far in or out of the money as it was, unless the caller
+// asks to keep them. The what-if and saved moments are stored as moves from today's
+// price, so they follow on their own.
+export function withMarket(desk: Desk, patch: Partial<Market>, rescaleStrikes = true): Desk {
   const next = cleanDesk({ ...desk, market: { ...desk.market, ...patch } });
-  if (next.market.spot === desk.market.spot) return next;
+  if (next.market.spot === desk.market.spot || !rescaleStrikes) return next;
   const ratio = next.market.spot / desk.market.spot;
   return {
     ...next,
