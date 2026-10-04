@@ -80,10 +80,9 @@ export function Setup({
   };
 
   return (
-    // Sizes its own layout by its width, since it sits in a narrow column on wide screens.
-    <section aria-label="Stock and strategy" className="@container rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
+    <section aria-label="Stock and strategy" className="rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
-        <div className="grid min-w-0 basis-full grid-cols-3 gap-3 @sm:max-w-md @sm:flex-1 @sm:basis-0">
+        <div className="grid min-w-0 basis-full grid-cols-3 gap-3 sm:max-w-md sm:flex-1 sm:basis-auto">
           <TextField id="market-symbol" label="Stock" uppercase value={desk.market.symbol} onCommit={(value) => onMarket({ symbol: value.toUpperCase() })} />
           <NumberField id="market-spot" label="Price today" prefix="$" min={0.01} value={desk.market.spot} onCommit={(value) => onMarket({ spot: value })} />
           <NumberField id="market-iv" label="IV today" suffix="%" min={1} max={300} value={desk.market.ivPct} onCommit={(value) => onMarket({ ivPct: value })} />
@@ -168,8 +167,8 @@ export function Setup({
 
         {strategy && info ? (
           <div id="strategy-editor" hidden={!isEditorOpen} className="mt-3 space-y-3">
-            <div className="grid grid-cols-2 gap-3 @xl:grid-cols-4">
-              <label className={cn(fieldLabel, "col-span-2 @xl:col-span-1")}>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <label className={cn(fieldLabel, "col-span-2 sm:col-span-1")}>
                 Type
                 <select
                   id="strategy-kind"

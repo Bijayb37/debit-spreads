@@ -15,12 +15,11 @@ import {
   makeWhatIf,
   withMarket,
   type Desk,
-  type WhatIfInput,
 } from "@/lib/scenario-desk";
 import { Assistant, type AssistantHandle } from "@/components/desk/assistant";
 import { PriceTimeMap } from "@/components/desk/price-time-map";
 import { Setup } from "@/components/desk/setup";
-import { WhatIfControls, WhatIfResults } from "@/components/desk/what-if";
+import { WhatIfCard } from "@/components/desk/what-if";
 
 const STORAGE_KEY = "callculator-scenario-desk-v1";
 // A shared link carries the whole setup after this marker in the URL hash.
@@ -112,12 +111,10 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
   };
 
   const board = useMemo(() => evaluateDesk(desk, todayIso), [desk, todayIso]);
-  // Moving the what-if is exploring, not editing, so it is not an undo step.
-  const moveWhatIf = (patch: WhatIfInput) => setDesk((current) => ({ ...current, whatIf: makeWhatIf(current.market, patch, current.whatIf) }));
 
   return (
     <main className={cn("h-dvh overflow-y-auto bg-stone-100 text-ink", isAssistantOpen && "lg:pr-[24rem]")}>
-      <div className="@container mx-auto w-full max-w-[96rem] space-y-4 px-3 pb-10 pt-3 sm:px-5">
+      <div className="mx-auto w-full max-w-3xl space-y-4 px-3 pb-10 pt-3 sm:px-5">
         <header className="flex items-center gap-3">
           <Link href="/" className="text-lg font-bold tracking-tight text-ink">
             Callculator
@@ -160,91 +157,83 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
           </p>
         ) : null}
 
-        {/* The setup sits on the left and the what-if with its answer on the right, once there is room for both. */}
-        <div className="grid items-start gap-4 @5xl:grid-cols-[minmax(24rem,30rem)_minmax(0,1fr)]">
-          <div className="min-w-0 space-y-4">
-            <Setup
-              desk={desk}
-              rows={board.rows}
-              selectedId={selectedId}
-              isEditorOpen={isEditorOpen}
-              onToggleEditor={() => setIsEditorOpen(!isEditorOpen)}
-              // Picking a strategy is a request to see it, so its details open.
-              onSelect={(id) => {
-                setSelectedId(id);
-                setIsEditorOpen(true);
-              }}
-              onMarket={(patch) => {
-                const next = withMarket(desk, patch);
-                if (JSON.stringify(next.market) === JSON.stringify(desk.market)) return;
-                commit(next, `market-${Object.keys(patch).join()}`);
-                if (next.market.spot !== desk.market.spot && desk.strategies.length > 0) setNotice("Strikes were rescaled to the new price.");
-              }}
-              onStrategy={(strategy) =>
-                commit({ ...desk, strategies: desk.strategies.map((item) => (item.id === strategy.id ? strategy : item)) }, `strategy-${strategy.id}`)
-              }
-              onAdd={() => {
-                // Start each new strategy as a type that is not on the desk yet, so the
-                // comparison is between different things.
-                const kind = ADD_ORDER.find((candidate) => !desk.strategies.some((item) => item.kind === candidate)) ?? "debit-call-spread";
-                const strategy = makeStrategy(desk, { kind });
-                commit({ ...desk, strategies: [...desk.strategies, strategy] });
-                setSelectedId(strategy.id);
-                setIsEditorOpen(true);
-              }}
-              onDuplicate={(id) => {
-                const source = desk.strategies.find((item) => item.id === id);
-                if (!source) return;
-                const copy = makeStrategy(desk, { ...source, id: undefined, name: source.name === autoStrategyName(source) ? "" : `${source.name.slice(0, 43)} copy` });
-                commit({ ...desk, strategies: [...desk.strategies, copy] });
-                setSelectedId(copy.id);
-              }}
-              onRemove={(id) => {
-                const removed = desk.strategies.find((item) => item.id === id);
-                commit({ ...desk, strategies: desk.strategies.filter((item) => item.id !== id) });
-                if (removed) setNotice(`Removed ${removed.name}.`);
-              }}
-              onStartOver={() => {
-                commit(defaultDesk());
-                setSelectedId("");
-                setNotice("Started over with the example.");
-              }}
-            />
+        <Setup
+          desk={desk}
+          rows={board.rows}
+          selectedId={selectedId}
+          isEditorOpen={isEditorOpen}
+          onToggleEditor={() => setIsEditorOpen(!isEditorOpen)}
+          // Picking a strategy is a request to see it, so its details open.
+          onSelect={(id) => {
+            setSelectedId(id);
+            setIsEditorOpen(true);
+          }}
+          onMarket={(patch) => {
+            const next = withMarket(desk, patch);
+            if (JSON.stringify(next.market) === JSON.stringify(desk.market)) return;
+            commit(next, `market-${Object.keys(patch).join()}`);
+            if (next.market.spot !== desk.market.spot && desk.strategies.length > 0) setNotice("Strikes were rescaled to the new price.");
+          }}
+          onStrategy={(strategy) =>
+            commit({ ...desk, strategies: desk.strategies.map((item) => (item.id === strategy.id ? strategy : item)) }, `strategy-${strategy.id}`)
+          }
+          onAdd={() => {
+            // Start each new strategy as a type that is not on the desk yet, so the
+            // comparison is between different things.
+            const kind = ADD_ORDER.find((candidate) => !desk.strategies.some((item) => item.kind === candidate)) ?? "debit-call-spread";
+            const strategy = makeStrategy(desk, { kind });
+            commit({ ...desk, strategies: [...desk.strategies, strategy] });
+            setSelectedId(strategy.id);
+            setIsEditorOpen(true);
+          }}
+          onDuplicate={(id) => {
+            const source = desk.strategies.find((item) => item.id === id);
+            if (!source) return;
+            const copy = makeStrategy(desk, { ...source, id: undefined, name: source.name === autoStrategyName(source) ? "" : `${source.name.slice(0, 43)} copy` });
+            commit({ ...desk, strategies: [...desk.strategies, copy] });
+            setSelectedId(copy.id);
+          }}
+          onRemove={(id) => {
+            const removed = desk.strategies.find((item) => item.id === id);
+            commit({ ...desk, strategies: desk.strategies.filter((item) => item.id !== id) });
+            if (removed) setNotice(`Removed ${removed.name}.`);
+          }}
+          onStartOver={() => {
+            commit(defaultDesk());
+            setSelectedId("");
+            setNotice("Started over with the example.");
+          }}
+        />
+
+        <WhatIfCard
+          desk={desk}
+          board={board}
+          todayIso={todayIso}
+          // Moving the what-if is exploring, not editing, so it is not an undo step.
+          onWhatIf={(patch) => setDesk((current) => ({ ...current, whatIf: makeWhatIf(current.market, patch, current.whatIf) }))}
+          onSaveMoment={() => commit({ ...desk, moments: [...desk.moments, makeMoment(desk, { ...desk.whatIf, days: board.days })] })}
+          onRemoveMoment={(id) => commit({ ...desk, moments: desk.moments.filter((moment) => moment.id !== id) })}
+          onClearMoments={() => commit({ ...desk, moments: [] })}
+        />
+
+        <details className="group rounded-xl border border-line bg-surface shadow-sm">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink-soft sm:px-5">Every price and every date at once</summary>
+          <div className="border-t border-line p-4 sm:p-5">
+            <PriceTimeMap desk={desk} board={board} todayIso={todayIso} />
           </div>
+        </details>
 
-          <div className="min-w-0 space-y-4">
-            <WhatIfControls desk={desk} board={board} onWhatIf={moveWhatIf} />
-
-            <WhatIfResults
-              desk={desk}
-              board={board}
-              todayIso={todayIso}
-              onWhatIf={moveWhatIf}
-              onSaveMoment={() => commit({ ...desk, moments: [...desk.moments, makeMoment(desk, { ...desk.whatIf, days: board.days })] })}
-              onRemoveMoment={(id) => commit({ ...desk, moments: desk.moments.filter((moment) => moment.id !== id) })}
-              onClearMoments={() => commit({ ...desk, moments: [] })}
-            />
-
-            <details className="group rounded-xl border border-line bg-surface shadow-sm">
-              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink-soft sm:px-5">Every price and every date at once</summary>
-              <div className="border-t border-line p-4 sm:p-5">
-                <PriceTimeMap desk={desk} board={board} todayIso={todayIso} />
-              </div>
-            </details>
-
-            <details className="rounded-xl border border-line bg-surface shadow-sm">
-              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink-soft sm:px-5">How these numbers are made</summary>
-              <div className="max-w-prose space-y-2 border-t border-line p-4 text-sm leading-relaxed text-ink-secondary sm:p-5">
-                <p>
-                  Every value is a Black-Scholes model estimate from the stock price and IV you enter, not a live quote or a forecast. A strategy buys as many whole contracts (100 shares each) as its budget allows. Return is profit or loss divided by what the position cost. Fees, dividends, early exercise and assignment are not modelled.
-                </p>
-                <p>
-                  With several strategies, each is a separate alternative, not one combined position. A day after a strategy expires shows that strategy at its expiry at that stock price. Ratio spreads can lose more than their budget.
-                </p>
-              </div>
-            </details>
+        <details className="rounded-xl border border-line bg-surface shadow-sm">
+          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink-soft sm:px-5">How these numbers are made</summary>
+          <div className="max-w-prose space-y-2 border-t border-line p-4 text-sm leading-relaxed text-ink-secondary sm:p-5">
+            <p>
+              Every value is a Black-Scholes model estimate from the stock price and IV you enter, not a live quote or a forecast. A strategy buys as many whole contracts (100 shares each) as its budget allows. Return is profit or loss divided by what the position cost. Fees, dividends, early exercise and assignment are not modelled.
+            </p>
+            <p>
+              With several strategies, each is a separate alternative, not one combined position. A day after a strategy expires shows that strategy at its expiry at that stock price. Ratio spreads can lose more than their budget.
+            </p>
           </div>
-        </div>
+        </details>
 
         <p className="text-xs text-ink-muted">
           Looking for the earlier calculator?{" "}
