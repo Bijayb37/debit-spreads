@@ -2,13 +2,16 @@
 
 import { cn } from "@/lib/cn";
 import {
+  KINDS,
   MAX_MOMENTS,
+  formatCents,
   formatDollars,
   formatPct,
   formatPrice,
   horizonDays,
   momentLabel,
   movePrice,
+  strategyStrikes,
   strikeIncrement,
   type Board,
   type BoardRow,
@@ -18,7 +21,6 @@ import {
 } from "@/lib/scenario-desk";
 import { seriesColor } from "@/components/desk/colors";
 import { NumberField } from "@/components/desk/fields";
-import { PayoffChart } from "@/components/desk/payoff-chart";
 
 const noteLink = "font-semibold text-accent underline-offset-2 hover:underline";
 
@@ -84,48 +86,89 @@ function Slider({
   );
 }
 
-// One strategy: the answer as a single large figure.
-function SingleResult({ row }: { row: BoardRow }) {
+// One card per strategy with everything about it at the what-if: what the position is
+// worth, what it has made or lost, and the terms it was entered on.
+function StrategyCards({ desk, rows, bestId }: { desk: Desk; rows: BoardRow[]; bestId: string | null }) {
   return (
-    <div>
-      <p className={cn("font-mono text-4xl font-semibold tracking-tight tabular-nums sm:text-5xl", tone(row.now.pnl))}>{formatDollars(row.now.pnl)}</p>
-      <p className="mt-1 text-sm text-ink-secondary">
-        {formatPct(row.now.returnPct)} on the {formatDollars(row.cost, false)} it cost · position worth {formatDollars(row.now.value, false)}
-        {row.now.expired ? ` · expired on day ${row.strategy.expirationDays}` : ""}
-      </p>
-    </div>
-  );
-}
+    <div className={cn("grid min-w-0 gap-3", rows.length > 1 && "sm:grid-cols-2")}>
+      {rows.map((row) => {
+        const { strategy } = row;
+        const kind = KINDS[strategy.kind];
+        const details = [
+          ...(row.unitCredit !== null ? [{ label: "Credit / spread", value: formatCents(row.unitCredit), className: "text-gain" }] : []),
+          {
+            label: "DTE · Initial price",
+            value: `${kind.calendar ? `${strategy.shortExpirationDays}/${strategy.expirationDays}` : strategy.expirationDays} · ${formatPrice(desk.market.spot)}`,
+          },
+          {
+            label: kind.calendar ? "Target" : row.lowerBreakEven !== null ? "B/Es" : "B/E",
+            value: row.lowerBreakEven !== null ? `${formatCents(row.lowerBreakEven)} / ${formatCents(row.breakEven)}` : formatCents(row.breakEven),
+          },
+          {
+            label:
+              row.unitCredit !== null
+                ? "Reserve / spread"
+                : strategy.kind === "long-call"
+                  ? "Call cost"
+                  : strategy.kind === "bear-put"
+                    ? "Put cost"
+                    : kind.calendar
+                      ? "Calendar cost"
+                      : strategy.kind === "bull-put-spread"
+                        ? "Risk per spread"
+                        : kind.short === "below"
+                          ? "Put spread cost"
+                          : "Spread cost",
+            value: formatCents(row.unitCost),
+          },
+          { label: row.unitCredit !== null ? "Capital reserved" : "Initial cost", value: formatDollars(row.cost, false) },
+          { label: "Contracts", value: String(row.contracts) },
+          { label: "IV", value: `${desk.market.ivPct}%` },
+          {
+            label: "Max profit %",
+            value: kind.calendar ? "Open" : row.maxReturnPct === null ? "Uncapped" : formatPct(row.maxReturnPct),
+            className: "text-gain",
+          },
+          { label: "Max loss", value: row.maxLoss === null ? "Uncapped" : formatDollars(-row.maxLoss), className: "text-loss" },
+        ];
 
-// Several strategies: one line each, with a bar so sizes compare at a glance.
-function ComparedResults({ rows, bestId }: { rows: BoardRow[]; bestId: string | null }) {
-  const largest = Math.max(1, ...rows.map((row) => Math.abs(row.now.pnl)));
-  return (
-    <ul className="divide-y divide-line">
-      {rows.map((row) => (
-        <li key={row.strategy.id} className="py-2.5 sm:grid sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)_auto] sm:items-center sm:gap-x-4">
-          <p className="flex min-w-0 items-center gap-2">
-            <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ background: seriesColor(row.strategy.id) }} />
-            <span className="truncate text-sm font-semibold text-ink">{row.strategy.name}</span>
-          </p>
-          <div className="mt-1.5 flex items-center gap-3 sm:contents">
-            <div aria-hidden className="grid h-2.5 min-w-0 flex-1 grid-cols-2">
-              <div className="flex justify-end border-r border-line-strong">
-                {row.now.pnl < 0 ? <div className="h-full rounded-l-sm bg-loss/70" style={{ width: `${Math.round((Math.abs(row.now.pnl) / largest) * 100)}%` }} /> : null}
-              </div>
-              <div>{row.now.pnl > 0 ? <div className="h-full rounded-r-sm bg-gain/70" style={{ width: `${Math.round((row.now.pnl / largest) * 100)}%` }} /> : null}</div>
+        return (
+          <article key={strategy.id} className="min-w-0 overflow-hidden rounded-lg border border-line bg-surface shadow-sm">
+            <div className="flex min-h-12 min-w-0 items-center gap-2 bg-slate-950 px-3 py-2 text-white">
+              <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ background: seriesColor(strategy.id) }} />
+              <h3 className="min-w-0 truncate text-sm font-semibold leading-tight">{strategy.name}</h3>
+              <p className="shrink-0 font-mono text-xs font-medium text-slate-300 tabular-nums">{strategyStrikes(strategy)}</p>
+              {strategy.id === bestId ? <span className="ml-auto shrink-0 rounded-full bg-accent px-2 py-0.5 text-micro font-semibold text-white">Ahead here</span> : null}
             </div>
-            <p className="shrink-0 text-right">
-              <span className={cn("font-mono text-lg font-semibold tabular-nums", tone(row.now.pnl))}>{formatDollars(row.now.pnl)}</span>
-              <span className="ml-2 inline-block w-28 text-left text-xs text-ink-muted">
-                {formatPct(row.now.returnPct)}
-                {row.strategy.id === bestId ? " · ahead here" : row.now.expired ? ` · expired d${row.strategy.expirationDays}` : ""}
-              </span>
-            </p>
-          </div>
-        </li>
-      ))}
-    </ul>
+            <div className="space-y-2 p-2.5">
+              <div className="grid min-w-0 grid-cols-3 gap-2 rounded-md bg-surface-muted p-2.5">
+                <div className="min-w-0">
+                  <p className="text-caption font-medium text-ink-muted">Position value</p>
+                  <p className="mt-1 truncate font-mono text-sm font-semibold leading-none text-ink tabular-nums">{formatDollars(row.now.value, false)}</p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-caption font-medium text-ink-muted">P/L</p>
+                  <p className={cn("mt-1 truncate font-mono text-xl font-semibold leading-none tabular-nums", tone(row.now.pnl))}>{formatDollars(row.now.pnl)}</p>
+                </div>
+                <div className="min-w-0 text-right">
+                  <p className="text-caption font-medium text-ink-muted">Return</p>
+                  <p className={cn("mt-1 truncate font-mono text-sm font-semibold leading-none tabular-nums", tone(row.now.pnl))}>{formatPct(row.now.returnPct)}</p>
+                </div>
+              </div>
+              <div className="grid min-w-0 grid-cols-2 gap-2 sm:grid-cols-3">
+                {details.map((detail) => (
+                  <div key={detail.label} className="min-w-0 rounded-md border border-slate-100 bg-surface px-2 py-1.5 shadow-sm">
+                    <p className="text-caption font-medium text-ink-muted">{detail.label}</p>
+                    <p className={cn("mt-0.5 truncate font-mono text-xs font-semibold tabular-nums", detail.className ?? "text-ink")}>{detail.value}</p>
+                  </div>
+                ))}
+              </div>
+              {row.now.expired ? <p className="text-caption text-ink-muted">Expired on day {strategy.expirationDays}; shown at its expiry at this stock price.</p> : null}
+            </div>
+          </article>
+        );
+      })}
+    </div>
   );
 }
 
@@ -210,14 +253,12 @@ function Bookmarks({
 export function WhatIfCard({
   desk,
   board,
-  todayIso,
   onWhatIf,
   onSaveMoment,
   onRemoveMoment,
 }: {
   desk: Desk;
   board: Board;
-  todayIso: string;
   onWhatIf: (patch: WhatIfInput) => void;
   onSaveMoment: () => void;
   onRemoveMoment: (id: string) => void;
@@ -330,23 +371,23 @@ export function WhatIfCard({
 
       <div className="mt-4 border-t border-line pt-4" aria-live="polite">
         {rows.length === 0 ? (
-          <p className="text-sm text-ink-secondary">Add a strategy above to see the result here.</p>
+          <p className="text-sm text-ink-secondary">
+            {board.rows.length === 0
+              ? "Add a strategy above to see the result here."
+              : `Nothing to show yet. ${board.rows[0].strategy.name}: ${board.rows[0].problem}`}
+          </p>
         ) : (
           <>
             <p className="text-sm text-ink-secondary">
-              {rows.length === 1 ? rows[0].strategy.name : "Each strategy"}, if {symbol} is at{" "}
-              <strong className="font-semibold text-ink">{formatPrice(board.price)}</strong> {board.days === 0 ? "today" : `in ${board.days} days`} with IV at {board.ivPct}%:
+              If {symbol} is at <strong className="font-semibold text-ink">{formatPrice(board.price)}</strong> {board.days === 0 ? "today" : `in ${board.days} days`} with IV at {board.ivPct}%:
             </p>
-            <div className="mt-2">{rows.length === 1 ? <SingleResult row={rows[0]} /> : <ComparedResults rows={rows} bestId={board.bestNow} />}</div>
+            <div className="mt-2.5">
+              <StrategyCards desk={desk} rows={rows} bestId={board.bestNow} />
+            </div>
           </>
         )}
       </div>
 
-      {rows.length > 0 ? (
-        <div className="mt-5">
-          <PayoffChart desk={desk} board={board} todayIso={todayIso} onPrice={(price) => onWhatIf({ price: Math.round(price / priceStep) * priceStep })} />
-        </div>
-      ) : null}
     </section>
   );
 }

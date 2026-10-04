@@ -61,10 +61,24 @@ test('saved moments are valued for every strategy', () => {
   assert.equal(row.moments[0].pnl, desks.pnlAt(desk, desk.strategies[0], today, 20, 960, 60));
 });
 
-test('the payoff curve and the price and date map agree with single points', () => {
+test('each strategy carries the figures its card shows', () => {
+  const desk = liteDesk();
+  desk.strategies.push(desks.makeStrategy(desk, { kind: 'debit-call-spread', longStrike: 840, shortStrike: 925 }));
+  // A credit ratio spread is sized by a reserve for its uncovered calls, so it needs a large budget.
+  desk.strategies.push(desks.makeStrategy(desk, { kind: 'call-ratio-spread', longStrike: 840, shortStrike: 900, ratio: 3, budget: 500000 }));
+  const [call, spread, ratio] = desks.evaluateDesk(desk, today).rows;
+  assert.ok(Math.abs(call.unitCost * call.contracts - call.cost) < 0.01, 'unit cost times contracts is the cost');
+  assert.deepEqual([call.maxReturnPct, call.unitCredit, call.lowerBreakEven], [null, null, null], 'a long call is uncapped with one break-even');
+  assert.ok(Math.abs(spread.maxReturnPct - (spread.maxProfit / spread.cost) * 100) < 0.01);
+  assert.ok(spread.breakEven > 840 && spread.breakEven < 925);
+  assert.equal(ratio.problem, null);
+  assert.ok(ratio.unitCredit > 0, 'this ratio spread is entered for a credit');
+  assert.equal(desks.formatCents(356.8), '$356.80');
+});
+
+test('the price and date map agrees with single points', () => {
   const desk = liteDesk();
   const [call] = desk.strategies;
-  assert.deepEqual(desks.payoffCurve(desk, call, today, [700, 960], 20, 60), [desks.pnlAt(desk, call, today, 20, 700, 60), desks.pnlAt(desk, call, today, 20, 960, 60)]);
   const map = desks.priceTimeMap(desk, today, 60);
   assert.equal(map.prices.length, 11);
   assert.equal(map.prices[5], 840, 'today\'s price is the middle row');

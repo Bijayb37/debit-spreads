@@ -208,7 +208,6 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
         <WhatIfCard
           desk={desk}
           board={board}
-          todayIso={todayIso}
           // Moving the what-if is exploring, not editing, so it is not an undo step.
           onWhatIf={(patch) => setDesk((current) => ({ ...current, whatIf: makeWhatIf(current.market, patch, current.whatIf) }))}
           onSaveMoment={() => commit({ ...desk, moments: [...desk.moments, makeMoment(desk, { ...desk.whatIf, days: board.days })] })}

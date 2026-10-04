@@ -67,9 +67,17 @@ export type BoardRow = {
   strategy: Strategy;
   cost: number;
   contracts: number;
+  // Cost of one contract (or one spread) in dollars; for a credit entry, the reserve set aside for it.
+  unitCost: number;
+  // The credit received per contract when the entry is a credit sized by a reserve, else null.
+  unitCredit: number | null;
   maxLoss: number | null;
   maxProfit: number | null;
+  // The most the position can make as a percentage of its cost; null when uncapped.
+  maxReturnPct: number | null;
   breakEven: number;
+  // Ratio spreads have a second, lower break-even.
+  lowerBreakEven: number | null;
   problem: string | null;
   now: Outcome;
   moments: Outcome[];
@@ -101,6 +109,11 @@ const cleanText = (value: unknown, max: number) =>
 
 export function formatPrice(value: number): string {
   return `$${value.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+// Dollars and cents, e.g. $356.83.
+export function formatCents(value: number): string {
+  return `$${value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 // Whole dollars with an explicit sign, e.g. +$6,540 or -$850.
@@ -380,11 +393,6 @@ export function pnlAt(desk: Desk, strategy: Strategy, todayIso: string, day: num
   return result.unitCost > 0 && result.contracts > 0 ? result.pnl : 0;
 }
 
-// One strategy's profit or loss at each stock price, on one day and IV.
-export function payoffCurve(desk: Desk, strategy: Strategy, todayIso: string, prices: number[], day: number, ivPct: number): number[] {
-  return prices.map((price) => pnlAt(desk, strategy, todayIso, day, price, ivPct));
-}
-
 export function evaluateDesk(desk: Desk, todayIso: string): Board {
   // The what-if cannot be dated after the last strategy expires.
   const days = Math.min(desk.whatIf.days, horizonDays(desk));
@@ -406,13 +414,18 @@ export function evaluateDesk(desk: Desk, todayIso: string): Board {
       const { pnl } = snapshot(desk, strategy, todayIso, point.days, point.price, point.ivPct);
       return { pnl, returnPct: cost > 0 ? (pnl / cost) * 100 : 0, value: cost + pnl, expired: point.days > strategy.expirationDays };
     };
+    const maxProfit = !entry || entry.maxProfitPerUnit === null ? null : entry.maxProfitPerUnit * entry.contracts * 100;
     return {
       strategy,
       cost,
       contracts: entry?.contracts ?? 0,
+      unitCost: (entry?.unitCost ?? 0) * 100,
+      unitCredit: entry && entry.reserveOffset > 0 ? -entry.entryPremium * 100 : null,
       maxLoss: !entry || entry.maxLossPerUnit === null ? null : entry.maxLossPerUnit * entry.contracts * 100,
-      maxProfit: !entry || entry.maxProfitPerUnit === null ? null : entry.maxProfitPerUnit * entry.contracts * 100,
+      maxProfit,
+      maxReturnPct: maxProfit === null || cost <= 0 ? null : (maxProfit / cost) * 100,
       breakEven: entry?.breakEvenAtExpiry ?? 0,
+      lowerBreakEven: entry?.lowerBreakEvenAtExpiry ?? null,
       problem,
       now: outcome({ price, days, ivPct }),
       moments: desk.moments.map((moment) =>
