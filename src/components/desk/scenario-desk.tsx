@@ -23,6 +23,7 @@ import { WhatIfCard } from "@/components/desk/what-if";
 const STORAGE_KEY = "callculator-scenario-desk-v1";
 // A shared link carries the whole setup after this marker in the URL hash.
 const SHARE_PREFIX = "#desk=";
+const EDITOR_OPEN_KEY = "callculator-desk-details-open";
 const MAX_UNDO = 30;
 
 export default function ScenarioDesk({ todayIso, children }: { todayIso: string; children?: ReactNode }) {
@@ -30,6 +31,7 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
   const [isLoaded, setIsLoaded] = useState(false);
   const [undoCount, setUndoCount] = useState(0);
   const [selectedId, setSelectedId] = useState("");
+  const [isEditorOpen, setIsEditorOpen] = useState(true);
   const [notice, setNotice] = useState("");
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const history = useRef<{ desk: Desk; group?: string }[]>([]);
@@ -49,6 +51,7 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
           const stored = window.localStorage.getItem(STORAGE_KEY);
           if (stored) setDesk(cleanDesk(JSON.parse(stored)));
         }
+        setIsEditorOpen(window.localStorage.getItem(EDITOR_OPEN_KEY) !== "0");
       } catch {
         // Unreadable link or blocked storage: keep the example desk.
       }
@@ -63,10 +66,11 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
     if (!isLoaded) return;
     try {
       window.localStorage.setItem(STORAGE_KEY, JSON.stringify(desk));
+      window.localStorage.setItem(EDITOR_OPEN_KEY, isEditorOpen ? "1" : "0");
     } catch {
       // Storage can fail in private browsing or when quota is full.
     }
-  }, [desk, isLoaded]);
+  }, [desk, isEditorOpen, isLoaded]);
 
   // Edits in the same group (typing in one field, say) share one undo step.
   const commit = (next: Desk, group?: string) => {
@@ -148,7 +152,13 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
           desk={desk}
           rows={board.rows}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+          isEditorOpen={isEditorOpen}
+          onToggleEditor={() => setIsEditorOpen(!isEditorOpen)}
+          // Picking a strategy is a request to see it, so its details open.
+          onSelect={(id) => {
+            setSelectedId(id);
+            setIsEditorOpen(true);
+          }}
           onMarket={(patch) => {
             const next = withMarket(desk, patch);
             if (JSON.stringify(next.market) === JSON.stringify(desk.market)) return;
@@ -163,6 +173,7 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
             const strategy = makeStrategy(desk, { kind: desk.strategies.length === 0 ? "long-call" : "debit-call-spread" });
             commit({ ...desk, strategies: [...desk.strategies, strategy] });
             setSelectedId(strategy.id);
+            setIsEditorOpen(true);
           }}
           onDuplicate={(id) => {
             const source = desk.strategies.find((item) => item.id === id);

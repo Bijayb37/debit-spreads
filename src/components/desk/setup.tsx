@@ -36,6 +36,8 @@ export function Setup({
   desk,
   rows,
   selectedId,
+  isEditorOpen,
+  onToggleEditor,
   onSelect,
   onMarket,
   onStrategy,
@@ -47,6 +49,9 @@ export function Setup({
   desk: Desk;
   rows: BoardRow[];
   selectedId: string;
+  // When closed, only the row of strategy chips shows.
+  isEditorOpen: boolean;
+  onToggleEditor: () => void;
   onSelect: (id: string) => void;
   onMarket: (patch: Partial<Market>) => void;
   onStrategy: (strategy: Strategy) => void;
@@ -91,7 +96,8 @@ export function Setup({
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="mr-1 text-base font-semibold text-ink">{rows.length > 1 ? "Strategies" : "Strategy"}</h2>
           {rows.map((item) => {
-            const isSelected = item.strategy.id === strategy?.id;
+            // With the details hidden nothing is being edited, so no chip is picked out.
+            const isSelected = isEditorOpen && item.strategy.id === strategy?.id;
             return (
               <span
                 key={item.strategy.id}
@@ -100,6 +106,7 @@ export function Setup({
                 <button
                   type="button"
                   aria-pressed={isSelected}
+                  title={isEditorOpen ? undefined : "Show this strategy's details"}
                   onClick={() => onSelect(item.strategy.id)}
                   className="flex items-center gap-1.5 rounded-l-full py-1 pl-3 pr-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                 >
@@ -130,10 +137,24 @@ export function Setup({
           >
             {rows.length === 0 ? "+ Add a strategy" : "+ Compare with another"}
           </button>
+          {rows.length > 0 ? (
+            <button
+              type="button"
+              aria-expanded={isEditorOpen}
+              aria-controls="strategy-editor"
+              onClick={onToggleEditor}
+              className={cn(action, "flex items-center gap-1 hover:border-accent hover:text-accent")}
+            >
+              {isEditorOpen ? "Hide details" : "Show details"}
+              <svg viewBox="0 0 20 20" aria-hidden className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+                <path d={isEditorOpen ? "M5 12l5-5 5 5" : "M5 8l5 5 5-5"} />
+              </svg>
+            </button>
+          ) : null}
         </div>
 
         {strategy && info ? (
-          <div className="mt-3 space-y-3">
+          <div id="strategy-editor" hidden={!isEditorOpen} className="mt-3 space-y-3">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <label className={cn(fieldLabel, "col-span-2 sm:col-span-1")}>
                 Type
