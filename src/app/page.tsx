@@ -1,5 +1,5 @@
-import DebitCallSpreadLab from "@/components/debit-call-spread-lab";
-import { addDaysToIso, dateToIso } from "@/lib/debit-call-spread";
+import ScenarioDesk from "@/components/desk/scenario-desk";
+import { dateToIso } from "@/lib/debit-call-spread";
 import type { Metadata } from "next";
 import { buildWebApplicationJsonLd, buildWebsiteJsonLd } from "./seo-content";
 import { HomeSeoContent } from "./seo-page-components";
@@ -41,17 +41,13 @@ export const metadata: Metadata = {
 
 export default function Home() {
   const todayIso = dateToIso(new Date());
-  const defaultExpiryIso = addDaysToIso(todayIso, 60);
 
   return (
     <>
       <JsonLd data={[buildWebApplicationJsonLd(), buildWebsiteJsonLd()]} />
-      <DebitCallSpreadLab
-        todayIso={todayIso}
-        defaultExpiryIso={defaultExpiryIso}
-      >
+      <ScenarioDesk todayIso={todayIso}>
         <HomeSeoContent />
-      </DebitCallSpreadLab>
+      </ScenarioDesk>
     </>
   );
 }
