@@ -15,14 +15,15 @@ import { outcomeTint, seriesColor } from "@/components/desk/colors";
 // Every stock price against every date, for all strategies at once. "Best" shows
 // which strategy is ahead in each cell; picking one strategy shows only its values.
 export function PriceTimeMap({ desk, board, todayIso }: { desk: Desk; board: Board; todayIso: string }) {
-  // null follows the entry IV.
+  // null follows the what-if's IV.
   const [iv, setIv] = useState<number | null>(null);
   const [view, setView] = useState("best");
   const [active, setActive] = useState<{ row: number; column: number } | null>(null);
-  const ivPct = iv ?? desk.market.ivPct;
+  const ivPct = iv ?? board.ivPct;
   const map = useMemo(() => priceTimeMap(desk, todayIso, ivPct), [desk, todayIso, ivPct]);
   const rows = board.rows.filter((row) => !row.problem);
-  const shown = rows.find((row) => row.strategy.id === view);
+  // With one strategy there is nothing to rank, so show it directly.
+  const shown = rows.find((row) => row.strategy.id === view) ?? (rows.length === 1 ? rows[0] : undefined);
   const cell = active && map.prices[active.row] !== undefined && map.days[active.column] !== undefined ? active : null;
 
   const valuesAt = (rowIndex: number, columnIndex: number) =>
@@ -34,8 +35,7 @@ export function PriceTimeMap({ desk, board, todayIso }: { desk: Desk; board: Boa
     <div className="min-w-0">
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
         <div>
-          <h2 className="text-base font-semibold text-ink">Every price, every date</h2>
-          <p className="text-xs text-ink-secondary">
+          <p className="text-sm text-ink-secondary">
             {shown ? `${shown.strategy.name}: profit or loss` : "Which strategy is ahead, and by how much"} if {desk.market.symbol} is at each price on each day.
           </p>
         </div>
@@ -44,11 +44,11 @@ export function PriceTimeMap({ desk, board, todayIso }: { desk: Desk; board: Boa
             Show
             <select
               id="map-view"
-              value={shown ? view : "best"}
+              value={shown ? shown.strategy.id : "best"}
               onChange={(event) => setView(event.target.value)}
               className="mt-1 block rounded-md border border-line-strong bg-surface px-2 py-1 text-sm text-ink outline-none focus:border-accent"
             >
-              <option value="best">Best strategy</option>
+              {rows.length > 1 ? <option value="best">Best strategy</option> : null}
               {rows.map((row) => (
                 <option key={row.strategy.id} value={row.strategy.id}>
                   {row.strategy.name}
@@ -73,11 +73,11 @@ export function PriceTimeMap({ desk, board, todayIso }: { desk: Desk; board: Boa
               <span className="w-10 font-mono text-sm font-semibold text-ink tabular-nums">{Math.round(ivPct)}%</span>
               <button
                 type="button"
-                disabled={iv === null || iv === desk.market.ivPct}
+                disabled={iv === null || iv === board.ivPct}
                 onClick={() => setIv(null)}
                 className="text-xs font-semibold text-accent underline-offset-2 hover:underline disabled:text-ink-muted disabled:no-underline"
               >
-                Entry IV
+                Reset
               </button>
             </span>
           </label>

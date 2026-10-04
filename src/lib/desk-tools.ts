@@ -1,22 +1,24 @@
 import type { OptionStrategy } from "@/lib/debit-call-spread";
 import {
   KIND_IDS,
-  MAX_SCENARIOS,
+  MAX_MOMENTS,
   MAX_STRATEGIES,
-  autoScenarioName,
   horizonDays,
-  makeScenario,
+  makeMoment,
   makeStrategy,
+  makeWhatIf,
+  momentLabel,
+  movePrice,
   pnlAt,
   strategyProblem,
   withMarket,
   type Desk,
-  type ScenarioInput,
   type Strategy,
+  type WhatIfInput,
 } from "@/lib/scenario-desk";
 
 // The assistant's tools. Each one edits a copy of the desk on the server and the
-// model is shown the recalculated board, so it explains real numbers.
+// model is shown the recalculated desk, so it explains real numbers.
 
 const strategyFields = {
   name: { type: "string", description: "Short name. Omit to generate one from the strikes." },
@@ -32,22 +34,11 @@ const strategyFields = {
   budget: { type: "number", description: "USD to allocate. Keep budgets equal across strategies unless the user says otherwise." },
 };
 
-const stepFields = {
-  days: { type: "integer", description: "Days from today, 1 or more. Omit on the last step to mean the day the longest-dated strategy expires." },
+const pointFields = {
   price: { type: "number", description: "Stock price in USD at that point. Use this when the user gives prices." },
   movePct: { type: "number", description: "Alternative to price: move from today's price in percent, e.g. -12." },
-  ivPct: { type: "number", description: "IV in percent at that point. Omit to keep the entry IV." },
-};
-
-const scenarioFields = {
-  name: { type: "string", description: "Short name, e.g. 'Rally then fade'." },
-  steps: {
-    type: "array",
-    description:
-      "The stock's path as up to 5 checkpoints in time order. Use several steps when the user describes a sequence, e.g. 'runs to 960 in three weeks, then back to 850 by day 45' is two steps. One step is a simple move.",
-    items: { type: "object", properties: stepFields },
-  },
-  odds: { type: "number", description: "The user's own relative weight for this scenario, 0 to 100. Set only from what the user says they believe." },
+  days: { type: "integer", description: "Days from today, 0 or more." },
+  ivPct: { type: "number", description: "IV in percent at that point. Omit to keep today's IV." },
 };
 
 type Tool = {
@@ -59,7 +50,7 @@ type Tool = {
 export const DESK_TOOLS: Tool[] = [
   {
     name: "add_strategy",
-    description: "Add an option strategy to the comparison. Call once per strategy.",
+    description: "Add an option strategy. Call once per strategy. Add only what the user asks for; one strategy is often enough.",
     parameters: {
       type: "object",
       properties: { kind: { type: "string", enum: KIND_IDS }, ...strategyFields },
@@ -77,34 +68,35 @@ export const DESK_TOOLS: Tool[] = [
     parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
   },
   {
-    name: "set_scenarios",
-    description: "Add what-if scenarios, or replace the whole list. Each scenario is a path of one or more steps; every strategy is valued at every step.",
+    name: "show_what_if",
+    description: "Move the page's what-if controls to a stock price, day and IV, so the user sees every strategy at that point. Pass only what changes.",
+    parameters: { type: "object", properties: pointFields },
+  },
+  {
+    name: "save_moments",
+    description:
+      "Save points in time to compare side by side. When the user describes a sequence ('it ran to 960 in three weeks, then fell to 850 by day 45'), save one moment per point.",
     parameters: {
       type: "object",
       properties: {
-        replace: { type: "boolean", description: "true replaces all scenarios; false (default) adds to them." },
-        scenarios: { type: "array", items: { type: "object", properties: scenarioFields } },
+        replace: { type: "boolean", description: "true replaces all saved moments; false (default) adds to them." },
+        moments: {
+          type: "array",
+          items: { type: "object", properties: { name: { type: "string", description: "Optional short name." }, ...pointFields } },
+        },
       },
-      required: ["scenarios"],
+      required: ["moments"],
     },
   },
   {
-    name: "update_scenario",
-    description: "Change an existing scenario by id, for example the user's odds. Pass only what changes; steps replaces the whole path.",
-    parameters: { type: "object", properties: { id: { type: "string" }, ...scenarioFields }, required: ["id"] },
-  },
-  {
-    name: "remove_scenario",
-    description: "Remove a scenario by id.",
+    name: "remove_moment",
+    description: "Remove a saved moment by id.",
     parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
   },
   {
     name: "what_if",
-    description: "Read-only. Returns every strategy's profit or loss with the stock at one price on one day, without changing the board. Use it for questions about a point that is not a step on the board.",
-    parameters: {
-      type: "object",
-      properties: { ...stepFields, days: { type: "integer", description: "Days from today. Omit for the day the longest-dated strategy expires." } },
-    },
+    description: "Read-only. Returns every strategy's profit or loss at one stock price, day and IV without changing the page.",
+    parameters: { type: "object", properties: pointFields },
   },
   {
     name: "set_market",
@@ -170,65 +162,54 @@ export function runDeskTool(
     return { desk: { ...desk, strategies: desk.strategies.filter((item) => item.id !== current.id) }, summary: `Removed ${current.name}` };
   }
 
-  if (name === "set_scenarios") {
-    if (!Array.isArray(args.scenarios) || args.scenarios.length === 0) throw new Error("scenarios must be a non-empty list.");
-    let next: Desk = { ...desk, scenarios: args.replace === true ? [] : desk.scenarios };
-    const room = MAX_SCENARIOS - next.scenarios.length;
-    if (room <= 0) throw new Error(`The desk holds at most ${MAX_SCENARIOS} scenarios. Remove one or pass replace: true.`);
-    const added: string[] = [];
-    for (const entry of args.scenarios.slice(0, room)) {
-      if (!entry || typeof entry !== "object") continue;
-      const scenario = makeScenario(next, { ...(entry as ScenarioInput), id: undefined });
-      next = { ...next, scenarios: [...next.scenarios, scenario] };
-      added.push(scenario.name);
-    }
-    if (added.length === 0) throw new Error("No usable scenarios were given.");
-    return { desk: next, summary: `${args.replace === true ? "Set scenarios to" : "Added scenario"} ${added.join(", ")}` };
-  }
-
-  if (name === "update_scenario") {
-    const current = findById(desk.scenarios, args.id, "scenario");
-    const newSteps = Array.isArray(args.steps) && args.steps.length > 0;
-    // A generated name follows the new path; a custom one is kept.
-    const hadAutoName = current.name === autoScenarioName(desk.market, current.steps);
-    const scenario = makeScenario(desk, {
-      id: current.id,
-      odds: typeof args.odds === "number" ? args.odds : current.odds,
-      steps: newSteps ? (args.steps as ScenarioInput["steps"]) : current.steps,
-      name: typeof args.name === "string" ? args.name : newSteps && hadAutoName ? "" : current.name,
-    });
+  if (name === "show_what_if") {
+    const whatIf = makeWhatIf(desk.market, args as WhatIfInput, desk.whatIf);
     return {
-      desk: { ...desk, scenarios: desk.scenarios.map((item) => (item.id === current.id ? scenario : item)) },
-      summary: `Updated scenario ${scenario.name}`,
+      desk: { ...desk, whatIf },
+      summary: `Showing $${movePrice(desk.market, whatIf.movePct)} on day ${whatIf.days}`,
     };
   }
 
+  if (name === "save_moments") {
+    if (!Array.isArray(args.moments) || args.moments.length === 0) throw new Error("moments must be a non-empty list.");
+    let next: Desk = { ...desk, moments: args.replace === true ? [] : desk.moments };
+    const room = MAX_MOMENTS - next.moments.length;
+    if (room <= 0) throw new Error(`The desk holds at most ${MAX_MOMENTS} saved moments. Remove one or pass replace: true.`);
+    const added: string[] = [];
+    for (const entry of args.moments.slice(0, room)) {
+      if (!entry || typeof entry !== "object") continue;
+      const moment = makeMoment(next, { ...(entry as WhatIfInput & { name?: string }), id: undefined });
+      next = { ...next, moments: [...next.moments, moment] };
+      added.push(momentLabel(next.market, moment));
+    }
+    if (added.length === 0) throw new Error("No usable moments were given.");
+    return { desk: next, summary: `Saved ${added.join(", ")}` };
+  }
+
+  if (name === "remove_moment") {
+    const current = findById(desk.moments, args.id, "saved moment");
+    return { desk: { ...desk, moments: desk.moments.filter((item) => item.id !== current.id) }, summary: `Removed ${momentLabel(desk.market, current)}` };
+  }
+
   if (name === "what_if") {
-    const [step] = makeScenario(desk, { steps: [args as ScenarioInput] }).steps;
-    const day = step.days ?? horizonDays(desk);
-    const price = Math.max(0.01, desk.market.spot * (1 + step.movePct / 100));
-    const ivPct = step.ivPct ?? desk.market.ivPct;
+    const point = makeWhatIf(desk.market, args as WhatIfInput, { movePct: 0, days: horizonDays(desk), ivPct: null });
+    const price = movePrice(desk.market, point.movePct);
+    const ivPct = point.ivPct ?? desk.market.ivPct;
     return {
       desk,
-      summary: `Checked $${Math.round(price * 100) / 100} on day ${day}`,
+      summary: `Checked $${price} on day ${point.days}`,
       output: {
-        day,
-        stockPrice: Math.round(price * 100) / 100,
+        day: point.days,
+        stockPrice: price,
         ivPct,
         pnlByStrategy: desk.strategies.map((strategy) => ({
           id: strategy.id,
           name: strategy.name,
-          pnl: Math.round(pnlAt(desk, strategy, todayIso, day, price, ivPct)),
-          ...(day > strategy.expirationDays ? { note: `expired on day ${strategy.expirationDays}; shown at expiry at this price` } : {}),
+          pnl: Math.round(pnlAt(desk, strategy, todayIso, point.days, price, ivPct)),
+          ...(point.days > strategy.expirationDays ? { note: `expired on day ${strategy.expirationDays}; shown at expiry at this price` } : {}),
         })),
       },
     };
-  }
-
-  if (name === "remove_scenario") {
-    const current = findById(desk.scenarios, args.id, "scenario");
-    if (desk.scenarios.length <= 1) throw new Error("The desk needs at least one scenario.");
-    return { desk: { ...desk, scenarios: desk.scenarios.filter((item) => item.id !== current.id) }, summary: `Removed scenario ${current.name}` };
   }
 
   if (name === "set_market") {

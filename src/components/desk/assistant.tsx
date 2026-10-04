@@ -90,7 +90,7 @@ export function Assistant({
       const activity: string[] = Array.isArray(data.activity) ? data.activity.filter((item: unknown) => typeof item === "string") : [];
       if (data.desk) {
         // The assistant edited a copy of the desk as it was sent; don't overwrite newer edits.
-        if (latestDesk.current !== sentDesk) throw new Error("You changed the board while the assistant was working, so its changes were not applied. Send the request again.");
+        if (latestDesk.current !== sentDesk) throw new Error("You changed the page while the assistant was working, so its changes were not applied. Send the request again.");
         onDesk(cleanDesk(data.desk), activity.join(" · "));
       }
       setHistories((current) => ({ ...current, [provider]: [...next, { role: "assistant", content: data.reply, activity }] }));
@@ -104,30 +104,23 @@ export function Assistant({
     }
   }
 
-  const suggestions =
-    desk.strategies.length < 2
-      ? [
-          `Build three different bullish strategies on ${desk.market.symbol} with the same budget`,
-          `I think ${desk.market.symbol} drops. Build two bearish strategies to compare`,
-        ]
-      : [
-          "Which strategy holds up best across these scenarios, and what does each one give up?",
-          `Add a scenario: ${desk.market.symbol} runs up 15% in three weeks, then falls back to today's price by day 45`,
-          "I think flat is twice as likely as any other outcome. Set my odds and tell me what changes",
-          "Add a strategy that does better where my current ones lose",
-        ];
+  const suggestions = [
+    `What happens to my position if ${desk.market.symbol} rallies 15% in three weeks and then gives it back by day 45?`,
+    "Why is the same stock price worth less to me later on?",
+    desk.strategies.length > 1 ? "Which of these holds up best if the stock goes nowhere?" : "Add a cheaper alternative to compare with this",
+  ];
 
   return (
     <aside aria-label="Assistant" className="flex h-full min-h-0 flex-col bg-surface">
       <header className="flex items-center gap-2 border-b border-line px-4 py-3">
         <div className="min-w-0 flex-1">
           <h2 className="text-base font-semibold text-ink">Assistant</h2>
-          <p className="truncate text-xs text-ink-muted">Builds strategies and scenarios, and reads the board with you</p>
+          <p className="truncate text-xs text-ink-muted">Sets things up and explains the numbers</p>
         </div>
         <button type="button" aria-expanded={showSettings} onClick={() => setShowSettings(!showSettings)} className="text-xs font-semibold text-accent underline-offset-2 hover:underline">
           {providers[provider].name}
         </button>
-        <button type="button" aria-label="Close assistant" onClick={onClose} className="grid size-8 place-items-center rounded-md text-xl text-ink-secondary hover:bg-surface-sunken lg:hidden">
+        <button type="button" aria-label="Close assistant" onClick={onClose} className="grid size-8 place-items-center rounded-md text-xl text-ink-secondary hover:bg-surface-sunken">
           ×
         </button>
       </header>
@@ -154,14 +147,14 @@ export function Assistant({
               onChange={(event) => setConnections((current) => ({ ...current, [provider]: { ...current[provider], model: event.target.value } }))} className={cn(input, "mt-1 font-mono text-xs")} />
           </label>
           <p className="text-caption leading-relaxed text-ink-muted">
-            {needsKey ? "Your key stays in memory until you reload and is sent only to OpenAI through this app." : "Gemini uses this app's own key."} Your board is sent with each message.
+            {needsKey ? "Your key stays in memory until you reload and is sent only to OpenAI through this app." : "Gemini uses this app's own key."} Your setup is sent with each message.
           </p>
         </div>
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3">
         {messages.length === 0 ? (
           <div className="space-y-2">
-            <p className="text-sm text-ink-secondary">Ask in plain words. Changes show up on the board straight away and can be undone.</p>
+            <p className="text-sm text-ink-secondary">Ask in plain words. Changes show up on the page straight away and can be undone.</p>
             {suggestions.map((suggestion) => (
               <button key={suggestion} type="button" onClick={() => { setDraft(suggestion); box.current?.focus(); }}
                 className="block w-full rounded-lg border border-line bg-surface px-3 py-2 text-left text-sm text-ink-soft hover:border-accent-border hover:bg-accent-faint focus-visible:outline-2 focus-visible:outline-accent">
@@ -185,7 +178,7 @@ export function Assistant({
             </div>
           ))}
         </div>
-        {busy ? <p role="status" className="mt-3 text-sm text-ink-muted motion-safe:animate-pulse">Working on the board…</p> : null}
+        {busy ? <p role="status" className="mt-3 text-sm text-ink-muted motion-safe:animate-pulse">Working on it…</p> : null}
         {error ? <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-2.5 text-sm text-loss">{error}</p> : null}
         <div ref={end} />
       </div>

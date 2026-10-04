@@ -2,17 +2,18 @@
 
 A Next.js app for modeling eight option strategies with editable inputs, saved comparisons, scenario charts, and value tables: debit call spreads, debit put spreads, bull put spreads, call ratio spreads, put ratio spreads, call calendars, long calls, and long puts.
 
-## Scenario desk
+## What-if calculator
 
-The home page is the scenario desk: one stock, several option strategies, and several what-if scenarios, each of which is a path over time.
+The home page answers one question with as little on screen as possible: what does my option position make or lose if the stock is at a given price, on a given day, at a given IV?
 
-- **Scenarios are paths.** A scenario has one to five steps, each with a stock price, a day and an optional IV, for example "up to $960 by day 20, then back to $850 by day 45". The stock moves in a straight line between steps. A last step with no day lands on the last expiry on the desk.
-- **The outcome table** shows what each strategy has made or lost at the end of each scenario, marks the best per scenario, and ends each row with its odds-weighted, worst and best result. The "How likely?" row holds your own weights.
-- **Along the way** shows the selected scenario step by step: the stock's path, each strategy's profit or loss day by day, and a table of every strategy at every step with its low and high point. A strategy that expires before a step keeps the result it had on its expiry day.
-- **Every price, every date** is a grid of stock prices against days at a chosen IV. It shows which strategy is ahead in each cell, or one strategy's values, and lists every strategy for the cell you point at.
+- **Setup** is one card: the stock (ticker, price today, IV today) and one strategy with its type, strikes, expiry and budget as plain inputs. A sentence underneath says what it costs, where it breaks even and what it can make or lose. "Compare with another" adds more strategies, up to six.
+- **What if** has three sliders: stock price, days from today, and IV. The result updates as they move. One strategy shows a single large figure; several show one line each with a bar.
+- **The chart** shows profit or loss across stock prices on the chosen day (and at expiry when there is one strategy). Clicking it sets the price.
+- **Saved moments** keep points to compare side by side, such as $960 on day 20 and $850 on day 45. Selecting one loads it back into the sliders.
+- **Every price and every date at once** is a collapsed grid for when the sliders are not enough.
 - **Changing the stock price** rescales existing strikes so each strategy keeps its moneyness.
-- **The assistant** (`/api/desk-assistant`) can add, change and remove strategies and scenarios (including multi-step paths), set your odds, change the stock, and look up any price and day with `what_if`. It runs its tools on the server against the same pricing code as the page, sees the recalculated board, then answers. Gemini uses `GEMINI_API_KEY`; ChatGPT uses a key you paste in. Assistant changes can be undone.
-- The desk is saved in the browser. The earlier calculator is at `/classic`.
+- **Ask AI** (`/api/desk-assistant`) opens a side panel. The assistant can set up the stock and strategies, move the what-if, save moments and look up any point. It runs its tools on the server against the same pricing code as the page, sees the recalculated numbers, then answers. Gemini uses `GEMINI_API_KEY`; ChatGPT uses a key you paste in. Its changes can be undone.
+- The page is saved in the browser. The earlier calculator is at `/classic`.
 
 The model lives in `src/lib/scenario-desk.ts`, the assistant's tools in `src/lib/desk-tools.ts`, and the page in `src/components/desk/`.
 
