@@ -13,7 +13,7 @@ export function WorkflowTabs({
 }) {
   return (
     <div
-      className="grid min-w-0 grid-cols-5 rounded-lg border border-line bg-surface-sunken p-1 shadow-sm"
+      className="grid min-w-0 grid-cols-3 rounded-lg border border-line bg-surface-sunken p-1 shadow-sm"
       aria-label="Workflow"
     >
       {WORKFLOW_TABS.map((tab) => {

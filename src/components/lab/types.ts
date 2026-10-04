@@ -13,7 +13,7 @@ export type ScenarioGraphView = "decay" | "overlay" | "map";
 
 export type ColorScheme = "blue" | "teal" | "graphite" | "red" | "green";
 
-export type MoneyDisplayUnit = "dollars" | "thousands" | "millions";
+export type MoneyDisplayUnit = "thousands" | "millions";
 
 export type TableColumn<Row> = {
   key: string;
@@ -29,12 +29,7 @@ export type PriceTableRow = PriceLadderRow & { id: string };
 
 export type ComparisonPanelMode = "hidden" | "presets" | "custom";
 
-export type WorkflowTab =
-  | "setup"
-  | "decision"
-  | "heatmap"
-  | "analysis"
-  | "understanding-iv";
+export type WorkflowTab = "setup" | "decision" | "heatmap";
 
 export type DecisionComparisonView = "cards" | "detailed-cards" | "table" | "matrix";
 

@@ -1,35 +1,20 @@
 import { roundTo } from "@/lib/debit-call-spread";
+import { DEFAULT_MONEY_DISPLAY_UNIT } from "@/components/lab/constants";
 import type { MoneyDisplayUnit } from "@/components/lab/types";
 
 export function getMoneyDisplayUnitScale(unit: MoneyDisplayUnit): number {
-  if (unit === "millions") {
-    return 1_000_000;
-  }
-
-  if (unit === "thousands") {
-    return 1_000;
-  }
-
-  return 1;
+  return unit === "millions" ? 1_000_000 : 1_000;
 }
 
-export function getMoneyDisplayUnitSuffix(unit: MoneyDisplayUnit): string | undefined {
-  if (unit === "millions") {
-    return "M";
-  }
-
-  if (unit === "thousands") {
-    return "K";
-  }
-
-  return undefined;
+export function getMoneyDisplayUnitSuffix(unit: MoneyDisplayUnit): string {
+  return unit === "millions" ? "M" : "K";
 }
 
 export function compactNumber(value: number): string {
   return String(roundTo(value, 2)).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
 }
 
-let activeMoneyDisplayUnit: MoneyDisplayUnit = "dollars";
+let activeMoneyDisplayUnit: MoneyDisplayUnit = DEFAULT_MONEY_DISPLAY_UNIT;
 
 export function setActiveMoneyDisplayUnit(unit: MoneyDisplayUnit) {
   activeMoneyDisplayUnit = unit;
@@ -54,7 +39,7 @@ function formatScaledCurrency(value: number, unit: MoneyDisplayUnit): string {
   const safeValue = Object.is(roundedValue, -0) ? 0 : roundedValue;
   const absValue = Math.abs(safeValue);
 
-  if (unit === "dollars" || absValue < 1000) {
+  if (absValue < 1000) {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
@@ -87,7 +72,7 @@ export function formatCurrencyWithCents(value: number): string {
   const safeValue = Object.is(roundedValue, -0) ? 0 : roundedValue;
   const absValue = Math.abs(safeValue);
 
-  if (activeMoneyDisplayUnit === "dollars" || absValue < 1000) {
+  if (absValue < 1000) {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency: "USD",
@@ -116,24 +101,7 @@ export function formatPriceCurrency(value: number): string {
 }
 
 export function formatCompactCurrency(value: number): string {
-  if (activeMoneyDisplayUnit !== "dollars") {
-    return formatScaledCurrency(value, activeMoneyDisplayUnit);
-  }
-
-  const roundedValue = Math.round(value);
-  const safeValue = Object.is(roundedValue, -0) ? 0 : roundedValue;
-  const sign = safeValue < 0 ? "-" : "";
-  const absValue = Math.abs(safeValue);
-
-  if (absValue >= 1_000_000) {
-    return `${sign}$${Math.round(absValue / 1_000_000)}M`;
-  }
-
-  if (absValue >= 1_000) {
-    return `${sign}$${Math.round(absValue / 1_000)}K`;
-  }
-
-  return `${sign}$${absValue}`;
+  return formatScaledCurrency(value, activeMoneyDisplayUnit);
 }
 
 export function formatPercent(value: number): string {

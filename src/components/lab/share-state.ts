@@ -7,6 +7,7 @@ import {
 } from "@/lib/debit-call-spread";
 import type { OptionStrategy } from "@/lib/debit-call-spread";
 import {
+  DEFAULT_MONEY_DISPLAY_UNIT,
   DEFAULT_SCENARIO_GRAPH_VIEW,
   DEFAULT_SPOT,
   DEFAULT_WORKFLOW_TAB,
@@ -47,14 +48,12 @@ export function decodeColorScheme(value: string | null | undefined): ColorScheme
 }
 
 export function decodeMoneyDisplayUnit(value: string | null | undefined): MoneyDisplayUnit {
-  return value === "thousands" || value === "millions" ? value : "dollars";
+  return value === "millions" ? value : DEFAULT_MONEY_DISPLAY_UNIT;
 }
 
 function encodeWorkflowTab(tab: WorkflowTab): string {
   if (tab === "decision") return "d";
   if (tab === "heatmap") return "h";
-  if (tab === "analysis") return "a";
-  if (tab === "understanding-iv") return "i";
   return "s";
 }
 
@@ -62,9 +61,8 @@ function decodeWorkflowTab(value: string | undefined): WorkflowTab {
   // "o" historically meant the old Compare/Opportunities step; send old links to Compare.
   if (value === "o") return "decision";
   if (value === "d") return "decision";
-  if (value === "h") return "heatmap";
-  if (value === "a") return "analysis";
-  if (value === "i") return "understanding-iv";
+  // Old Analyze links now open the remaining chart tab.
+  if (value === "h" || value === "a") return "heatmap";
   return DEFAULT_WORKFLOW_TAB;
 }
 

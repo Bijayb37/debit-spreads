@@ -5,7 +5,6 @@ import type { KeyboardEvent, ReactNode } from "react";
 import DebitSpreadScenarioVisualizer from "@/components/debit-spread-scenario-visualizer";
 import AiHelp from "@/components/ai-help";
 import { cn } from "@/lib/cn";
-import type { IvComparisonInstrument } from "@/lib/iv-comparison";
 import {
   CONTRACT_MULTIPLIER,
   PUT_RATIO_SHORT_COUNT_MAX,
@@ -38,6 +37,7 @@ import {
 import {
   COLOR_SCHEME_STORAGE_KEY,
   DEFAULT_DECISION_COMPARISON_VIEW,
+  DEFAULT_MONEY_DISPLAY_UNIT,
   DEFAULT_SCENARIO_GRAPH_VIEW,
   DEFAULT_SPOT,
   DEFAULT_WORKFLOW_TAB,
@@ -45,7 +45,6 @@ import {
   MONEY_DISPLAY_UNIT_STORAGE_KEY,
   STRATEGY_COPY,
   STRATEGY_OPTIONS,
-  STRIKE_DECIMAL_DIGITS,
   TOP_BAR_HOVER_HIDE_Y,
   TOP_BAR_HOVER_REVEAL_HEIGHT,
   TOP_BAR_REVEAL_SCROLL_TOP,
@@ -128,7 +127,6 @@ import type {
   CustomComparisonDraft,
   DecisionComparisonView,
   GraphComparisonOption,
-  IvAlternativeStrategy,
   MoneyDisplayUnit,
   PriceTableRow,
   ScenarioGraphView,
@@ -137,7 +135,6 @@ import type {
   ValuationDateInputMode,
   WorkflowTab,
 } from "@/components/lab/types";
-import { UnderstandingIvTool } from "@/components/lab/understanding-iv-tool";
 import { WorkflowTabs } from "@/components/lab/workflow-tabs";
 
 type DebitCallSpreadLabProps = {
@@ -214,7 +211,7 @@ export default function DebitCallSpreadLab({
     useState<DecisionComparisonView>(DEFAULT_DECISION_COMPARISON_VIEW);
   const [colorScheme, setColorScheme] = useState<ColorScheme>("blue");
   const [moneyDisplayUnit, setMoneyDisplayUnit] =
-    useState<MoneyDisplayUnit>("dollars");
+    useState<MoneyDisplayUnit>(DEFAULT_MONEY_DISPLAY_UNIT);
   const [updateStrikesWithPrice, setUpdateStrikesWithPrice] = useState(true);
   const [isCoreSetupOpen, setIsCoreSetupOpen] = useState(false);
   const [isSetupFormVisible, setIsSetupFormVisible] = useState(false);
@@ -1570,137 +1567,6 @@ export default function DebitCallSpreadLab({
     setIsCustomComparisonEditorOpen(false);
     setIsSetupFormVisible(false);
   };
-  const createIvAlternativeStrategy = (
-    alternative: IvAlternativeStrategy,
-  ) => {
-    const nextStrategy: OptionStrategy =
-      alternative.instrument === "long-call"
-        ? "long-call"
-        : "debit-call-spread";
-    const nextLongStrike = normalizeStrikeValue(alternative.longStrike);
-    const nextShortStrike = normalizeShortStrikeForStrategy(
-      nextStrategy,
-      nextLongStrike,
-      alternative.shortStrike,
-    );
-    const nextExpirationDays = clamp(
-      Math.round(alternative.expirationDays),
-      1,
-      1095,
-    );
-    const nextVolatilityPct = clamp(alternative.volatilityPct, 0, 300);
-    const nextScenarioPrice = normalizePriceValue(
-      alternative.scenarioPrice,
-    );
-    const nextScenarioOffsetDays = clamp(
-      Math.round(alternative.scenarioOffsetDays),
-      0,
-      nextExpirationDays,
-    );
-    const nextCapital = Math.max(
-      1,
-      normalizeCapitalValue(alternative.capital),
-    );
-    const nextSymbol = normalizeSymbol(alternative.symbol);
-    const nextSpot = normalizePriceValue(alternative.spot);
-    const nextTodayIso = alternative.todayIso;
-    const nextRatePct = clamp(alternative.ratePct, 0, 15);
-    const nextAllowFractionalContracts =
-      alternative.allowFractionalContracts;
-    const nextShortExpirationDays =
-      normalizeCallCalendarShortExpirationDays(
-        shortExpirationDays,
-        nextExpirationDays,
-      );
-    const matchingComparison = customComparisons.find(
-      (comparison) =>
-        comparison.strategy === nextStrategy &&
-        comparison.longStrike === nextLongStrike &&
-        comparison.shortStrike === nextShortStrike &&
-        comparison.capital === nextCapital &&
-        comparison.expirationDays === nextExpirationDays &&
-        comparison.allowFractionalContracts ===
-          nextAllowFractionalContracts &&
-        comparison.symbol === nextSymbol &&
-        comparison.todayIso === nextTodayIso &&
-        comparison.spot === nextSpot &&
-        comparison.volatilityPct === nextVolatilityPct &&
-        comparison.futureVolatilityPct === nextVolatilityPct &&
-        comparison.ratePct === nextRatePct &&
-        comparison.dividendYieldPct === 0,
-    );
-    let selectedComparison = matchingComparison;
-    let nextComparisons = customComparisons;
-
-    if (!selectedComparison) {
-      customComparisonIdCounter.current += 1;
-      const nextId = `custom-${customComparisonIdCounter.current}-${customComparisons.length}`;
-      selectedComparison = {
-        id: nextId,
-        label: getCustomComparisonLabel({
-          label: "",
-          strategy: nextStrategy,
-          longStrike: nextLongStrike,
-          shortStrike: nextShortStrike,
-          ratioShortCount: putRatioShortCount,
-          shortExpirationDays: nextShortExpirationDays,
-          expirationDays: nextExpirationDays,
-        }),
-        strategy: nextStrategy,
-        longStrike: nextLongStrike,
-        shortStrike: nextShortStrike,
-        ratioShortCount: normalizePutRatioShortCount(putRatioShortCount),
-        shortExpirationDays: nextShortExpirationDays,
-        capital: nextCapital,
-        expirationDays: nextExpirationDays,
-        allowFractionalContracts: nextAllowFractionalContracts,
-        symbol: nextSymbol,
-        todayIso: nextTodayIso,
-        spot: nextSpot,
-        volatilityPct: nextVolatilityPct,
-        futureVolatilityPct: nextVolatilityPct,
-        scenarioPrice: nextScenarioPrice,
-        scenarioOffsetDays: nextScenarioOffsetDays,
-        ratePct: nextRatePct,
-        dividendYieldPct: 0,
-      };
-      nextComparisons = [selectedComparison, ...customComparisons];
-      pendingScenarioOffsetAfterStrategyChangeRef.current =
-        nextScenarioOffsetDays;
-      setCustomComparisons(nextComparisons);
-    }
-
-    setStrategy(nextStrategy);
-    setLongStrike(nextLongStrike);
-    setShortStrike(nextShortStrike);
-    setExpirationDays(nextExpirationDays);
-    setShortExpirationDays(nextShortExpirationDays);
-    setVolatilityPct(nextVolatilityPct);
-    setFutureVolatilityPct(nextVolatilityPct);
-    setSymbol(nextSymbol);
-    setSpot(nextSpot);
-    setAllowFractionalContracts(nextAllowFractionalContracts);
-    setRatePct(nextRatePct);
-    setRatePctDraft(compactNumber(nextRatePct));
-    setScenarioPrice(nextScenarioPrice);
-    setScenarioPriceDraft(null);
-    setCapital(nextCapital);
-    setCustomDraft({
-      ...selectedComparison,
-      label: "",
-      scenarioPrice: nextScenarioPrice,
-      scenarioOffsetDays: nextScenarioOffsetDays,
-    });
-    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays);
-    setScenarioOffsetDays(nextScenarioOffsetDays);
-    setValuationDteDraft(null);
-    setComparisonPanelMode("custom");
-    setGraphComparisonId(`custom:${selectedComparison.id}`);
-    setEditingComparisonId(null);
-    setIsCustomComparisonEditorOpen(false);
-    setIsSetupFormVisible(false);
-    setActiveWorkflowTab("decision");
-  };
   const createAiStrategy = (request: AiStrategyRequest): string => {
     const nextStrategy = request.strategy;
     const nextLongStrike = normalizeStrikeValue(request.longStrike);
@@ -2067,16 +1933,10 @@ export default function DebitCallSpreadLab({
     { value: "decay", label: "Time value", shortLabel: "Time" },
     { value: "overlay", label: "Multi-date", shortLabel: "Dates" },
   ];
-  const isTabbedAnalysis = activeWorkflowTab === "analysis";
   const isTabbedHeatMap = activeWorkflowTab === "heatmap";
   const activeDisplayGraphView: ScenarioGraphView = isTabbedHeatMap
     ? "map"
-    : isTabbedAnalysis && activeScenarioGraphView === "map"
-      ? "overlay"
-      : activeScenarioGraphView;
-  const visibleScenarioGraphOptions = isTabbedAnalysis
-    ? scenarioGraphOptions.filter((option) => option.value !== "map")
-    : scenarioGraphOptions;
+    : activeScenarioGraphView;
   const showScenarioSelectionControls = activeDisplayGraphView !== "map";
   const comparisonCards = useMemo<ComparisonCardData[]>(() => {
     if (!canModel) {
@@ -2635,19 +2495,6 @@ export default function DebitCallSpreadLab({
     setScenarioGraphView("map");
   };
   const isTopBarVisible = isTopBarPinnedVisible || isTopBarHoverRevealed;
-  const isAnalysisVisible = isTabbedAnalysis || isTabbedHeatMap;
-  const ivToolInstrument: IvComparisonInstrument =
-    visualizedInputs.strategy === "long-call"
-      ? "long-call"
-      : "debit-call-spread";
-  const ivToolLongStrike = visualizedInputs.longStrike;
-  const ivToolShortStrike =
-    visualizedInputs.shortStrike > ivToolLongStrike
-      ? visualizedInputs.shortStrike
-      : roundTo(
-          ivToolLongStrike + Math.max(1, visualizedInputs.spot * 0.05),
-          STRIKE_DECIMAL_DIGITS,
-        );
   const stepHeader = (number: string, title: string, hint: string) => (
     <header className="flex min-w-0 items-start gap-3">
       <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-slate-950 font-mono text-xs font-semibold text-white tabular-nums">
@@ -3583,27 +3430,7 @@ export default function DebitCallSpreadLab({
               </div>
             ) : null}
 
-            {activeWorkflowTab === "understanding-iv" ? (
-              <UnderstandingIvTool
-                key={selectedGraphComparison.id}
-                symbol={selectedSavedStrategyCard?.symbol ?? symbol}
-                spot={visualizedInputs.spot}
-                currentIvPct={visualizedInputs.volatilityPct}
-                expirationDays={visualizedSnapshot.expirationDays}
-                longStrike={ivToolLongStrike}
-                shortStrike={ivToolShortStrike}
-                ratePct={visualizedInputs.ratePct}
-                todayIso={visualizedInputs.todayIso}
-                capital={visualizedInputs.capital}
-                allowFractionalContracts={
-                  visualizedInputs.allowFractionalContracts
-                }
-                defaultInstrument={ivToolInstrument}
-                onCreateStrategy={createIvAlternativeStrategy}
-              />
-            ) : null}
-
-            {isAnalysisVisible ? (
+            {isTabbedHeatMap ? (
               <>
 
                 {!isTabbedHeatMap ? marketScenarioCard : null}
@@ -3644,7 +3471,7 @@ export default function DebitCallSpreadLab({
                       )}
                       aria-label="Scenario graph view"
                     >
-                      {visibleScenarioGraphOptions.map((option) => (
+                      {scenarioGraphOptions.map((option) => (
                         <button
                           key={option.value}
                           type="button"

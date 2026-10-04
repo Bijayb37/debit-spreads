@@ -184,6 +184,8 @@ export const COLOR_SCHEME_STORAGE_KEY = "callculator-color-scheme";
 
 export const MONEY_DISPLAY_UNIT_STORAGE_KEY = "callculator-money-display-unit";
 
+export const DEFAULT_MONEY_DISPLAY_UNIT: MoneyDisplayUnit = "thousands";
+
 export const INITIAL_IV_MODE_STORAGE_KEY = "callculator-use-initial-iv";
 
 export const UPDATE_STRIKES_WITH_PRICE_STORAGE_KEY =
@@ -218,13 +220,6 @@ export const WORKFLOW_TABS: Array<{
   { value: "setup", label: "Setup", shortLabel: "Setup", step: "1" },
   { value: "decision", label: "Compare", shortLabel: "Compare", step: "2" },
   { value: "heatmap", label: "Heat map", shortLabel: "Heat", step: "3" },
-  { value: "analysis", label: "Analyze", shortLabel: "Analyze", step: "4" },
-  {
-    value: "understanding-iv",
-    label: "Understanding IV",
-    shortLabel: "IV",
-    step: "5",
-  },
 ];
 
 export const COLOR_SCHEME_OPTIONS: Array<{
@@ -264,11 +259,6 @@ export const MONEY_DISPLAY_UNIT_OPTIONS: Array<{
   label: string;
   helper: string;
 }> = [
-  {
-    value: "dollars",
-    label: "Dollars",
-    helper: "$300,000",
-  },
   {
     value: "thousands",
     label: "Thousands",
