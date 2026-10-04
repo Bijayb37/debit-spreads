@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/cn";
+import type { AiStrategyRequest } from "@/components/lab/types";
 
 type Provider = "openai" | "gemini";
 type Message = { role: "user" | "assistant"; content: string };
@@ -10,14 +11,19 @@ const providers = {
   openai: { name: "ChatGPT", model: "gpt-6-astra", keyUrl: "https://platform.openai.com/api-keys" },
   gemini: { name: "Gemini", model: "gemini-3.8-flash", keyUrl: "https://aistudio.google.com/apikey" },
 };
-const suggestions = ["Explain my current strategy", "What happens if volatility drops?", "Help me understand my risk"];
+const suggestions = ["Explain mycurrent strategy", "What happens if volatility drops?", "Create a bullish spread for me"];
 const control = "rounded-xl border border-line bg-surface px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50";
 
 function Sparkles({ className = "size-4" }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m12 3 2.3 6.7L21 12l-6.7 2.3L12 21l-2.3-6.7L3 12l6.7-2.3L12 3Z" /><path d="m20 2 .6 1.4L22 4l-1.4.6L20 6l-.6-1.4L18 4l1.4-.6L20 2Z" /></svg>;
 }
 
-export default function AiHelp({ context }: { context: string }) {
+export default function AiHelp({ context, onCreateStrategy }: {
+  context: string;
+  // Returns a short outcome message that is shown in the chat.
+  onCreateStrategy: (request: AiStrategyRequest) => string;
+}) {
+  const createStrategy = useRef(onCreateStrategy);
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const [drawerHost, setDrawerHost] = useState<HTMLElement | null>(null);
@@ -36,10 +42,14 @@ export default function AiHelp({ context }: { context: string }) {
   const [busy, setBusy] = useState(false);
   const messages = histories[provider];
   const connection = connections[provider];
-  const hasKey = Boolean(connection.apiKey.trim());
+  // Gemini uses the server's GEMINI_API_KEY, so only ChatGPT needs a key here.
+  const needsKey = provider === "openai";
+  const hasKey = !needsKey || Boolean(connection.apiKey.trim());
 
   useEffect(() => { end.current?.scrollIntoView({ block: "nearest" }); }, [messages, busy, error]);
   useEffect(() => () => request.current?.abort(), []);
+  // The reply arrives after an await, so always call the latest handler.
+  useEffect(() => { createStrategy.current = onCreateStrategy; });
   useEffect(() => {
     if (!drawerHost) return;
     const panel = dialog.current;
@@ -73,7 +83,7 @@ export default function AiHelp({ context }: { context: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          provider, apiKey: connection.apiKey.trim(), model: connection.model.trim(),
+          provider, ...(needsKey ? { apiKey: connection.apiKey.trim() } : {}), model: connection.model.trim(),
           messages: next.slice(-9).map((message) => ({ ...message, content: message.content.slice(0, 8000) })),
           ...(includeContext ? { context } : {}),
         }),
@@ -81,7 +91,8 @@ export default function AiHelp({ context }: { context: string }) {
       });
       const data = await response.json();
       if (!response.ok || typeof data.reply !== "string") throw new Error(data.error || "Could not get an answer. Please try again.");
-      setHistories((current) => ({ ...current, [provider]: [...next, { role: "assistant", content: data.reply }] }));
+      const content = [data.reply, data.strategy ? createStrategy.current(data.strategy) : ""].filter(Boolean).join("\n\n");
+      setHistories((current) => ({ ...current, [provider]: [...next, { role: "assistant", content }] }));
     } catch (cause) {
       setHistories((current) => ({ ...current, [provider]: messages }));
       setDraft(question);
@@ -116,7 +127,7 @@ export default function AiHelp({ context }: { context: string }) {
               <div className="flex flex-1 rounded-full bg-surface-sunken p-1" aria-label="AI provider">
                 {(Object.keys(providers) as Provider[]).map((id) => (
                   <button key={id} type="button" disabled={busy} aria-pressed={provider === id}
-                    onClick={() => { setProvider(id); setError(""); setShowConnections(!connections[id].apiKey); }}
+                    onClick={() => { setProvider(id); setError(""); setShowConnections(id === "openai" && !connections[id].apiKey); }}
                     className={cn("flex-1 rounded-full px-3 py-2 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:opacity-50", provider === id ? "bg-surface text-slate-900 shadow-sm" : "text-ink-muted")}>
                     {providers[id].name}
                   </button>
@@ -127,21 +138,23 @@ export default function AiHelp({ context }: { context: string }) {
             {showConnections && (
               <div className="mt-4 space-y-3 rounded-2xl border border-line bg-surface-muted p-4">
                 <div className="flex items-center justify-between"><h3 className="text-sm font-semibold">{providers[provider].name} connection</h3>
-                  <a href={providers[provider].keyUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-accent hover:underline">Get API key ↗</a></div>
-                <label className="block text-xs font-medium text-ink-secondary">API key
+                  {needsKey && <a href={providers[provider].keyUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-accent hover:underline">Get API key ↗</a>}</div>
+                {needsKey && <label className="block text-xs font-medium text-ink-secondary">API key
                   <input type="password" autoComplete="off" spellCheck={false} disabled={busy} value={connection.apiKey}
                     placeholder={provider === "openai" ? "sk-…" : "Paste your Gemini API key"}
                     onChange={(event) => setConnections((current) => ({ ...current, [provider]: { ...current[provider], apiKey: event.target.value } }))}
                     className={cn(control, "mt-1 w-full")} />
-                </label>
+                </label>}
                 <label className="block text-xs font-medium text-ink-secondary">Model
                   <input value={connection.model} disabled={busy} spellCheck={false} maxLength={100}
                     onChange={(event) => setConnections((current) => ({ ...current, [provider]: { ...current[provider], model: event.target.value } }))}
                     className={cn(control, "mt-1 w-full font-mono text-xs")} />
                 </label>
-                <p className="text-caption leading-relaxed text-ink-muted">Your key stays in memory until you reload this page. Requests pass through Callculator to your selected provider. API usage is billed by that provider.</p>
+                <p className="text-caption leading-relaxed text-ink-muted">{needsKey
+                  ? "Your key stays in memory until you reload this page. Requests pass through Callculator to your selected provider. API usage is billed by that provider."
+                  : "Gemini uses Callculator's own API key, so there is nothing to add. Requests pass through Callculator to Gemini."}</p>
                 <div className="flex items-center justify-between gap-2">
-                  <button type="button" disabled={busy || !hasKey} className="text-xs text-ink-muted underline disabled:opacity-40"
+                  <button type="button" disabled={busy || !hasKey} className={cn("text-xs text-ink-muted underline disabled:opacity-40", !needsKey && "invisible")}
                     onClick={() => { setConnections((current) => ({ ...current, [provider]: { ...current[provider], apiKey: "" } })); setError(""); }}>Remove key</button>
                   <button type="button" disabled={!hasKey || busy || !connection.model.trim()} onClick={() => { setShowConnections(false); setError(""); }} className={cn(control, "bg-accent font-semibold text-white")}>Use {providers[provider].name}</button>
                 </div>

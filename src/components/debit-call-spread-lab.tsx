@@ -119,6 +119,7 @@ import {
 import { TimeDecayChart } from "@/components/lab/time-decay-chart";
 import type { TimeDecayPoint } from "@/components/lab/time-decay-chart";
 import type {
+  AiStrategyRequest,
   ColorScheme,
   ComparisonCandidate,
   ComparisonCardData,
@@ -1699,6 +1700,154 @@ export default function DebitCallSpreadLab({
     setIsCustomComparisonEditorOpen(false);
     setIsSetupFormVisible(false);
     setActiveWorkflowTab("decision");
+  };
+  const createAiStrategy = (request: AiStrategyRequest): string => {
+    const nextStrategy = request.strategy;
+    const nextLongStrike = normalizeStrikeValue(request.longStrike);
+    // Market inputs the assistant supplies also become the calculator's setup.
+    const nextSymbol = normalizeSymbol(request.symbol ?? symbol);
+    const nextSpot =
+      request.spot === undefined ? spot : normalizePriceValue(request.spot);
+    const nextVolatilityPct = clamp(
+      request.volatilityPct ?? volatilityPct,
+      0,
+      300,
+    );
+    const nextFutureVolatilityPct = clamp(
+      request.volatilityPct ?? futureVolatilityPct,
+      0,
+      300,
+    );
+    const nextScenarioPrice =
+      nextSpot === spot ? effectiveScenarioPrice : nextSpot;
+    const nextCalendarShortPrice =
+      nextSpot === spot ? safeCalendarShortPrice : nextSpot;
+    const defaultStrikes = getDefaultStrikesForStrategy(nextStrategy, nextSpot);
+    const requestedShortStrike =
+      request.shortStrike ??
+      nextLongStrike + defaultStrikes.shortStrike - defaultStrikes.longStrike;
+    const nextShortStrike = normalizeShortStrikeForStrategy(
+      nextStrategy,
+      nextLongStrike,
+      requestedShortStrike,
+    );
+    const nextRatioShortCount = normalizePutRatioShortCount(
+      request.ratioShortCount ?? putRatioShortCount,
+    );
+    const nextExpirationDays = clamp(
+      Math.round(request.expirationDays ?? expirationDays),
+      1,
+      1095,
+    );
+    const nextShortExpirationDays = normalizeCallCalendarShortExpirationDays(
+      request.shortExpirationDays,
+      nextExpirationDays,
+    );
+    const nextCapital = Math.max(
+      1,
+      normalizeCapitalValue(request.capital ?? capital),
+    );
+    const usesTwoStrikes =
+      isDebitSpreadStrategy(nextStrategy) && !isCallCalendarStrategy(nextStrategy);
+
+    if (usesTwoStrikes && nextShortStrike !== normalizeStrikeValue(requestedShortStrike)) {
+      return isPutDownsideStrategy(nextStrategy)
+        ? "Strategy not created: the short put strike has to be below the long put strike."
+        : nextStrategy === "bull-put-spread"
+          ? "Strategy not created: the short put strike has to be above the long put strike."
+          : "Strategy not created: the short call strike has to be above the long call strike.";
+    }
+
+    const snapshot = createScenarioSnapshot({
+      strategy: nextStrategy,
+      todayIso,
+      expiryIso: addDaysToIso(todayIso, nextExpirationDays),
+      spot: nextSpot,
+      longStrike: nextLongStrike,
+      shortStrike: nextShortStrike,
+      ratioShortCount: nextRatioShortCount,
+      shortExpirationDays: nextShortExpirationDays,
+      volatilityPct: nextVolatilityPct,
+      futureVolatilityPct: nextFutureVolatilityPct,
+      capital: nextCapital,
+      allowFractionalContracts,
+      scenarioPrice: nextScenarioPrice,
+      calendarShortPrice: nextCalendarShortPrice,
+      scenarioOffsetDays: clamp(safeScenarioOffsetDays, 0, nextExpirationDays),
+      ratePct,
+      dividendYieldPct: 0,
+    });
+
+    if (snapshot.unitCost <= 0) {
+      return `Strategy not created: ${getNonPositiveEntryDebitMessage(nextStrategy)}`;
+    }
+
+    customComparisonIdCounter.current += 1;
+    const nextId = `custom-${customComparisonIdCounter.current}-${customComparisons.length}`;
+    const nextComparison: CustomComparisonConfig = {
+      id: nextId,
+      label: getCustomComparisonLabel({
+        label: request.label ?? "",
+        strategy: nextStrategy,
+        longStrike: nextLongStrike,
+        shortStrike: nextShortStrike,
+        ratioShortCount: nextRatioShortCount,
+        shortExpirationDays: nextShortExpirationDays,
+        expirationDays: nextExpirationDays,
+      }),
+      strategy: nextStrategy,
+      longStrike: nextLongStrike,
+      shortStrike: nextShortStrike,
+      ratioShortCount: nextRatioShortCount,
+      shortExpirationDays: nextShortExpirationDays,
+      capital: nextCapital,
+      expirationDays: nextExpirationDays,
+      allowFractionalContracts,
+      symbol: nextSymbol,
+      todayIso,
+      spot: nextSpot,
+      volatilityPct: nextVolatilityPct,
+      futureVolatilityPct: nextFutureVolatilityPct,
+      ratePct,
+      dividendYieldPct: 0,
+    };
+    const nextComparisons = [nextComparison, ...customComparisons];
+
+    setCustomComparisons(nextComparisons);
+    if (
+      nextSpot !== spot ||
+      (nextStrategy === "call-calendar" &&
+        !customComparisons.some(
+          (comparison) => comparison.strategy === "call-calendar",
+        ))
+    ) {
+      setCalendarShortPrice(nextScenarioPrice);
+      setCalendarShortPriceDraft(null);
+    }
+    if (nextSpot !== spot) {
+      setScenarioPrice(nextScenarioPrice);
+      setScenarioPriceDraft(null);
+    }
+    setSymbol(nextSymbol);
+    setSpot(nextSpot);
+    setVolatilityPct(nextVolatilityPct);
+    setFutureVolatilityPct(nextFutureVolatilityPct);
+    setStrategy(nextStrategy);
+    setLongStrike(nextLongStrike);
+    setShortStrike(nextShortStrike);
+    setPutRatioShortCount(nextRatioShortCount);
+    setExpirationDays(nextExpirationDays);
+    setShortExpirationDays(nextShortExpirationDays);
+    setCapital(nextCapital);
+    setCustomDraft({ ...nextComparison, label: "" });
+    syncMarketScenarioDteRange(nextComparisons, nextExpirationDays);
+    setComparisonPanelMode("custom");
+    setGraphComparisonId(`custom:${nextId}`);
+    setEditingComparisonId(null);
+    setIsCustomComparisonEditorOpen(false);
+    setIsSetupFormVisible(false);
+
+    return `Created "${nextComparison.label}" and added it to your saved strategies.`;
   };
   const removeCustomComparison = (id: string) => {
     const removedComparison = customComparisons.find((comparison) => comparison.id === id);
@@ -3313,7 +3462,7 @@ export default function DebitCallSpreadLab({
                   results: canModel ? visualizedSnapshot : null,
                   validationMessages,
                   pricing: "Theoretical Black-Scholes model; not live market quotes. Monetary values are USD; one contract represents 100 shares.",
-                })} />
+                })} onCreateStrategy={createAiStrategy} />
               </div>
             </div>
 

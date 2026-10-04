@@ -40,11 +40,11 @@ Type checking rejects unused local declarations and parameters. Tests cover rati
 
 ## AI Help
 
-Use **Ask AI for help** at the top right, choose **ChatGPT** or **Gemini**, and enter that provider's API key in **Connections**. Both connections can be configured independently. The model field is editable for models your API account can access. A key is used on the first question; entering it does not verify access.
+Use **Ask AI for help** at the top right, and choose **ChatGPT** or **Gemini**. ChatGPT needs your own API key in **Connections**. Gemini uses the server's `GEMINI_API_KEY` environment variable (set it in `.env.local` or your host's settings), so visitors do not enter a key for it. The model field is editable for models your API account can access. A key is used on the first question; entering it does not verify access.
 
-Keys and separate provider conversations stay in React memory and are cleared on reload. Keys are sent over the app's `/api/ai-help` route to the selected provider, never written to local storage or logged by the route. Serve deployed installations over HTTPS. No shared server API key or new dependency is required.
+The ChatGPT key and separate provider conversations stay in React memory and are cleared on reload. That key is sent over the app's `/api/ai-help` route to OpenAI, never written to local storage or logged by the route. The Gemini key never leaves the server. Serve deployed installations over HTTPS. No new dependency is required.
 
-**Include current strategy** sends the selected strategy's inputs and modeled results with each question. Turn it off to ask without the current calculator data; earlier chat messages remain in the conversation until **New chat**. The most recent four exchanges are sent with each question, with individual messages capped at 8,000 characters. Provider API usage is billed to the supplied key.
+**Include current strategy** sends the selected strategy's inputs and modeled results with each question. Turn it off to ask without the current calculator data; earlier chat messages remain in the conversation until **New chat**. The most recent four exchanges are sent with each question, with individual messages capped at 8,000 characters. ChatGPT usage is billed to the supplied key; Gemini usage is billed to the server's key.
 
 The route uses the [OpenAI Responses API](https://developers.openai.com/api/docs/guides/text) with `store: false`, and Gemini's [generateContent API](https://ai.google.dev/api/generate-content). It validates request sizes and roles, limits response tokens, times out after 50 seconds, and returns safe errors for invalid credentials, quotas, and provider failures. Provider retention policies still apply.
 

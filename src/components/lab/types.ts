@@ -149,3 +149,17 @@ export type IvAlternativeStrategy = {
   scenarioPrice: number;
   scenarioOffsetDays: number;
 };
+
+export type AiStrategyRequest = {
+  strategy: OptionStrategy;
+  longStrike: number;
+  shortStrike?: number;
+  ratioShortCount?: number;
+  expirationDays?: number;
+  shortExpirationDays?: number;
+  capital?: number;
+  label?: string;
+  symbol?: string;
+  spot?: number;
+  volatilityPct?: number;
+};

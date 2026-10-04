@@ -5,14 +5,14 @@ const vm = require('node:vm');
 const ts = require('typescript');
 const path = require('node:path');
 
-function loadRoute(fetch) {
+function loadRoute(fetch, env = { GEMINI_API_KEY: 'env-key' }) {
   const source = fs.readFileSync(path.join(__dirname, '../src/app/api/ai-help/route.ts'), 'utf8');
   const compiled = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
   });
   const exports = {};
   vm.runInNewContext(compiled.outputText, {
-    exports, fetch, Response, Request, URL, AbortSignal, TextDecoder, Error,
+    exports, fetch, Response, Request, URL, AbortSignal, TextDecoder, Error, process: { env },
   });
   return exports.POST;
 }
@@ -50,15 +50,15 @@ test('OpenAI sends private, contextual Responses requests and extracts text afte
 test('Gemini maps conversation roles and omits thought parts and unchecked context', async () => {
   const route = loadRoute(async (url, init) => {
     assert.equal(url, 'https://generativelanguage.googleapis.com/v1beta/models/test-model:generateContent');
-    assert.equal(init.headers['x-goog-api-key'], 'test-key');
-    assert.ok(!url.includes('test-key'));
+    assert.equal(init.headers['x-goog-api-key'], 'env-key');
+    assert.ok(!url.includes('env-key'));
     const body = JSON.parse(init.body);
     assert.deepEqual(body.contents.map((message) => message.role), ['user', 'model', 'user']);
     assert.equal(body.contents[2].parts[0].text, 'Follow up');
     assert.ok(body.systemInstruction.parts[0].text.includes('Callculator'));
     return Response.json({ candidates: [{ content: { parts: [{ thought: true, text: 'hidden' }, { text: 'Answer' }] } }] });
   });
-  const response = await route(request({ ...payload, provider: 'gemini', context: undefined,
+  const response = await route(request({ ...payload, provider: 'gemini', apiKey: undefined, context: undefined,
     messages: [...payload.messages, { role: 'assistant', content: 'Earlier answer' }, { role: 'user', content: 'Follow up' }],
   }));
   assert.deepEqual(await response.json(), { reply: 'Answer' });
@@ -98,4 +98,44 @@ test('handles empty output, refusals, malformed responses, and network failures'
   assert.deepEqual(await (await refusal(request(payload))).json(), { reply: 'Cannot answer.' });
   const network = loadRoute(async () => { throw new Error('private network details'); });
   assert.equal((await network(request(payload))).status, 502);
+});
+
+test('create_strategy is offered to both providers and its tool call is returned as a validated strategy', async () => {
+  const args = { strategy: 'debit-call-spread', longStrike: 100, shortStrike: 110, expirationDays: 45, capital: -5, extra: 'x',
+    symbol: ' aapl ', spot: 230, volatilityPct: 900 };
+  const expected = { strategy: 'debit-call-spread', longStrike: 100, shortStrike: 110, expirationDays: 45, symbol: 'AAPL', spot: 230 };
+  const openai = loadRoute(async (url, init) => {
+    const [tool] = JSON.parse(init.body).tools;
+    assert.equal(tool.type, 'function');
+    assert.equal(tool.name, 'create_strategy');
+    return Response.json({ output: [{ type: 'function_call', name: 'create_strategy', arguments: JSON.stringify(args) }] });
+  });
+  assert.deepEqual(await (await openai(request(payload))).json(), { reply: '', strategy: expected });
+  const gemini = loadRoute(async (url, init) => {
+    assert.equal(JSON.parse(init.body).tools[0].functionDeclarations[0].name, 'create_strategy');
+    return Response.json({ candidates: [{ content: { parts: [{ text: 'Done.' }, { functionCall: { name: 'create_strategy', args } }] } }] });
+  });
+  assert.deepEqual(await (await gemini(request({ ...payload, provider: 'gemini' }))).json(), { reply: 'Done.', strategy: expected });
+});
+
+test('malformed or unknown tool calls never produce a strategy', async () => {
+  for (const call of [
+    { type: 'function_call', name: 'create_strategy', arguments: '{not json' },
+    { type: 'function_call', name: 'create_strategy', arguments: JSON.stringify({ strategy: 'iron-condor', longStrike: 100 }) },
+    { type: 'function_call', name: 'create_strategy', arguments: JSON.stringify({ strategy: 'long-call', longStrike: '100' }) },
+    { type: 'function_call', name: 'place_trade', arguments: JSON.stringify({ strategy: 'long-call', longStrike: 100 }) },
+  ]) {
+    const route = loadRoute(async () => Response.json({ output: [call] }));
+    assert.equal((await route(request(payload))).status, 502);
+  }
+});
+
+test('Gemini uses only the server GEMINI_API_KEY and fails clearly without it', async () => {
+  const ignoresClientKey = loadRoute(async (url, init) => {
+    assert.equal(init.headers['x-goog-api-key'], 'env-key');
+    return Response.json({ candidates: [{ content: { parts: [{ text: 'Answer' }] } }] });
+  });
+  assert.equal((await ignoresClientKey(request({ ...payload, provider: 'gemini', apiKey: 'client-key' }))).status, 200);
+  const unset = loadRoute(async () => { throw new Error('Must not fetch'); }, {});
+  assert.equal((await unset(request({ ...payload, provider: 'gemini', apiKey: 'client-key' }))).status, 503);
 });
