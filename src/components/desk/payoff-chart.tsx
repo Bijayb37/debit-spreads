@@ -13,7 +13,6 @@ import {
 } from "@/lib/scenario-desk";
 import { seriesColor } from "@/components/desk/colors";
 
-const HEIGHT = 260;
 const PAD = { top: 14, right: 16, bottom: 40, left: 58 };
 const STEPS = 72;
 
@@ -77,6 +76,8 @@ export function PayoffChart({
 
   if (lines.length === 0) return null;
 
+  // A wide chart gets more height so the curves are not flattened.
+  const HEIGHT = width >= 720 ? 360 : width >= 520 ? 300 : 260;
   const plotWidth = width - PAD.left - PAD.right;
   const plotHeight = HEIGHT - PAD.top - PAD.bottom;
   // Rounded so the server and the browser, whose maths can differ in the last digit,
