@@ -140,6 +140,10 @@ export function PayoffChart({
           <text x={x(desk.market.spot)} y={HEIGHT - PAD.bottom + 31} textAnchor="middle" fontSize={10} fill="#94a3b8">
             today
           </text>
+          {/* Bookmarked prices, as small marks on the axis. */}
+          {[...new Set(desk.moments.map((moment) => movePrice(desk.market, moment.movePct)))].map((price) => (
+            <line key={price} x1={x(price)} x2={x(price)} y1={HEIGHT - PAD.bottom - 5} y2={HEIGHT - PAD.bottom + 5} stroke="#475569" strokeWidth={2} strokeLinecap="round" />
+          ))}
           {/* The what-if price. */}
           <line x1={x(board.price)} x2={x(board.price)} y1={PAD.top} y2={HEIGHT - PAD.bottom + 5} stroke="#0f172a" strokeWidth={1} strokeDasharray="4 3" />
           {Math.abs(x(board.price) - x(desk.market.spot)) > 44 ? (

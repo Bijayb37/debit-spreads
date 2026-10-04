@@ -16,7 +16,7 @@ import {
   type Moment,
   type WhatIfInput,
 } from "@/lib/scenario-desk";
-import { outcomeTint, seriesColor } from "@/components/desk/colors";
+import { seriesColor } from "@/components/desk/colors";
 import { NumberField } from "@/components/desk/fields";
 import { PayoffChart } from "@/components/desk/payoff-chart";
 
@@ -34,6 +34,7 @@ function Slider({
   prefix,
   suffix,
   note,
+  marks,
   onChange,
 }: {
   id: string;
@@ -45,6 +46,8 @@ function Slider({
   prefix?: string;
   suffix?: string;
   note: React.ReactNode;
+  // Bookmarked values, shown as ticks under the track.
+  marks: number[];
   onChange: (value: number) => void;
 }) {
   return (
@@ -68,6 +71,15 @@ function Slider({
         onChange={(event) => onChange(Number(event.target.value))}
         className="mt-2.5 block h-2 w-full cursor-pointer accent-accent"
       />
+      <div aria-hidden className="relative h-2">
+        {[...new Set(marks)]
+          .filter((mark) => mark >= min && mark <= max && max > min)
+          .map((mark) => {
+            const share = (mark - min) / (max - min);
+            // The thumb's centre travels the track width minus the thumb (about 16px).
+            return <span key={mark} className="absolute top-0.5 h-1.5 w-0.5 -translate-x-1/2 rounded-full bg-ink-secondary" style={{ left: `calc(${Math.round(share * 1000) / 10}% + ${Math.round((0.5 - share) * 16)}px)` }} />;
+          })}
+      </div>
     </div>
   );
 }
@@ -117,79 +129,80 @@ function ComparedResults({ rows, bestId }: { rows: BoardRow[]; bestId: string | 
   );
 }
 
-function Moments({
+// Saved what-ifs as chips: one click jumps the sliders back to that point.
+function Bookmarks({
   desk,
   rows,
+  activeId,
+  canAdd,
   onLoad,
+  onAdd,
   onRemove,
 }: {
   desk: Desk;
   rows: BoardRow[];
+  activeId: string | null;
+  canAdd: boolean;
   onLoad: (moment: Moment) => void;
+  onAdd: () => void;
   onRemove: (id: string) => void;
 }) {
   // Shown in time order, whatever order they were saved in.
   const order = desk.moments.map((moment, index) => ({ moment, index })).sort((first, second) => first.moment.days - second.moment.days || first.moment.movePct - second.moment.movePct);
+
   return (
-    <div className="overflow-x-auto rounded-lg border border-line">
-      <table className="w-full border-separate border-spacing-0 text-left">
-        <caption className="sr-only">Profit or loss of each strategy at each saved moment.</caption>
-        <thead>
-          <tr>
-            <th scope="col" className="sticky left-0 z-10 border-b border-line bg-surface-muted px-3 py-2 align-bottom text-xs font-semibold text-ink-secondary">
-              Saved moments
-            </th>
-            {order.map(({ moment }) => (
-              <th key={moment.id} scope="col" className="min-w-28 border-b border-l border-line bg-surface-muted px-2.5 py-2 text-right align-bottom font-normal">
-                <button type="button" title="Show this moment above" onClick={() => onLoad(moment)} className="block w-full text-right hover:text-accent focus-visible:outline-2 focus-visible:outline-accent">
-                  <span className="block text-sm font-semibold text-ink">{moment.name || `Day ${moment.days}`}</span>
-                  <span className="block font-mono text-xs text-ink-soft tabular-nums">
-                    {formatPrice(movePrice(desk.market, moment.movePct))}
-                    {moment.name ? ` · day ${moment.days}` : ""}
-                  </span>
-                  {moment.ivPct !== null ? <span className="block text-caption text-ink-muted">IV {moment.ivPct}%</span> : null}
-                </button>
-                <button
-                  type="button"
-                  title="Remove this saved moment"
-                  onClick={() => onRemove(moment.id)}
-                  className="mt-1 rounded border border-line-strong bg-surface px-1.5 py-0.5 text-caption font-semibold text-ink-secondary hover:border-loss hover:text-loss focus-visible:outline-2 focus-visible:outline-accent"
-                >
-                  × Remove<span className="sr-only"> {momentLabel(desk.market, moment)}</span>
-                </button>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, rowIndex) => (
-            <tr key={row.strategy.id}>
-              <th scope="row" className={cn("sticky left-0 z-10 border-line bg-surface px-3 py-2 font-normal", rowIndex < rows.length - 1 && "border-b")}>
-                <span className="flex w-36 items-center gap-2 sm:w-48">
-                  <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ background: seriesColor(row.strategy.id) }} />
-                  <span className="truncate text-sm font-semibold text-ink">{row.strategy.name}</span>
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-semibold text-ink-muted">Bookmarks</span>
+      {order.map(({ moment, index }) => {
+        const isActive = moment.id === activeId;
+        // With several strategies the chip shows whichever is ahead at that point.
+        const lead = rows.length ? rows.reduce((best, row) => (row.moments[index].pnl > best.moments[index].pnl ? row : best)) : null;
+        return (
+          <span
+            key={moment.id}
+            className={cn("flex items-center rounded-full border text-sm", isActive ? "border-ink bg-ink text-white" : "border-line-strong bg-surface text-ink-soft hover:border-ink-muted")}
+          >
+            <button
+              type="button"
+              aria-pressed={isActive}
+              title="Jump the sliders to this point"
+              onClick={() => onLoad(moment)}
+              className="flex items-center gap-2 rounded-l-full py-1 pl-3 pr-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            >
+              <span className="font-medium">{momentLabel(desk.market, moment)}</span>
+              {moment.ivPct !== null ? <span className={isActive ? "text-white/70" : "text-ink-muted"}>IV {moment.ivPct}%</span> : null}
+              {lead ? (
+                <span className="flex items-center gap-1">
+                  {rows.length > 1 ? <span aria-hidden className="size-2 rounded-full" style={{ background: seriesColor(lead.strategy.id) }} /> : null}
+                  <span className={cn("font-mono font-semibold tabular-nums", isActive ? "text-white" : tone(lead.moments[index].pnl))}>{formatDollars(lead.moments[index].pnl)}</span>
                 </span>
-              </th>
-              {order.map(({ moment, index }) => {
-                const cell = row.moments[index];
-                return (
-                  <td
-                    key={moment.id}
-                    className={cn("border-l border-line px-2.5 py-2 text-right align-middle", rowIndex < rows.length - 1 && "border-b")}
-                    style={{ backgroundColor: outcomeTint(cell.returnPct) }}
-                  >
-                    <span className={cn("block font-mono text-base font-semibold tabular-nums", tone(cell.pnl))}>{formatDollars(cell.pnl)}</span>
-                    <span className="block font-mono text-caption text-ink-soft tabular-nums">
-                      {cell.expired ? <span className="mr-1 font-sans text-ink-muted">expired</span> : null}
-                      {formatPct(cell.returnPct)}
-                    </span>
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+              ) : null}
+            </button>
+            <button
+              type="button"
+              aria-label={`Remove bookmark ${momentLabel(desk.market, moment)}`}
+              title="Remove this bookmark"
+              onClick={() => onRemove(moment.id)}
+              className={cn(
+                "mr-0.5 grid size-6 shrink-0 place-items-center rounded-full text-base leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                isActive ? "text-white/70 hover:bg-white/15 hover:text-white" : "text-ink-muted hover:bg-rose-50 hover:text-loss",
+              )}
+            >
+              ×
+            </button>
+          </span>
+        );
+      })}
+      <button
+        type="button"
+        disabled={!canAdd}
+        title={activeId ? "This point is already bookmarked" : "Keep this price, day and IV to come back to"}
+        onClick={onAdd}
+        className="rounded-full border border-dashed border-line-strong px-3 py-1 text-sm font-semibold text-ink-secondary hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50"
+      >
+        + Bookmark this
+      </button>
+      {desk.moments.length === 0 ? <span className="text-xs text-ink-muted">Keep a point to jump back to it, like a rally on day 20.</span> : null}
     </div>
   );
 }
@@ -201,7 +214,6 @@ export function WhatIfCard({
   onWhatIf,
   onSaveMoment,
   onRemoveMoment,
-  onClearMoments,
 }: {
   desk: Desk;
   board: Board;
@@ -209,15 +221,16 @@ export function WhatIfCard({
   onWhatIf: (patch: WhatIfInput) => void;
   onSaveMoment: () => void;
   onRemoveMoment: (id: string) => void;
-  onClearMoments: () => void;
 }) {
   const { symbol, spot, ivPct: todayIv } = desk.market;
   const rows = board.rows.filter((row) => !row.problem);
   const horizon = horizonDays(desk);
   const priceStep = strikeIncrement(spot) / (spot < 25 ? 5 : 1);
-  const isSaved = desk.moments.some(
-    (moment) => moment.days === board.days && movePrice(desk.market, moment.movePct) === board.price && (moment.ivPct ?? todayIv) === board.ivPct,
-  );
+  // The bookmark the sliders are sitting on, if any.
+  const activeId =
+    desk.moments.find(
+      (moment) => moment.days === board.days && movePrice(desk.market, moment.movePct) === board.price && (moment.ivPct ?? todayIv) === board.ivPct,
+    )?.id ?? null;
 
   return (
     <section aria-label="What if" className="rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
@@ -242,6 +255,7 @@ export function WhatIfCard({
           min={Math.min(Math.round(spot * 0.5), board.price)}
           max={Math.max(Math.round(spot * 1.5), board.price)}
           step={priceStep}
+          marks={desk.moments.map((moment) => movePrice(desk.market, moment.movePct))}
           note={
             board.price === spot ? (
               "same as today"
@@ -264,6 +278,7 @@ export function WhatIfCard({
           min={0}
           max={horizon}
           step={1}
+          marks={desk.moments.map((moment) => moment.days)}
           note={
             <>
               {board.days === 0 ? "today" : board.days >= horizon ? "on expiry day" : `${horizon - board.days} days before expiry`} ·{" "}
@@ -282,6 +297,7 @@ export function WhatIfCard({
           min={5}
           max={Math.max(150, Math.ceil(todayIv * 2))}
           step={1}
+          marks={desk.moments.map((moment) => moment.ivPct ?? todayIv)}
           note={
             board.ivPct === todayIv ? (
               "same as today"
@@ -298,7 +314,21 @@ export function WhatIfCard({
         />
       </div>
 
-      <div className="mt-5 border-t border-line pt-4" aria-live="polite">
+      {rows.length > 0 ? (
+        <div className="mt-3">
+          <Bookmarks
+            desk={desk}
+            rows={rows}
+            activeId={activeId}
+            canAdd={activeId === null && desk.moments.length < MAX_MOMENTS}
+            onLoad={(moment) => onWhatIf({ movePct: moment.movePct, days: moment.days, ivPct: moment.ivPct })}
+            onAdd={onSaveMoment}
+            onRemove={onRemoveMoment}
+          />
+        </div>
+      ) : null}
+
+      <div className="mt-4 border-t border-line pt-4" aria-live="polite">
         {rows.length === 0 ? (
           <p className="text-sm text-ink-secondary">Add a strategy above to see the result here.</p>
         ) : (
@@ -313,36 +343,9 @@ export function WhatIfCard({
       </div>
 
       {rows.length > 0 ? (
-        <>
-          <div className="mt-5">
-            <PayoffChart desk={desk} board={board} todayIso={todayIso} onPrice={(price) => onWhatIf({ price: Math.round(price / priceStep) * priceStep })} />
-          </div>
-          <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-line pt-4">
-            <button
-              type="button"
-              disabled={isSaved || desk.moments.length >= MAX_MOMENTS}
-              onClick={onSaveMoment}
-              className="rounded-lg border border-line-strong bg-surface px-3 py-1.5 text-sm font-semibold text-ink-soft shadow-sm hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50"
-            >
-              {isSaved ? "Saved" : "Save this moment"}
-            </button>
-            <p className="text-xs text-ink-muted">
-              {desk.moments.length === 0
-                ? "Save a few moments to compare them side by side, like a rally on day 20 and a pullback on day 45."
-                : "Select a saved moment to show it above."}
-            </p>
-            {desk.moments.length > 1 ? (
-              <button type="button" onClick={onClearMoments} className="ml-auto text-xs font-semibold text-ink-muted underline-offset-2 hover:text-loss hover:underline">
-                Clear all
-              </button>
-            ) : null}
-          </div>
-          {desk.moments.length > 0 ? (
-            <div className="mt-3">
-              <Moments desk={desk} rows={rows} onLoad={(moment) => onWhatIf({ movePct: moment.movePct, days: moment.days, ivPct: moment.ivPct })} onRemove={onRemoveMoment} />
-            </div>
-          ) : null}
-        </>
+        <div className="mt-5">
+          <PayoffChart desk={desk} board={board} todayIso={todayIso} onPrice={(price) => onWhatIf({ price: Math.round(price / priceStep) * priceStep })} />
+        </div>
       ) : null}
     </section>
   );

@@ -9,7 +9,7 @@ The home page answers one question with as little on screen as possible: what do
 - **Setup** is one card: the stock (ticker, price today, IV today) and one strategy with its type, strikes, expiry and budget as plain inputs. A sentence underneath says what it costs, where it breaks even and what it can make or lose. "Compare with another" adds more strategies, up to six.
 - **What if** has three sliders: stock price, days from today, and IV. The result updates as they move. One strategy shows a single large figure; several show one line each with a bar.
 - **The chart** shows profit or loss across stock prices on the chosen day (and at expiry when there is one strategy). Clicking it sets the price.
-- **Saved moments** keep points to compare side by side, such as $960 on day 20 and $850 on day 45. Selecting one loads it back into the sliders.
+- **Bookmarks** keep points to come back to, such as $960 on day 20 and $850 on day 45. They sit as chips under the sliders, each showing its result, with a tick on each slider; selecting one jumps the sliders there.
 - **Every price and every date at once** is a collapsed grid for when the sliders are not enough.
 - **Changing the stock price** rescales existing strikes so each strategy keeps its moneyness.
 - **Everyday controls:** each strategy has an × to remove it, plus Duplicate and an optional name; "Hide details" folds the strategy inputs down to a row of chips (selecting a chip opens them again); "Start over" returns to the example; "Reset" puts the what-if back to today; "Copy link" shares the exact setup; Undo reverses edits and removals.

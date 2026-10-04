@@ -75,7 +75,7 @@ export const DESK_TOOLS: Tool[] = [
   {
     name: "save_moments",
     description:
-      "Save points in time to compare side by side. When the user describes a sequence ('it ran to 960 in three weeks, then fell to 850 by day 45'), save one moment per point.",
+      "Bookmark points in time the user can jump back to. When the user describes a sequence ('it ran to 960 in three weeks, then fell to 850 by day 45'), bookmark one moment per point.",
     parameters: {
       type: "object",
       properties: {

@@ -213,7 +213,6 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
           onWhatIf={(patch) => setDesk((current) => ({ ...current, whatIf: makeWhatIf(current.market, patch, current.whatIf) }))}
           onSaveMoment={() => commit({ ...desk, moments: [...desk.moments, makeMoment(desk, { ...desk.whatIf, days: board.days })] })}
           onRemoveMoment={(id) => commit({ ...desk, moments: desk.moments.filter((moment) => moment.id !== id) })}
-          onClearMoments={() => commit({ ...desk, moments: [] })}
         />
 
         <details className="group rounded-xl border border-line bg-surface shadow-sm">
