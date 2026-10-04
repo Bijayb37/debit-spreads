@@ -12,6 +12,7 @@ The home page answers one question with as little on screen as possible: what do
 - **Saved moments** keep points to compare side by side, such as $960 on day 20 and $850 on day 45. Selecting one loads it back into the sliders.
 - **Every price and every date at once** is a collapsed grid for when the sliders are not enough.
 - **Changing the stock price** rescales existing strikes so each strategy keeps its moneyness.
+- **Everyday controls:** each strategy has an × to remove it, plus Duplicate and an optional name; "Start over" returns to the example; "Reset" puts the what-if back to today; "Copy link" shares the exact setup; Undo reverses edits and removals.
 - **Ask AI** (`/api/desk-assistant`) opens a side panel. The assistant can set up the stock and strategies, move the what-if, save moments and look up any point. It runs its tools on the server against the same pricing code as the page, sees the recalculated numbers, then answers. Gemini uses `GEMINI_API_KEY`; ChatGPT uses a key you paste in. Its changes can be undone.
 - The page is saved in the browser. The earlier calculator is at `/classic`.
 

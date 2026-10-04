@@ -9,6 +9,7 @@ import {
   formatDollars,
   formatPrice,
   makeStrategy,
+  strikeIncrement,
   type BoardRow,
   type Desk,
   type Market,
@@ -39,7 +40,9 @@ export function Setup({
   onMarket,
   onStrategy,
   onAdd,
+  onDuplicate,
   onRemove,
+  onStartOver,
 }: {
   desk: Desk;
   rows: BoardRow[];
@@ -48,17 +51,23 @@ export function Setup({
   onMarket: (patch: Partial<Market>) => void;
   onStrategy: (strategy: Strategy) => void;
   onAdd: () => void;
+  onDuplicate: (id: string) => void;
   onRemove: (id: string) => void;
+  onStartOver: () => void;
 }) {
   const row = rows.find((item) => item.strategy.id === selectedId) ?? rows[0];
   const strategy = row?.strategy;
   const info = strategy ? KINDS[strategy.kind] : null;
-  // A generated name follows the fields; a name the assistant gave is kept.
+  // A generated name follows the fields; a name someone gave is kept.
+  const hasOwnName = strategy ? strategy.name !== makeStrategy(desk, { ...strategy, name: "" }).name : false;
   const change = (patch: Partial<Strategy>) => {
     if (!strategy) return;
-    const hadAutoName = strategy.name === makeStrategy(desk, { ...strategy, name: "" }).name;
-    onStrategy(makeStrategy(desk, { ...strategy, ...patch, name: hadAutoName ? "" : strategy.name }));
+    onStrategy(makeStrategy(desk, { ...strategy, name: hasOwnName ? strategy.name : "", ...patch }));
   };
+  const strikeStep = strikeIncrement(desk.market.spot);
+  const atLimit = rows.length >= MAX_STRATEGIES;
+  const action =
+    "rounded-md border border-line-strong bg-surface px-2.5 py-1 text-xs font-semibold text-ink-soft shadow-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40";
   const changeKind = (kind: OptionStrategy) => {
     if (!strategy) return;
     // Strike defaults depend on the type, so start the sold strike afresh.
@@ -67,35 +76,55 @@ export function Setup({
 
   return (
     <section aria-label="Stock and strategy" className="rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
-      <div className="grid grid-cols-3 gap-3 sm:max-w-md">
-        <TextField id="market-symbol" label="Stock" value={desk.market.symbol} onCommit={(value) => onMarket({ symbol: value.toUpperCase() })} />
-        <NumberField id="market-spot" label="Price today" prefix="$" min={0.01} value={desk.market.spot} onCommit={(value) => onMarket({ spot: value })} />
-        <NumberField id="market-iv" label="IV today" suffix="%" min={1} max={300} value={desk.market.ivPct} onCommit={(value) => onMarket({ ivPct: value })} />
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="grid min-w-0 basis-full grid-cols-3 gap-3 sm:max-w-md sm:flex-1 sm:basis-auto">
+          <TextField id="market-symbol" label="Stock" uppercase value={desk.market.symbol} onCommit={(value) => onMarket({ symbol: value.toUpperCase() })} />
+          <NumberField id="market-spot" label="Price today" prefix="$" min={0.01} value={desk.market.spot} onCommit={(value) => onMarket({ spot: value })} />
+          <NumberField id="market-iv" label="IV today" suffix="%" min={1} max={300} value={desk.market.ivPct} onCommit={(value) => onMarket({ ivPct: value })} />
+        </div>
+        <button type="button" title="Clear everything and go back to the example" onClick={onStartOver} className={cn(action, "ml-auto hover:border-accent hover:text-accent")}>
+          Start over
+        </button>
       </div>
 
       <div className="mt-5 border-t border-line pt-4">
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="mr-1 text-base font-semibold text-ink">{rows.length > 1 ? "Strategies" : "Strategy"}</h2>
-          {rows.length > 1
-            ? rows.map((item) => (
+          {rows.map((item) => {
+            const isSelected = item.strategy.id === strategy?.id;
+            return (
+              <span
+                key={item.strategy.id}
+                className={cn("flex items-center rounded-full border text-sm font-medium", isSelected ? "border-ink bg-ink text-white" : "border-line-strong bg-surface text-ink-soft")}
+              >
                 <button
-                  key={item.strategy.id}
                   type="button"
-                  aria-pressed={item.strategy.id === strategy?.id}
+                  aria-pressed={isSelected}
                   onClick={() => onSelect(item.strategy.id)}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                    item.strategy.id === strategy?.id ? "border-ink bg-ink text-white" : "border-line-strong bg-surface text-ink-soft hover:border-ink-muted",
-                  )}
+                  className="flex items-center gap-1.5 rounded-l-full py-1 pl-3 pr-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                 >
                   <span aria-hidden className="size-2 rounded-full" style={{ background: seriesColor(item.strategy.id) }} />
                   {item.strategy.name}
                 </button>
-              ))
-            : null}
+                <button
+                  type="button"
+                  aria-label={`Remove ${item.strategy.name}`}
+                  title="Remove this strategy"
+                  onClick={() => onRemove(item.strategy.id)}
+                  className={cn(
+                    "grid size-7 place-items-center rounded-full text-base leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                    isSelected ? "text-white/70 hover:bg-white/15 hover:text-white" : "text-ink-muted hover:bg-rose-50 hover:text-loss",
+                  )}
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
           <button
             type="button"
-            disabled={rows.length >= MAX_STRATEGIES}
+            disabled={atLimit}
+            title={atLimit ? `You can compare up to ${MAX_STRATEGIES} strategies` : undefined}
             onClick={onAdd}
             className="ml-auto text-sm font-semibold text-accent underline-offset-2 hover:underline disabled:text-ink-muted disabled:no-underline"
           >
@@ -126,6 +155,7 @@ export function Setup({
                 label={info.calendar ? "Strike" : strategy.kind === "bull-put-spread" ? "Buy put strike" : "Buy strike"}
                 prefix="$"
                 min={0.01}
+                step={strikeStep}
                 value={strategy.longStrike}
                 onCommit={(value) => change({ longStrike: value })}
               />
@@ -135,6 +165,7 @@ export function Setup({
                   label={strategy.kind === "bull-put-spread" ? "Sell put strike" : "Sell strike"}
                   prefix="$"
                   min={0.01}
+                  step={strikeStep}
                   value={strategy.shortStrike}
                   onCommit={(value) => change({ shortStrike: value })}
                 />
@@ -164,16 +195,44 @@ export function Setup({
               {info.ratio ? (
                 <NumberField id="strategy-ratio" label="Sold per one bought" min={2} max={10} step={1} value={strategy.ratio} onCommit={(value) => change({ ratio: value })} />
               ) : null}
-              <NumberField id="strategy-budget" label="Budget" prefix="$" min={1} value={strategy.budget} onCommit={(value) => change({ budget: value })} />
+              <NumberField id="strategy-budget" label="Budget" prefix="$" min={1} step={500} value={strategy.budget} onCommit={(value) => change({ budget: value })} />
+              <TextField
+                // Remount per strategy so the box shows the selected one's name.
+                key={strategy.id}
+                id="strategy-name"
+                label={
+                  <>
+                    Name <span className="font-normal text-ink-muted">(optional)</span>
+                  </>
+                }
+                className="col-span-2"
+                maxLength={48}
+                value={hasOwnName ? strategy.name : ""}
+                placeholder={makeStrategy(desk, { ...strategy, name: "" }).name}
+                onCommit={(value) => {
+                  if (value.trim() !== (hasOwnName ? strategy.name : "")) change({ name: value });
+                }}
+              />
             </div>
             <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
               <div className="min-w-0 max-w-prose">
                 <Facts row={row} />
                 <p className="mt-0.5 text-xs text-ink-muted">{info.summary}</p>
               </div>
-              <button type="button" onClick={() => onRemove(strategy.id)} className="text-xs font-semibold text-ink-muted underline-offset-2 hover:text-loss hover:underline">
-                Remove
-              </button>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  disabled={atLimit}
+                  title="Make a copy to change and compare"
+                  onClick={() => onDuplicate(strategy.id)}
+                  className={cn(action, "hover:border-accent hover:text-accent")}
+                >
+                  Duplicate
+                </button>
+                <button type="button" onClick={() => onRemove(strategy.id)} className={cn(action, "hover:border-loss hover:text-loss")}>
+                  Remove
+                </button>
+              </div>
             </div>
           </div>
         ) : (

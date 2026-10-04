@@ -75,12 +75,18 @@ export function TextField({
   id,
   label,
   value,
+  placeholder,
+  maxLength = 10,
+  uppercase = false,
   className,
   onCommit,
 }: {
   id: string;
-  label: string;
+  label: React.ReactNode;
   value: string;
+  placeholder?: string;
+  maxLength?: number;
+  uppercase?: boolean;
   className?: string;
   onCommit: (value: string) => void;
 }) {
@@ -93,13 +99,17 @@ export function TextField({
           key={value}
           id={id}
           type="text"
-          maxLength={10}
+          maxLength={maxLength}
+          placeholder={placeholder}
           defaultValue={value}
           onBlur={(event) => onCommit(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") event.currentTarget.blur();
           }}
-          className="w-full min-w-0 bg-transparent font-mono text-base font-semibold uppercase text-ink outline-none"
+          className={cn(
+            "w-full min-w-0 bg-transparent text-base font-semibold text-ink outline-none placeholder:font-normal placeholder:text-ink-muted",
+            uppercase ? "font-mono uppercase" : "font-sans",
+          )}
         />
       </span>
     </label>

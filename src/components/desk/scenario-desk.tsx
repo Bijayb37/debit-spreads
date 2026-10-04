@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
 import {
+  autoStrategyName,
   cleanDesk,
   defaultDesk,
   evaluateDesk,
@@ -20,6 +21,8 @@ import { Setup } from "@/components/desk/setup";
 import { WhatIfCard } from "@/components/desk/what-if";
 
 const STORAGE_KEY = "callculator-scenario-desk-v1";
+// A shared link carries the whole setup after this marker in the URL hash.
+const SHARE_PREFIX = "#desk=";
 const MAX_UNDO = 30;
 
 export default function ScenarioDesk({ todayIso, children }: { todayIso: string; children?: ReactNode }) {
@@ -37,10 +40,17 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
     queueMicrotask(() => {
       if (!isActive) return;
       try {
-        const stored = window.localStorage.getItem(STORAGE_KEY);
-        if (stored) setDesk(cleanDesk(JSON.parse(stored)));
+        if (window.location.hash.startsWith(SHARE_PREFIX)) {
+          // A shared link wins over what was saved here, and is then removed from the address bar.
+          setDesk(cleanDesk(JSON.parse(decodeURIComponent(window.location.hash.slice(SHARE_PREFIX.length)))));
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+          setNotice("Opened a shared setup.");
+        } else {
+          const stored = window.localStorage.getItem(STORAGE_KEY);
+          if (stored) setDesk(cleanDesk(JSON.parse(stored)));
+        }
       } catch {
-        // Unreadable or blocked storage: keep the example desk.
+        // Unreadable link or blocked storage: keep the example desk.
       }
       setIsLoaded(true);
     });
@@ -75,6 +85,18 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
     setNotice("Undone.");
   };
 
+  const copyLink = async () => {
+    const link = `${window.location.origin}${window.location.pathname}${SHARE_PREFIX}${encodeURIComponent(JSON.stringify(desk))}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      setNotice("Link copied. It opens this exact setup.");
+    } catch {
+      // Clipboard access can be refused; leave the link in the address bar instead.
+      window.history.replaceState(null, "", link);
+      setNotice("Copy the link from the address bar.");
+    }
+  };
+
   const board = useMemo(() => evaluateDesk(desk, todayIso), [desk, todayIso]);
 
   return (
@@ -84,11 +106,6 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
           <Link href="/" className="text-lg font-bold tracking-tight text-ink">
             Callculator
           </Link>
-          {notice ? (
-            <p role="status" className="min-w-0 truncate text-xs text-ink-secondary">
-              {notice}
-            </p>
-          ) : null}
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
@@ -97,6 +114,13 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
               className="rounded-lg px-3 py-1.5 text-sm font-semibold text-ink-soft hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
             >
               Undo
+            </button>
+            <button
+              type="button"
+              onClick={() => void copyLink()}
+              className="rounded-lg px-3 py-1.5 text-sm font-semibold text-ink-soft hover:bg-surface focus-visible:outline-2 focus-visible:outline-accent"
+            >
+              Copy link
             </button>
             <button
               type="button"
@@ -109,6 +133,16 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
           </div>
         </header>
         <h1 className="sr-only">Options what-if calculator</h1>
+        {notice ? (
+          <p role="status" className="rounded-lg bg-accent-faint px-3 py-1.5 text-sm text-ink-soft">
+            {notice}{" "}
+            {undoCount > 0 && notice !== "Undone." && !notice.startsWith("Link") && !notice.startsWith("Copy") ? (
+              <button type="button" onClick={undo} className="font-semibold text-accent underline-offset-2 hover:underline">
+                Undo
+              </button>
+            ) : null}
+          </p>
+        ) : null}
 
         <Setup
           desk={desk}
@@ -130,7 +164,23 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
             commit({ ...desk, strategies: [...desk.strategies, strategy] });
             setSelectedId(strategy.id);
           }}
-          onRemove={(id) => commit({ ...desk, strategies: desk.strategies.filter((item) => item.id !== id) })}
+          onDuplicate={(id) => {
+            const source = desk.strategies.find((item) => item.id === id);
+            if (!source) return;
+            const copy = makeStrategy(desk, { ...source, id: undefined, name: source.name === autoStrategyName(source) ? "" : `${source.name.slice(0, 43)} copy` });
+            commit({ ...desk, strategies: [...desk.strategies, copy] });
+            setSelectedId(copy.id);
+          }}
+          onRemove={(id) => {
+            const removed = desk.strategies.find((item) => item.id === id);
+            commit({ ...desk, strategies: desk.strategies.filter((item) => item.id !== id) });
+            if (removed) setNotice(`Removed ${removed.name}.`);
+          }}
+          onStartOver={() => {
+            commit(defaultDesk());
+            setSelectedId("");
+            setNotice("Started over with the example.");
+          }}
         />
 
         <WhatIfCard
@@ -141,6 +191,7 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
           onWhatIf={(patch) => setDesk((current) => ({ ...current, whatIf: makeWhatIf(current.market, patch, current.whatIf) }))}
           onSaveMoment={() => commit({ ...desk, moments: [...desk.moments, makeMoment(desk, { ...desk.whatIf, days: board.days })] })}
           onRemoveMoment={(id) => commit({ ...desk, moments: desk.moments.filter((moment) => moment.id !== id) })}
+          onClearMoments={() => commit({ ...desk, moments: [] })}
         />
 
         <details className="group rounded-xl border border-line bg-surface shadow-sm">

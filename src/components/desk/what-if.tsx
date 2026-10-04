@@ -20,6 +20,8 @@ import { outcomeTint, seriesColor } from "@/components/desk/colors";
 import { NumberField } from "@/components/desk/fields";
 import { PayoffChart } from "@/components/desk/payoff-chart";
 
+const noteLink = "font-semibold text-accent underline-offset-2 hover:underline";
+
 const tone = (value: number) => (value > 0.5 ? "text-gain" : value < -0.5 ? "text-loss" : "text-ink-secondary");
 
 function Slider({
@@ -147,8 +149,13 @@ function Moments({
                   </span>
                   {moment.ivPct !== null ? <span className="block text-caption text-ink-muted">IV {moment.ivPct}%</span> : null}
                 </button>
-                <button type="button" onClick={() => onRemove(moment.id)} className="text-caption font-semibold text-ink-muted underline-offset-2 hover:text-loss hover:underline">
-                  Remove<span className="sr-only"> {momentLabel(desk.market, moment)}</span>
+                <button
+                  type="button"
+                  title="Remove this saved moment"
+                  onClick={() => onRemove(moment.id)}
+                  className="mt-1 rounded border border-line-strong bg-surface px-1.5 py-0.5 text-caption font-semibold text-ink-secondary hover:border-loss hover:text-loss focus-visible:outline-2 focus-visible:outline-accent"
+                >
+                  × Remove<span className="sr-only"> {momentLabel(desk.market, moment)}</span>
                 </button>
               </th>
             ))}
@@ -194,6 +201,7 @@ export function WhatIfCard({
   onWhatIf,
   onSaveMoment,
   onRemoveMoment,
+  onClearMoments,
 }: {
   desk: Desk;
   board: Board;
@@ -201,6 +209,7 @@ export function WhatIfCard({
   onWhatIf: (patch: WhatIfInput) => void;
   onSaveMoment: () => void;
   onRemoveMoment: (id: string) => void;
+  onClearMoments: () => void;
 }) {
   const { symbol, spot, ivPct: todayIv } = desk.market;
   const rows = board.rows.filter((row) => !row.problem);
@@ -212,7 +221,18 @@ export function WhatIfCard({
 
   return (
     <section aria-label="What if" className="rounded-xl border border-line bg-surface p-4 shadow-sm sm:p-5">
-      <h2 className="text-base font-semibold text-ink">What if…</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold text-ink">What if…</h2>
+        <button
+          type="button"
+          disabled={board.price === spot && board.days === 0 && board.ivPct === todayIv}
+          title="Back to today's price, today's date and today's IV"
+          onClick={() => onWhatIf({ movePct: 0, days: 0, ivPct: null })}
+          className="rounded-md border border-line-strong bg-surface px-2.5 py-1 text-xs font-semibold text-ink-soft shadow-sm hover:border-accent hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
+        >
+          Reset
+        </button>
+      </div>
       <div className="mt-3 space-y-4">
         <Slider
           id="what-if-price"
@@ -222,7 +242,18 @@ export function WhatIfCard({
           min={Math.min(Math.round(spot * 0.5), board.price)}
           max={Math.max(Math.round(spot * 1.5), board.price)}
           step={priceStep}
-          note={board.price === spot ? "same as today" : `${formatPct((board.price / spot - 1) * 100, 1)} from today's ${formatPrice(spot)}`}
+          note={
+            board.price === spot ? (
+              "same as today"
+            ) : (
+              <>
+                {formatPct((board.price / spot - 1) * 100, 1)} from today&apos;s {formatPrice(spot)} ·{" "}
+                <button type="button" onClick={() => onWhatIf({ movePct: 0 })} className={noteLink}>
+                  back to today&apos;s price
+                </button>
+              </>
+            )
+          }
           onChange={(price) => onWhatIf({ price })}
         />
         <Slider
@@ -233,7 +264,14 @@ export function WhatIfCard({
           min={0}
           max={horizon}
           step={1}
-          note={board.days === 0 ? "today" : board.days >= horizon ? "on expiry day" : `${horizon - board.days} days before expiry`}
+          note={
+            <>
+              {board.days === 0 ? "today" : board.days >= horizon ? "on expiry day" : `${horizon - board.days} days before expiry`} ·{" "}
+              <button type="button" onClick={() => onWhatIf({ days: board.days >= horizon ? 0 : horizon })} className={noteLink}>
+                {board.days >= horizon ? "back to today" : "jump to expiry"}
+              </button>
+            </>
+          }
           onChange={(days) => onWhatIf({ days: Math.min(days, horizon) })}
         />
         <Slider
@@ -248,9 +286,12 @@ export function WhatIfCard({
             board.ivPct === todayIv ? (
               "same as today"
             ) : (
-              <button type="button" onClick={() => onWhatIf({ ivPct: null })} className="font-semibold text-accent underline-offset-2 hover:underline">
-                Back to today&apos;s {todayIv}%
-              </button>
+              <>
+                {formatPct(board.ivPct - todayIv)} points ·{" "}
+                <button type="button" onClick={() => onWhatIf({ ivPct: null })} className={noteLink}>
+                  back to today&apos;s {todayIv}%
+                </button>
+              </>
             )
           }
           onChange={(ivPct) => onWhatIf({ ivPct })}
@@ -290,6 +331,11 @@ export function WhatIfCard({
                 ? "Save a few moments to compare them side by side, like a rally on day 20 and a pullback on day 45."
                 : "Select a saved moment to show it above."}
             </p>
+            {desk.moments.length > 1 ? (
+              <button type="button" onClick={onClearMoments} className="ml-auto text-xs font-semibold text-ink-muted underline-offset-2 hover:text-loss hover:underline">
+                Clear all
+              </button>
+            ) : null}
           </div>
           {desk.moments.length > 0 ? (
             <div className="mt-3">
