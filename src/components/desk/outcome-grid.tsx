@@ -10,14 +10,16 @@ import {
   strategyStrikes,
   type Board,
   type Desk,
+  type PathPoint,
   type Scenario,
+  type Step,
   type Strategy,
 } from "@/lib/scenario-desk";
 import { outcomeTint, seriesColor } from "@/components/desk/colors";
 
 const headLabel = "text-caption font-semibold uppercase tracking-wide text-ink-muted";
 
-function Money({ value, strong = false }: { value: number; strong?: boolean }) {
+export function Money({ value, strong = false }: { value: number; strong?: boolean }) {
   return (
     <span
       className={cn(
@@ -31,8 +33,9 @@ function Money({ value, strong = false }: { value: number; strong?: boolean }) {
   );
 }
 
-export function scenarioTiming(scenario: Scenario): string {
-  return scenario.days === null ? "at expiry" : `in ${scenario.days}d`;
+// "day 20", or "expiry · day 60" for an open-ended last step.
+export function stepTiming(step: Step, point: PathPoint): string {
+  return step.days === null ? `expiry · day ${point.day}` : `day ${point.day}`;
 }
 
 export function OutcomeGrid({
@@ -64,8 +67,8 @@ export function OutcomeGrid({
     <div className="overflow-x-auto">
       <table className="w-full border-separate border-spacing-0 text-left">
         <caption className="sr-only">
-          Profit or loss of each strategy in each scenario for {desk.market.symbol}, with the
-          return on its budget.
+          Profit or loss of each strategy at the end of each scenario for {desk.market.symbol},
+          with the return on its budget.
         </caption>
         <thead>
           <tr>
@@ -83,17 +86,19 @@ export function OutcomeGrid({
                   <button
                     type="button"
                     aria-pressed={isSelected}
-                    title="Show this scenario in the chart"
+                    title="Show this scenario step by step below"
                     onClick={() => onSelectScenario(scenario.id)}
                     className="block w-full px-2.5 pb-1 pt-2 text-right hover:bg-accent-faint focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent"
                   >
                     <span className="block text-sm font-semibold leading-tight text-ink text-balance">{scenario.name}</span>
                     <span className="mt-0.5 block font-mono text-xs text-ink-soft tabular-nums">
-                      {formatPrice(board.prices[index])} · {formatPct(scenario.movePct, 1)}
+                      {scenario.steps.length > 1
+                        ? `${scenario.steps.length} steps, ends ${formatPrice(board.paths[index].at(-1)!.price)}`
+                        : `${formatPrice(board.paths[index][0].price)} · ${formatPct(scenario.steps[0].movePct, 1)}`}
                     </span>
                     <span className="block text-caption text-ink-muted">
-                      {scenarioTiming(scenario)}
-                      {scenario.ivPct === null ? "" : ` · IV ${scenario.ivPct}%`}
+                      {stepTiming(scenario.steps.at(-1)!, board.paths[index].at(-1)!)}
+                      {scenario.steps.at(-1)!.ivPct === null ? "" : ` · IV ${scenario.steps.at(-1)!.ivPct}%`}
                     </span>
                   </button>
                   <button
@@ -194,6 +199,7 @@ export function OutcomeGrid({
                           <Money value={cell.pnl} strong />
                         </span>
                         <span className="block font-mono text-caption text-ink-soft tabular-nums">
+                          {cell.expiredDay !== null ? <span className="mr-1 font-sans text-ink-muted">exp. d{cell.expiredDay}</span> : null}
                           {formatPct(cell.returnPct)}
                           {isBest ? (
                             <span title="Highest profit or loss in this scenario" className="ml-1 text-ink">

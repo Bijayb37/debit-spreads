@@ -112,7 +112,7 @@ export function Assistant({
         ]
       : [
           "Which strategy holds up best across these scenarios, and what does each one give up?",
-          "Add a scenario: bad earnings, stock down 12% in 30 days, IV falls to 30%",
+          `Add a scenario: ${desk.market.symbol} runs up 15% in three weeks, then falls back to today's price by day 45`,
           "I think flat is twice as likely as any other outcome. Set my odds and tell me what changes",
           "Add a strategy that does better where my current ones lose",
         ];
@@ -192,7 +192,7 @@ export function Assistant({
       <form onSubmit={(event) => { event.preventDefault(); void send(); }} className="space-y-1.5 border-t border-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
         <label htmlFor="assistant-question" className="sr-only">Message the assistant</label>
         <textarea ref={box} id="assistant-question" value={draft} disabled={busy} maxLength={4000} rows={3}
-          placeholder="e.g. Build three ways to play a rally to $120"
+          placeholder="e.g. It runs to 960 in 3 weeks, then drops to 850 by day 45"
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }}
           className={cn(input, "max-h-40 resize-none")} />

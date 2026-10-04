@@ -6,12 +6,15 @@ import type { OptionStrategy } from "@/lib/debit-call-spread";
 import {
   KINDS,
   KIND_IDS,
+  MAX_STEPS,
   autoScenarioName,
   autoStrategyName,
+  formatPct,
   formatPrice,
+  horizonDays,
   makeScenario,
   makeStrategy,
-  scenarioPrice,
+  movePrice,
   strategyProblem,
   type Desk,
   type Scenario,
@@ -196,6 +199,8 @@ export function StrategyDialog({
   );
 }
 
+type StepForm = { days: string; price: string; iv: string };
+
 export function ScenarioDialog({
   desk,
   scenario,
@@ -210,16 +215,27 @@ export function ScenarioDialog({
   onDelete: (id: string) => void;
   onClose: () => void;
 }) {
-  const [form, setForm] = useState({
-    name: scenario && scenario.name !== autoScenarioName(scenario.movePct) ? scenario.name : "",
-    movePct: String(scenario?.movePct ?? 0),
-    days: scenario?.days === null || !scenario ? "" : String(scenario.days),
-    ivPct: scenario?.ivPct === null || !scenario ? "" : String(scenario.ivPct),
-    odds: String(scenario?.odds ?? 1),
-  });
-  const set = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((current) => ({ ...current, [key]: event.target.value }));
-  const move = numberOrUndefined(form.movePct) ?? 0;
+  const [name, setName] = useState(
+    // A generated name is left blank so it keeps following the path.
+    scenario && scenario.name !== autoScenarioName(desk.market, scenario.steps) ? scenario.name : "",
+  );
+  const [odds, setOdds] = useState(String(scenario?.odds ?? 1));
+  const [steps, setSteps] = useState<StepForm[]>(
+    (scenario?.steps ?? [{ days: null, movePct: 0, ivPct: null }]).map((step) => ({
+      days: step.days === null ? "" : String(step.days),
+      price: String(movePrice(desk.market, step.movePct)),
+      iv: step.ivPct === null ? "" : String(step.ivPct),
+    })),
+  );
+  const [error, setError] = useState<string | null>(null);
+  const setStep = (index: number, key: keyof StepForm, value: string) =>
+    setSteps((current) => current.map((step, stepIndex) => (stepIndex === index ? { ...step, [key]: value } : step)));
+  const inputs = steps.map((step) => ({
+    days: numberOrUndefined(step.days) ?? null,
+    price: numberOrUndefined(step.price),
+    ivPct: numberOrUndefined(step.iv) ?? null,
+  }));
+  const preview = makeScenario(desk, { steps: inputs });
 
   return (
     <Dialog title={scenario ? "Edit scenario" : "Add a scenario"} onClose={onClose}>
@@ -227,47 +243,89 @@ export function ScenarioDialog({
         className="space-y-3 p-4"
         onSubmit={(event) => {
           event.preventDefault();
-          onSave(
-            makeScenario(desk, {
-              id: scenario?.id,
-              name: form.name,
-              movePct: move,
-              days: numberOrUndefined(form.days) ?? null,
-              ivPct: numberOrUndefined(form.ivPct) ?? null,
-              odds: numberOrUndefined(form.odds),
-            }),
-          );
+          if (inputs.some((step) => step.price === undefined)) {
+            setError("Every step needs a stock price.");
+          } else if (inputs.filter((step) => step.days === null).length > 1) {
+            setError("Only one step can leave the day empty, and it is treated as the last one.");
+          } else if (new Set(inputs.map((step) => step.days)).size < inputs.length) {
+            setError("Two steps are on the same day. Give each step its own day.");
+          } else {
+            onSave(makeScenario(desk, { id: scenario?.id, name, odds: numberOrUndefined(odds), steps: inputs }));
+          }
         }}
       >
-        <div className="grid grid-cols-2 gap-3">
+        <p className="text-sm text-ink-secondary">
+          Describe where {desk.market.symbol} goes from {formatPrice(desk.market.spot)} today. Add steps for a path, such as a rally and then a fall back.
+        </p>
+        <ol className="space-y-2">
+          {steps.map((step, index) => {
+            const price = numberOrUndefined(step.price);
+            return (
+              <li key={index} className="rounded-lg border border-line bg-surface-muted p-2.5">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-xs font-semibold text-ink-soft">
+                    Step {index + 1}
+                    {price !== undefined ? (
+                      <span className="ml-2 font-mono font-normal text-ink-muted tabular-nums">{formatPct((price / desk.market.spot - 1) * 100, 1)} from today</span>
+                    ) : null}
+                  </span>
+                  {steps.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => setSteps((current) => current.filter((_, stepIndex) => stepIndex !== index))}
+                      className="text-xs font-semibold text-loss underline-offset-2 hover:underline"
+                    >
+                      Remove<span className="sr-only"> step {index + 1}</span>
+                    </button>
+                  ) : null}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <label className={label}>
+                    Stock price ($)
+                    <input id={`step-${index}-price`} type="number" step="any" min={0.01} required value={step.price} onChange={(event) => setStep(index, "price", event.target.value)} className={field} />
+                  </label>
+                  <label className={label}>
+                    On day
+                    <input id={`step-${index}-days`} type="number" step={1} min={1} max={1095} value={step.days} onChange={(event) => setStep(index, "days", event.target.value)} placeholder={`Expiry (${horizonDays(desk)})`} className={field} />
+                  </label>
+                  <label className={label}>
+                    IV then (%)
+                    <input id={`step-${index}-iv`} type="number" step="any" min={1} max={300} value={step.iv} onChange={(event) => setStep(index, "iv", event.target.value)} placeholder={`${desk.market.ivPct}`} className={field} />
+                  </label>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        <div className="flex items-center justify-between gap-2">
+          <button
+            type="button"
+            disabled={steps.length >= MAX_STEPS}
+            onClick={() =>
+              setSteps((current) => {
+                const lastDay = Math.max(0, ...current.map((step) => numberOrUndefined(step.days) ?? 0));
+                return [...current, { days: String(lastDay + 15), price: current.at(-1)?.price ?? String(desk.market.spot), iv: "" }];
+              })
+            }
+            className="rounded-md border border-dashed border-line-strong px-3 py-1.5 text-xs font-semibold text-ink-secondary hover:border-accent hover:text-accent disabled:opacity-40"
+          >
+            + Add a step
+          </button>
+          <span className="text-caption text-ink-muted">Leave the day empty to mean the last expiry. Leave IV empty to keep {desk.market.ivPct}%.</span>
+        </div>
+        <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
           <label className={label}>
-            Stock move (%)
-            <input id="scenario-move" type="number" step="any" min={-95} max={500} required value={form.movePct} onChange={set("movePct")} className={field} />
-            <span className="mt-1 block font-normal text-ink-muted">
-              {desk.market.symbol} at {formatPrice(scenarioPrice(desk.market, { movePct: Math.min(500, Math.max(-95, move)) }))}
-            </span>
+            Name <span className="font-normal text-ink-muted">(optional)</span>
+            <input id="scenario-name" type="text" maxLength={32} value={name} onChange={(event) => setName(event.target.value)} placeholder={preview.name} className={field} />
           </label>
           <label className={label}>
-            Days from today
-            <input id="scenario-days" type="number" step={1} min={0} max={1095} value={form.days} onChange={set("days")} placeholder="At expiry" className={field} />
-            <span className="mt-1 block font-normal text-ink-muted">Empty: each strategy at its expiry</span>
-          </label>
-          <label className={label}>
-            IV then (%)
-            <input id="scenario-iv" type="number" step="any" min={1} max={300} value={form.ivPct} onChange={set("ivPct")} placeholder={`Same (${desk.market.ivPct}%)`} className={field} />
-          </label>
-          <label className={label}>
-            How likely? (weight)
-            <input id="scenario-odds" type="number" step="any" min={0} max={100} required value={form.odds} onChange={set("odds")} className={field} />
+            How likely?
+            <input id="scenario-odds" type="number" step="any" min={0} max={100} required value={odds} onChange={(event) => setOdds(event.target.value)} className={field} />
           </label>
         </div>
-        <label className={label}>
-          Name <span className="font-normal text-ink-muted">(optional)</span>
-          <input id="scenario-name" type="text" maxLength={32} value={form.name} onChange={set("name")} placeholder={autoScenarioName(move)} className={field} />
-        </label>
         <Actions
           saveLabel={scenario ? "Save" : "Add scenario"}
-          error={null}
+          error={error}
           onDelete={scenario && desk.scenarios.length > 1 ? () => onDelete(scenario.id) : undefined}
           onCancel={onClose}
         />

@@ -4,11 +4,14 @@ A Next.js app for modeling eight option strategies with editable inputs, saved c
 
 ## Scenario desk
 
-The home page is the scenario desk: one stock, several option strategies, and several what-if scenarios. Its table shows what each strategy makes or loses in each scenario, with the best strategy per scenario marked and each strategy's worst, best and odds-weighted result at the end of its row.
+The home page is the scenario desk: one stock, several option strategies, and several what-if scenarios, each of which is a path over time.
 
-- **Scenarios** are a stock move, an optional date (empty values each strategy at its own expiration) and an optional IV. The "How likely?" row holds your own weights; they only drive the weighted column.
-- **The chart** shows every strategy's profit or loss across stock prices on the selected scenario's date and IV.
-- **The assistant** (`/api/desk-assistant`) can add, change and remove strategies and scenarios, set your odds and change the stock. It runs its tools on the server against the same pricing code as the page, sees the recalculated board, then answers. Gemini uses `GEMINI_API_KEY`; ChatGPT uses a key you paste in. Assistant changes can be undone.
+- **Scenarios are paths.** A scenario has one to five steps, each with a stock price, a day and an optional IV, for example "up to $960 by day 20, then back to $850 by day 45". The stock moves in a straight line between steps. A last step with no day lands on the last expiry on the desk.
+- **The outcome table** shows what each strategy has made or lost at the end of each scenario, marks the best per scenario, and ends each row with its odds-weighted, worst and best result. The "How likely?" row holds your own weights.
+- **Along the way** shows the selected scenario step by step: the stock's path, each strategy's profit or loss day by day, and a table of every strategy at every step with its low and high point. A strategy that expires before a step keeps the result it had on its expiry day.
+- **Every price, every date** is a grid of stock prices against days at a chosen IV. It shows which strategy is ahead in each cell, or one strategy's values, and lists every strategy for the cell you point at.
+- **Changing the stock price** rescales existing strikes so each strategy keeps its moneyness.
+- **The assistant** (`/api/desk-assistant`) can add, change and remove strategies and scenarios (including multi-step paths), set your odds, change the stock, and look up any price and day with `what_if`. It runs its tools on the server against the same pricing code as the page, sees the recalculated board, then answers. Gemini uses `GEMINI_API_KEY`; ChatGPT uses a key you paste in. Assistant changes can be undone.
 - The desk is saved in the browser. The earlier calculator is at `/classic`.
 
 The model lives in `src/lib/scenario-desk.ts`, the assistant's tools in `src/lib/desk-tools.ts`, and the page in `src/components/desk/`.

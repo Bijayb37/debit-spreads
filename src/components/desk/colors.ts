@@ -19,6 +19,7 @@ export function seriesColor(strategyId: string): string {
 // Tint strength follows the size of the return, capped at the whole budget.
 export function outcomeTint(returnPct: number): string | undefined {
   if (Math.abs(returnPct) < 0.05) return undefined;
-  const alpha = 0.07 + 0.3 * Math.min(1, Math.abs(returnPct) / 100);
+  // Rounded so the server and the browser render the same string.
+  const alpha = Math.round((0.07 + 0.3 * Math.min(1, Math.abs(returnPct) / 100)) * 100) / 100;
   return returnPct > 0 ? `rgb(4 120 87 / ${alpha})` : `rgb(190 18 60 / ${alpha})`;
 }

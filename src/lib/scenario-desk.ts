@@ -10,6 +10,7 @@ import {
 
 export const MAX_STRATEGIES = 8;
 export const MAX_SCENARIOS = 8;
+export const MAX_STEPS = 5;
 
 type KindInfo = {
   name: string;
@@ -47,20 +48,28 @@ export type Strategy = {
   budget: number;
 };
 
-// `days: null` values each strategy at its own expiration. `ivPct: null` keeps the
-// entry IV. `odds` is the user's own relative weight for the scenario, not a forecast.
-export type Scenario = {
-  id: string;
-  name: string;
-  movePct: number;
-  days: number | null;
-  ivPct: number | null;
-  odds: number;
-};
+// One checkpoint on a scenario's path: where the stock is, when, and at what IV.
+// `days: null` (last step only) means the day the longest-dated strategy expires.
+// `ivPct: null` keeps the entry IV.
+export type Step = { days: number | null; movePct: number; ivPct: number | null };
+
+// A scenario is a path the stock takes from today through one or more steps, e.g.
+// up to $960 by day 20, then back to $850 by day 45. `odds` is the user's own
+// relative weight for the scenario, not a forecast.
+export type Scenario = { id: string; name: string; steps: Step[]; odds: number };
+
+export type StepInput = { days?: number | null; movePct?: number; price?: number; ivPct?: number | null };
+
+export type ScenarioInput = { id?: string; name?: string; odds?: number; steps?: StepInput[] } & StepInput;
+
+// A step with its day, price and IV worked out.
+export type PathPoint = { day: number; price: number; movePct: number; ivPct: number };
 
 export type Desk = { market: Market; strategies: Strategy[]; scenarios: Scenario[] };
 
-export type Cell = { pnl: number; returnPct: number };
+// `expiredDay` is set when the strategy had already expired by that point on the
+// path; its result is then locked in at the stock price on its expiry day.
+export type Cell = { pnl: number; returnPct: number; expiredDay: number | null };
 
 export type BoardRow = {
   strategy: Strategy;
@@ -69,7 +78,10 @@ export type BoardRow = {
   maxLoss: number | null;
   maxProfit: number | null;
   breakEven: number;
+  // Result at the end of each scenario's path.
   cells: Cell[];
+  // Result at every step of each scenario's path: [scenario][step].
+  steps: Cell[][];
   worst: number;
   best: number;
   // P/L averaged across scenarios, weighted by the user's odds.
@@ -79,7 +91,8 @@ export type BoardRow = {
 
 export type Board = {
   rows: BoardRow[];
-  prices: number[];
+  // Each scenario's path with days, prices and IVs worked out.
+  paths: PathPoint[][];
   // Each scenario's share of the total odds, in percent.
   oddsPct: number[];
   // Row id of the highest P/L in each scenario, when there is something to compare.
@@ -136,7 +149,13 @@ export function autoStrategyName(strategy: Strategy): string {
   return `${strategyStrikes(strategy)} ${KINDS[strategy.kind].name.toLowerCase()}`;
 }
 
-export function autoScenarioName(movePct: number): string {
+export function movePrice(market: Market, movePct: number): number {
+  return Math.max(0.01, round(market.spot * (1 + movePct / 100)));
+}
+
+export function autoScenarioName(market: Market, steps: Pick<Step, "movePct">[]): string {
+  if (steps.length > 1) return steps.map((step) => formatPrice(movePrice(market, step.movePct))).join(" → ");
+  const movePct = steps[0]?.movePct ?? 0;
   return movePct === 0 ? "Flat" : `${movePct > 0 ? "Up" : "Down"} ${round(Math.abs(movePct), 1)}%`;
 }
 
@@ -205,24 +224,48 @@ export function makeStrategy(
   return strategy;
 }
 
-export function makeScenario(
-  desk: Desk,
-  input: Partial<Scenario> & { price?: number },
-): Scenario {
-  const movePct = round(
-    clampNumber(
-      input.movePct ?? (typeof input.price === "number" ? (input.price / desk.market.spot - 1) * 100 : 0),
-      -95,
-      500,
-      0,
+function makeStep(market: Market, input: StepInput): Step {
+  return {
+    days: input.days === null || input.days === undefined ? null : Math.round(clampNumber(input.days, 1, 1095, 1)),
+    movePct: round(
+      clampNumber(
+        input.movePct ?? (typeof input.price === "number" ? (input.price / market.spot - 1) * 100 : 0),
+        -95,
+        500,
+        0,
+      ),
+      // Enough precision that a price the user typed comes back exactly.
+      4,
     ),
+    ivPct: input.ivPct === null || input.ivPct === undefined ? null : round(clampNumber(input.ivPct, 1, 300, market.ivPct), 1),
+  };
+}
+
+// Orders steps by day, keeps one step per day and at most one open-ended last step.
+export function makeSteps(market: Market, inputs: StepInput[]): Step[] {
+  const dated = new Map<number, Step>();
+  let open: Step | null = null;
+  for (const input of inputs) {
+    if (!input || typeof input !== "object") continue;
+    const step = makeStep(market, input);
+    if (step.days === null) open = step;
+    else dated.set(step.days, step);
+  }
+  const steps = [...dated.values()].sort((first, second) => first.days! - second.days!);
+  if (open) steps.push(open);
+  return steps.length > 0 ? steps.slice(0, MAX_STEPS) : [{ days: null, movePct: 0, ivPct: null }];
+}
+
+// Accepts a path (`steps`) or the single-step shorthand (`movePct`/`price`, `days`, `ivPct`).
+export function makeScenario(desk: Desk, input: ScenarioInput): Scenario {
+  const steps = makeSteps(
+    desk.market,
+    Array.isArray(input.steps) && input.steps.length > 0 ? input.steps : [input],
   );
   return {
     id: input.id || nextId("sc", desk.scenarios),
-    name: cleanText(input.name, 32) || autoScenarioName(movePct),
-    movePct,
-    days: input.days === null || input.days === undefined ? null : Math.round(clampNumber(input.days, 0, 1095, 0)),
-    ivPct: input.ivPct === null || input.ivPct === undefined ? null : round(clampNumber(input.ivPct, 1, 300, desk.market.ivPct), 1),
+    name: cleanText(input.name, 32) || autoScenarioName(desk.market, steps),
+    steps,
     odds: round(clampNumber(input.odds, 0, 100, 1), 1),
   };
 }
@@ -233,7 +276,10 @@ export function defaultDesk(): Desk {
     strategies: [],
     scenarios: [],
   };
-  for (const movePct of [-20, -10, 0, 10, 20]) {
+  // Two paths show how timing changes the picture; three simple moves frame the range.
+  desk.scenarios.push(makeScenario(desk, { name: "Rally, then fade", steps: [{ days: 20, movePct: 15 }, { days: 45, movePct: 1 }] }));
+  desk.scenarios.push(makeScenario(desk, { name: "Dip, then recover", steps: [{ days: 20, movePct: -12 }, { days: 50, movePct: 8 }] }));
+  for (const movePct of [-20, 0, 20]) {
     desk.scenarios.push(makeScenario(desk, { movePct }));
   }
   desk.strategies.push(makeStrategy(desk, { kind: "long-call" }));
@@ -271,7 +317,7 @@ export function cleanDesk(value: unknown): Desk {
     );
   }
   for (const entry of Array.isArray(raw.scenarios) ? raw.scenarios.slice(0, MAX_SCENARIOS) : []) {
-    const item = entry as Partial<Scenario>;
+    const item = entry as ScenarioInput;
     if (!item || typeof item !== "object") continue;
     const id = cleanText(item.id, 24);
     desk.scenarios.push(
@@ -285,17 +331,85 @@ export function cleanDesk(value: unknown): Desk {
   return desk;
 }
 
-export function scenarioPrice(market: Market, scenario: Pick<Scenario, "movePct">): number {
-  return Math.max(0.01, round(market.spot * (1 + scenario.movePct / 100)));
+// Typical strike spacing for a stock at this price.
+function strikeIncrement(value: number): number {
+  return value < 25 ? 0.5 : value < 200 ? 1 : value < 1000 ? 5 : 10;
+}
+
+function niceStrike(value: number): number {
+  const increment = strikeIncrement(value);
+  return Math.max(increment, Math.round(value / increment) * increment);
+}
+
+// Changes the stock, price or IV. When the price changes, strikes are rescaled so
+// each strategy stays as far in or out of the money as it was; scenarios are stored
+// as moves from today's price, so they follow on their own.
+export function withMarket(desk: Desk, patch: Partial<Market>): Desk {
+  const next = cleanDesk({ ...desk, market: { ...desk.market, ...patch } });
+  if (next.market.spot === desk.market.spot) return next;
+  const ratio = next.market.spot / desk.market.spot;
+  return {
+    ...next,
+    strategies: desk.strategies.map((strategy) => {
+      const scaled = {
+        ...strategy,
+        longStrike: niceStrike(strategy.longStrike * ratio),
+        shortStrike: niceStrike(strategy.shortStrike * ratio),
+      };
+      // Rounding can leave both strikes equal; keep the original order.
+      if (strategyProblem(scaled) && !strategyProblem(strategy)) {
+        const gap = strikeIncrement(scaled.longStrike);
+        scaled.shortStrike = Math.max(0.01, scaled.longStrike + (KINDS[strategy.kind].short === "below" ? -gap : gap));
+      }
+      return { ...scaled, name: strategy.name === autoStrategyName(strategy) ? autoStrategyName(scaled) : strategy.name };
+    }),
+    scenarios: desk.scenarios.map((scenario) => ({
+      ...scenario,
+      name: scenario.name === autoScenarioName(desk.market, scenario.steps) ? autoScenarioName(next.market, scenario.steps) : scenario.name,
+    })),
+  };
+}
+
+// The last day any strategy on the desk is still open.
+export function horizonDays(desk: Desk): number {
+  return desk.strategies.length ? Math.max(...desk.strategies.map((strategy) => strategy.expirationDays)) : 60;
+}
+
+export function resolvePath(desk: Desk, scenario: Scenario): PathPoint[] {
+  const horizon = horizonDays(desk);
+  let previous = 0;
+  return scenario.steps.map((step) => {
+    const day = step.days ?? Math.max(horizon, previous + 1);
+    previous = day;
+    return { day, price: movePrice(desk.market, step.movePct), movePct: step.movePct, ivPct: step.ivPct ?? desk.market.ivPct };
+  });
+}
+
+// Where the stock and IV are on a given day, moving in straight lines from today
+// through each step and holding the last step's values afterwards.
+export function pathAt(desk: Desk, path: PathPoint[], day: number): { price: number; ivPct: number } {
+  let from = { day: 0, price: desk.market.spot, ivPct: desk.market.ivPct };
+  for (const point of path) {
+    if (day <= point.day) {
+      const share = point.day === from.day ? 1 : (day - from.day) / (point.day - from.day);
+      return {
+        price: from.price + (point.price - from.price) * share,
+        ivPct: from.ivPct + (point.ivPct - from.ivPct) * share,
+      };
+    }
+    from = point;
+  }
+  return { price: from.price, ivPct: from.ivPct };
 }
 
 function snapshot(
   desk: Desk,
   strategy: Strategy,
   todayIso: string,
+  day: number,
   price: number,
-  days: number | null,
-  ivPct: number | null,
+  ivPct: number,
+  shortLegPrice = price,
 ) {
   return createScenarioSnapshot({
     strategy: strategy.kind,
@@ -307,36 +421,40 @@ function snapshot(
     ratioShortCount: strategy.ratio,
     shortExpirationDays: strategy.shortExpirationDays,
     volatilityPct: desk.market.ivPct,
-    futureVolatilityPct: ivPct ?? desk.market.ivPct,
+    futureVolatilityPct: ivPct,
     capital: strategy.budget,
     allowFractionalContracts: false,
     scenarioPrice: price,
-    calendarShortPrice: price,
-    // A scenario dated after a strategy expires shows that strategy's value at expiry.
-    scenarioOffsetDays: Math.min(days ?? strategy.expirationDays, strategy.expirationDays),
+    calendarShortPrice: shortLegPrice,
+    scenarioOffsetDays: Math.min(day, strategy.expirationDays),
     ratePct: desk.market.ratePct,
     dividendYieldPct: 0,
   });
 }
 
-// One strategy's profit or loss at each stock price, on one date and IV.
-export function payoffCurve(
-  desk: Desk,
-  strategy: Strategy,
-  todayIso: string,
-  prices: number[],
-  days: number | null,
-  ivPct: number | null,
-): number[] {
-  if (strategyProblem(strategy)) return prices.map(() => 0);
-  return prices.map((price) => {
-    const result = snapshot(desk, strategy, todayIso, price, days, ivPct);
-    return result.unitCost > 0 && result.contracts > 0 ? result.pnl : 0;
-  });
+// Profit or loss of one strategy with the stock at `price` on `day`. A day past the
+// strategy's expiry gives its value at expiry at that price.
+export function pnlAt(desk: Desk, strategy: Strategy, todayIso: string, day: number, price: number, ivPct: number): number {
+  if (strategyProblem(strategy)) return 0;
+  const result = snapshot(desk, strategy, todayIso, day, price, ivPct);
+  return result.unitCost > 0 && result.contracts > 0 ? result.pnl : 0;
+}
+
+// Profit or loss of one strategy on `day` of a path. After the strategy expires its
+// result stays locked at the stock price on its expiry day.
+function pnlOnPath(desk: Desk, strategy: Strategy, todayIso: string, path: PathPoint[], day: number): number {
+  const heldDay = Math.min(day, strategy.expirationDays);
+  const point = pathAt(desk, path, heldDay);
+  // A calendar's sold call settles at the stock price on its own expiry day.
+  const shortLegPrice =
+    KINDS[strategy.kind].calendar && heldDay >= strategy.shortExpirationDays
+      ? pathAt(desk, path, strategy.shortExpirationDays).price
+      : point.price;
+  return snapshot(desk, strategy, todayIso, heldDay, point.price, point.ivPct, shortLegPrice).pnl;
 }
 
 export function evaluateDesk(desk: Desk, todayIso: string): Board {
-  const prices = desk.scenarios.map((scenario) => scenarioPrice(desk.market, scenario));
+  const paths = desk.scenarios.map((scenario) => resolvePath(desk, scenario));
   const totalOdds = desk.scenarios.reduce((sum, scenario) => sum + scenario.odds, 0);
   // With no odds set at all, every scenario counts equally.
   const weights = desk.scenarios.map((scenario) =>
@@ -346,7 +464,7 @@ export function evaluateDesk(desk: Desk, todayIso: string): Board {
     const inputProblem = strategyProblem(strategy);
     const entry = inputProblem
       ? null
-      : snapshot(desk, strategy, todayIso, desk.market.spot, 0, null);
+      : snapshot(desk, strategy, todayIso, 0, desk.market.spot, desk.market.ivPct);
     const problem =
       inputProblem ??
       (entry!.unitCost <= 0
@@ -354,11 +472,18 @@ export function evaluateDesk(desk: Desk, todayIso: string): Board {
         : entry!.contracts < 1
           ? "The budget is too small for one contract."
           : null);
-    const cells = desk.scenarios.map((scenario, index): Cell => {
-      if (problem) return { pnl: 0, returnPct: 0 };
-      const { pnl } = snapshot(desk, strategy, todayIso, prices[index], scenario.days, scenario.ivPct);
-      return { pnl, returnPct: (pnl / strategy.budget) * 100 };
-    });
+    const steps = paths.map((path) =>
+      path.map((point): Cell => {
+        if (problem) return { pnl: 0, returnPct: 0, expiredDay: null };
+        const pnl = pnlOnPath(desk, strategy, todayIso, path, point.day);
+        return {
+          pnl,
+          returnPct: (pnl / strategy.budget) * 100,
+          expiredDay: point.day > strategy.expirationDays ? strategy.expirationDays : null,
+        };
+      }),
+    );
+    const cells = steps.map((cellsOnPath) => cellsOnPath.at(-1)!);
     const pnls = cells.map((cell) => cell.pnl);
     return {
       strategy,
@@ -368,6 +493,7 @@ export function evaluateDesk(desk: Desk, todayIso: string): Board {
       maxProfit: !entry || entry.maxProfitPerUnit === null ? null : entry.maxProfitPerUnit * entry.contracts * 100,
       breakEven: entry?.breakEvenAtExpiry ?? 0,
       cells,
+      steps,
       worst: pnls.length ? Math.min(...pnls) : 0,
       best: pnls.length ? Math.max(...pnls) : 0,
       expected: pnls.reduce((sum, pnl, index) => sum + pnl * weights[index], 0),
@@ -377,7 +503,7 @@ export function evaluateDesk(desk: Desk, todayIso: string): Board {
   const usable = rows.filter((row) => !row.problem);
   return {
     rows,
-    prices,
+    paths,
     oddsPct: weights.map((weight) => weight * 100),
     bestInScenario: desk.scenarios.map((_, index) =>
       usable.length > 1
@@ -385,6 +511,61 @@ export function evaluateDesk(desk: Desk, todayIso: string): Board {
         : null,
     ),
   };
+}
+
+export type PathSeries = {
+  days: number[];
+  prices: number[];
+  ivs: number[];
+  lines: { id: string; values: number[] }[];
+};
+
+// Every usable strategy's profit or loss day by day along one scenario's path.
+export function pathSeries(desk: Desk, todayIso: string, scenario: Scenario): PathSeries {
+  const path = resolvePath(desk, scenario);
+  const end = path.at(-1)!.day;
+  const usable = desk.strategies.filter((strategy) => !strategyProblem(strategy));
+  const days = [
+    ...new Set([
+      ...Array.from({ length: 49 }, (_, index) => Math.round((end * index) / 48)),
+      ...path.map((point) => point.day),
+      ...usable.map((strategy) => strategy.expirationDays).filter((day) => day < end),
+    ]),
+  ].sort((first, second) => first - second);
+  const points = days.map((day) => pathAt(desk, path, day));
+  return {
+    days,
+    prices: points.map((point) => point.price),
+    ivs: points.map((point) => point.ivPct),
+    lines: usable.flatMap((strategy) => {
+      const entry = snapshot(desk, strategy, todayIso, 0, desk.market.spot, desk.market.ivPct);
+      if (entry.unitCost <= 0 || entry.contracts < 1) return [];
+      return [{ id: strategy.id, values: days.map((day) => pnlOnPath(desk, strategy, todayIso, path, day)) }];
+    }),
+  };
+}
+
+export type PriceTimeMap = {
+  // Highest price first.
+  prices: number[];
+  days: number[];
+  // Profit or loss per strategy id: [price][day].
+  values: Record<string, number[][]>;
+};
+
+// Every strategy's profit or loss on a grid of stock prices and days, at one IV.
+export function priceTimeMap(desk: Desk, todayIso: string, ivPct: number): PriceTimeMap {
+  const paths = desk.scenarios.map((scenario) => resolvePath(desk, scenario));
+  const widest = Math.max(30, ...paths.flat().map((point) => Math.abs(point.movePct)));
+  const range = Math.ceil(widest / 10) * 10;
+  const prices = Array.from({ length: 11 }, (_, index) => movePrice(desk.market, Math.max(-95, (range * (5 - index)) / 5)));
+  const lastDay = Math.max(horizonDays(desk), ...paths.map((path) => path.at(-1)!.day));
+  const days = [...new Set(Array.from({ length: 8 }, (_, index) => Math.round((lastDay * index) / 7)))];
+  const values: PriceTimeMap["values"] = {};
+  for (const strategy of desk.strategies) {
+    values[strategy.id] = prices.map((price) => days.map((day) => pnlAt(desk, strategy, todayIso, day, price, ivPct)));
+  }
+  return { prices, days, values };
 }
 
 // The board as plain data for the assistant. Dollar values are whole USD.
@@ -395,11 +576,13 @@ export function describeBoard(desk: Desk, todayIso: string) {
     scenarios: desk.scenarios.map((scenario, index) => ({
       id: scenario.id,
       name: scenario.name,
-      stockPrice: board.prices[index],
-      movePct: scenario.movePct,
-      when: scenario.days === null ? "each strategy's expiration" : `${scenario.days} days from today`,
-      iv: scenario.ivPct === null ? "unchanged from entry" : `${scenario.ivPct}%`,
       userOddsPct: round(board.oddsPct[index], 1),
+      path: board.paths[index].map((point) => ({
+        day: point.day,
+        stockPrice: point.price,
+        movePct: point.movePct,
+        ivPct: point.ivPct,
+      })),
     })),
     strategies: board.rows.map((row) => ({
       id: row.strategy.id,
@@ -416,13 +599,13 @@ export function describeBoard(desk: Desk, todayIso: string) {
             breakEvenAtExpiry: round(row.breakEven),
             maxLoss: row.maxLoss === null ? "uncapped" : Math.round(row.maxLoss),
             maxProfit: row.maxProfit === null ? "uncapped" : Math.round(row.maxProfit),
-            pnlByScenario: row.cells.map((cell) => Math.round(cell.pnl)),
-            worstScenarioPnl: Math.round(row.worst),
-            bestScenarioPnl: Math.round(row.best),
-            oddsWeightedPnl: Math.round(row.expected),
+            pnlAtEachStepByScenario: row.steps.map((cells) => cells.map((cell) => Math.round(cell.pnl))),
+            worstEndPnl: Math.round(row.worst),
+            bestEndPnl: Math.round(row.best),
+            oddsWeightedEndPnl: Math.round(row.expected),
           }),
     })),
     notes:
-      "pnlByScenario follows the order of scenarios. Theoretical Black-Scholes values, not live quotes; whole contracts of 100 shares; no fees or dividends. Odds are the user's own weights, not probabilities from the model. Each strategy is a separate alternative for the same budget, not a combined position.",
+      "Each scenario is a path: the stock moves in straight lines from today's price through each step, and IV moves with it. pnlAtEachStepByScenario follows the order of scenarios, then of each scenario's steps; the last step is the scenario's end result. A strategy that expires before a step keeps the result it had on its expiry day. Theoretical Black-Scholes values, not live quotes; whole contracts of 100 shares; no fees or dividends. Odds are the user's own weights, not probabilities from the model. Each strategy is a separate alternative for the same budget, not a combined position.",
   };
 }

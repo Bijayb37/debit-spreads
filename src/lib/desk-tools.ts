@@ -3,12 +3,15 @@ import {
   KIND_IDS,
   MAX_SCENARIOS,
   MAX_STRATEGIES,
-  cleanDesk,
+  autoScenarioName,
+  horizonDays,
   makeScenario,
   makeStrategy,
+  pnlAt,
   strategyProblem,
+  withMarket,
   type Desk,
-  type Scenario,
+  type ScenarioInput,
   type Strategy,
 } from "@/lib/scenario-desk";
 
@@ -29,12 +32,21 @@ const strategyFields = {
   budget: { type: "number", description: "USD to allocate. Keep budgets equal across strategies unless the user says otherwise." },
 };
 
+const stepFields = {
+  days: { type: "integer", description: "Days from today, 1 or more. Omit on the last step to mean the day the longest-dated strategy expires." },
+  price: { type: "number", description: "Stock price in USD at that point. Use this when the user gives prices." },
+  movePct: { type: "number", description: "Alternative to price: move from today's price in percent, e.g. -12." },
+  ivPct: { type: "number", description: "IV in percent at that point. Omit to keep the entry IV." },
+};
+
 const scenarioFields = {
-  name: { type: "string", description: "Short name, e.g. 'Earnings miss'." },
-  movePct: { type: "number", description: "Stock move from today's price in percent, e.g. -12." },
-  price: { type: "number", description: "Stock price in USD. Use instead of movePct when the user gives a price." },
-  days: { type: "integer", description: "Days from today. Omit to value each strategy at its own expiration." },
-  ivPct: { type: "number", description: "IV in percent at that time. Omit to keep the entry IV." },
+  name: { type: "string", description: "Short name, e.g. 'Rally then fade'." },
+  steps: {
+    type: "array",
+    description:
+      "The stock's path as up to 5 checkpoints in time order. Use several steps when the user describes a sequence, e.g. 'runs to 960 in three weeks, then back to 850 by day 45' is two steps. One step is a simple move.",
+    items: { type: "object", properties: stepFields },
+  },
   odds: { type: "number", description: "The user's own relative weight for this scenario, 0 to 100. Set only from what the user says they believe." },
 };
 
@@ -66,7 +78,7 @@ export const DESK_TOOLS: Tool[] = [
   },
   {
     name: "set_scenarios",
-    description: "Add what-if scenarios, or replace the whole list. Every strategy is priced in every scenario.",
+    description: "Add what-if scenarios, or replace the whole list. Each scenario is a path of one or more steps; every strategy is valued at every step.",
     parameters: {
       type: "object",
       properties: {
@@ -78,7 +90,7 @@ export const DESK_TOOLS: Tool[] = [
   },
   {
     name: "update_scenario",
-    description: "Change fields of an existing scenario by id, for example the user's odds. Pass only what changes.",
+    description: "Change an existing scenario by id, for example the user's odds. Pass only what changes; steps replaces the whole path.",
     parameters: { type: "object", properties: { id: { type: "string" }, ...scenarioFields }, required: ["id"] },
   },
   {
@@ -87,8 +99,16 @@ export const DESK_TOOLS: Tool[] = [
     parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
   },
   {
+    name: "what_if",
+    description: "Read-only. Returns every strategy's profit or loss with the stock at one price on one day, without changing the board. Use it for questions about a point that is not a step on the board.",
+    parameters: {
+      type: "object",
+      properties: { ...stepFields, days: { type: "integer", description: "Days from today. Omit for the day the longest-dated strategy expires." } },
+    },
+  },
+  {
     name: "set_market",
-    description: "Change the stock being modelled. Use only values the user gives; there are no live quotes. Existing strikes are kept.",
+    description: "Change the stock being modelled. Use only values the user gives; there are no live quotes. When the price changes, existing strikes are rescaled to it, so check them afterwards.",
     parameters: {
       type: "object",
       properties: {
@@ -113,7 +133,13 @@ function checkedStrategy(strategy: Strategy): Strategy {
 }
 
 // Runs one tool call against the desk. Throws with a message the model can act on.
-export function runDeskTool(desk: Desk, name: string, value: unknown): { desk: Desk; summary: string } {
+// `output` carries a read-only tool's answer; the desk is returned unchanged for those.
+export function runDeskTool(
+  desk: Desk,
+  name: string,
+  value: unknown,
+  todayIso: string,
+): { desk: Desk; summary: string; output?: unknown } {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Tool arguments must be an object.");
   const args = value as Record<string, unknown>;
 
@@ -152,7 +178,7 @@ export function runDeskTool(desk: Desk, name: string, value: unknown): { desk: D
     const added: string[] = [];
     for (const entry of args.scenarios.slice(0, room)) {
       if (!entry || typeof entry !== "object") continue;
-      const scenario = makeScenario(next, { ...(entry as Partial<Scenario>), id: undefined });
+      const scenario = makeScenario(next, { ...(entry as ScenarioInput), id: undefined });
       next = { ...next, scenarios: [...next.scenarios, scenario] };
       added.push(scenario.name);
     }
@@ -162,18 +188,40 @@ export function runDeskTool(desk: Desk, name: string, value: unknown): { desk: D
 
   if (name === "update_scenario") {
     const current = findById(desk.scenarios, args.id, "scenario");
-    const moved = args.movePct !== undefined || args.price !== undefined;
+    const newSteps = Array.isArray(args.steps) && args.steps.length > 0;
+    // A generated name follows the new path; a custom one is kept.
+    const hadAutoName = current.name === autoScenarioName(desk.market, current.steps);
     const scenario = makeScenario(desk, {
-      ...current,
-      ...(args as Partial<Scenario>),
       id: current.id,
-      movePct: args.price !== undefined ? undefined : ((args.movePct as number | undefined) ?? current.movePct),
-      // A generated name follows the new move.
-      name: typeof args.name === "string" ? args.name : moved && current.name === makeScenario(desk, { movePct: current.movePct }).name ? "" : current.name,
+      odds: typeof args.odds === "number" ? args.odds : current.odds,
+      steps: newSteps ? (args.steps as ScenarioInput["steps"]) : current.steps,
+      name: typeof args.name === "string" ? args.name : newSteps && hadAutoName ? "" : current.name,
     });
     return {
       desk: { ...desk, scenarios: desk.scenarios.map((item) => (item.id === current.id ? scenario : item)) },
       summary: `Updated scenario ${scenario.name}`,
+    };
+  }
+
+  if (name === "what_if") {
+    const [step] = makeScenario(desk, { steps: [args as ScenarioInput] }).steps;
+    const day = step.days ?? horizonDays(desk);
+    const price = Math.max(0.01, desk.market.spot * (1 + step.movePct / 100));
+    const ivPct = step.ivPct ?? desk.market.ivPct;
+    return {
+      desk,
+      summary: `Checked $${Math.round(price * 100) / 100} on day ${day}`,
+      output: {
+        day,
+        stockPrice: Math.round(price * 100) / 100,
+        ivPct,
+        pnlByStrategy: desk.strategies.map((strategy) => ({
+          id: strategy.id,
+          name: strategy.name,
+          pnl: Math.round(pnlAt(desk, strategy, todayIso, day, price, ivPct)),
+          ...(day > strategy.expirationDays ? { note: `expired on day ${strategy.expirationDays}; shown at expiry at this price` } : {}),
+        })),
+      },
     };
   }
 
@@ -184,7 +232,7 @@ export function runDeskTool(desk: Desk, name: string, value: unknown): { desk: D
   }
 
   if (name === "set_market") {
-    const next = cleanDesk({ ...desk, market: { ...desk.market, ...args } });
+    const next = withMarket(desk, args);
     return { desk: next, summary: `Set ${next.market.symbol} to $${next.market.spot} at ${next.market.ivPct}% IV` };
   }
 

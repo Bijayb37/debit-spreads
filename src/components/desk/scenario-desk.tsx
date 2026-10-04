@@ -9,6 +9,7 @@ import {
   defaultDesk,
   evaluateDesk,
   formatMoney,
+  withMarket,
   type BoardRow,
   type Desk,
   type Scenario,
@@ -18,7 +19,8 @@ import { Assistant, type AssistantHandle } from "@/components/desk/assistant";
 import { seriesColor } from "@/components/desk/colors";
 import { ScenarioDialog, StrategyDialog } from "@/components/desk/editors";
 import { OutcomeGrid } from "@/components/desk/outcome-grid";
-import { PayoffChart } from "@/components/desk/payoff-chart";
+import { PathDetail } from "@/components/desk/path-detail";
+import { PriceTimeMap } from "@/components/desk/price-time-map";
 
 const STORAGE_KEY = "callculator-scenario-desk-v1";
 const MAX_UNDO = 30;
@@ -150,8 +152,12 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
     assistant.current?.ask(prompt);
   };
   const setMarket = (patch: Partial<Desk["market"]>) => {
-    const next = cleanDesk({ ...desk, market: { ...desk.market, ...patch } });
-    if (JSON.stringify(next.market) !== JSON.stringify(desk.market)) commit(next);
+    const next = withMarket(desk, patch);
+    if (JSON.stringify(next.market) === JSON.stringify(desk.market)) return;
+    commit(next);
+    if (next.market.spot !== desk.market.spot && desk.strategies.length > 0) {
+      setNotice("Strikes were rescaled to the new price.");
+    }
   };
 
   return (
@@ -162,8 +168,8 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
         </Link>
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Stock assumptions">
           <MarketField id="market-symbol" label="Stock" value={desk.market.symbol} width="w-16 uppercase" numeric={false} onCommit={(value) => setMarket({ symbol: value.toUpperCase() })} />
-          <MarketField id="market-spot" label="Price" prefix="$" value={desk.market.spot} width="w-20" onCommit={(value) => setMarket({ spot: Number(value) })} />
-          <MarketField id="market-iv" label="IV" suffix="%" value={desk.market.ivPct} width="w-14" onCommit={(value) => setMarket({ ivPct: Number(value) })} />
+          <MarketField id="market-spot" label="Price today" prefix="$" value={desk.market.spot} width="w-20" onCommit={(value) => setMarket({ spot: Number(value) })} />
+          <MarketField id="market-iv" label="IV today" suffix="%" value={desk.market.ivPct} width="w-14" onCommit={(value) => setMarket({ ivPct: Number(value) })} />
         </div>
         <div className="ml-auto flex items-center gap-2">
           <button
@@ -188,7 +194,7 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
         <div className="min-h-0 space-y-3 overflow-y-auto px-3 py-3 sm:px-5">
           <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <h1 className="text-xl font-semibold tracking-tight text-ink text-balance">
-              What each strategy makes or loses if {desk.market.symbol} moves
+              How each strategy holds up as {desk.market.symbol} moves over time
             </h1>
             {notice ? (
               <p role="status" className="text-xs font-medium text-ink-secondary">
@@ -244,7 +250,7 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
               <span className="text-xs font-semibold text-ink-muted">Ask the assistant</span>
               {[
                 { label: "Which holds up best?", prompt: "Which strategy holds up best across these scenarios, and what does each one give up?" },
-                { label: "Stress-test these", prompt: `Add two tougher scenarios for ${desk.market.symbol}: a sharp drop with IV rising, and a flat stock with IV falling. Then tell me what changes.` },
+                { label: "Add a path", prompt: `Add a scenario where ${desk.market.symbol} rallies 15% in three weeks and then gives it all back by day 45. Tell me how each strategy holds up at each step.` },
                 { label: "Suggest another strategy", prompt: "Add one strategy that does better in the scenarios where my current ones lose, and explain the trade-off." },
               ].map((chip) => (
                 <button
@@ -256,12 +262,16 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
                   {chip.label}
                 </button>
               ))}
-              <span className="ml-auto text-caption text-ink-muted">★ best in that scenario · stronger colour, larger return on budget</span>
+              <span className="ml-auto text-caption text-ink-muted">Shows the end of each scenario · ★ best · select a heading to see it step by step</span>
             </div>
           </section>
 
-          <section aria-label="Payoff chart" className="rounded-lg border border-line bg-surface p-3 shadow-sm">
-            <PayoffChart desk={desk} board={board} todayIso={todayIso} scenario={scenario} scenarioIndex={scenarioIndex} />
+          <section aria-label="Scenario step by step" className="rounded-lg border border-line bg-surface p-3 shadow-sm">
+            <PathDetail desk={desk} board={board} todayIso={todayIso} scenario={scenario} scenarioIndex={scenarioIndex} />
+          </section>
+
+          <section aria-label="Price and date map" className="rounded-lg border border-line bg-surface p-3 shadow-sm">
+            <PriceTimeMap desk={desk} board={board} todayIso={todayIso} />
           </section>
 
           <details className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-secondary shadow-sm">
@@ -271,7 +281,7 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
                 Every value is a Black-Scholes model estimate from the stock price and IV at the top, not a live quote or a forecast. Each strategy buys as many whole contracts (100 shares each) as its budget allows, and return is profit or loss divided by that budget. Fees, dividends, early exercise and assignment are not modelled.
               </p>
               <p>
-                Strategies are separate alternatives, not one combined position. A scenario dated after a strategy expires shows that strategy at its expiry. The worst scenario shown is not the most a strategy can lose: ratio spreads can lose more than their budget.
+                A scenario is a path: the stock moves in a straight line from today through each step, and IV with it. A strategy that expires before a step keeps the result it had on its expiry day. Strategies are separate alternatives, not one combined position. The worst scenario shown is not the most a strategy can lose: ratio spreads can lose more than their budget.
               </p>
               <p>
                 The odds row holds your own weights for how likely each scenario is. They only change the weighted column and say nothing about what the market will do.
