@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
+import type { OptionStrategy } from "@/lib/debit-call-spread";
 import {
   autoStrategyName,
   cleanDesk,
@@ -24,6 +25,14 @@ const STORAGE_KEY = "callculator-scenario-desk-v1";
 // A shared link carries the whole setup after this marker in the URL hash.
 const SHARE_PREFIX = "#desk=";
 const EDITOR_OPEN_KEY = "callculator-desk-details-open";
+const ADD_ORDER: OptionStrategy[] = [
+  "long-call",
+  "debit-call-spread",
+  "bull-put-spread",
+  "bear-put",
+  "debit-put-spread",
+  "call-calendar",
+];
 const MAX_UNDO = 30;
 
 export default function ScenarioDesk({ todayIso, children }: { todayIso: string; children?: ReactNode }) {
@@ -169,8 +178,10 @@ export default function ScenarioDesk({ todayIso, children }: { todayIso: string;
             commit({ ...desk, strategies: desk.strategies.map((item) => (item.id === strategy.id ? strategy : item)) }, `strategy-${strategy.id}`)
           }
           onAdd={() => {
-            // The first strategy is a plain call; a second one defaults to a spread to compare against.
-            const strategy = makeStrategy(desk, { kind: desk.strategies.length === 0 ? "long-call" : "debit-call-spread" });
+            // Start each new strategy as a type that is not on the desk yet, so the
+            // comparison is between different things.
+            const kind = ADD_ORDER.find((candidate) => !desk.strategies.some((item) => item.kind === candidate)) ?? "debit-call-spread";
+            const strategy = makeStrategy(desk, { kind });
             commit({ ...desk, strategies: [...desk.strategies, strategy] });
             setSelectedId(strategy.id);
             setIsEditorOpen(true);

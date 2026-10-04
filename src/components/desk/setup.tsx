@@ -93,65 +93,77 @@ export function Setup({
       </div>
 
       <div className="mt-5 border-t border-line pt-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="mr-1 text-base font-semibold text-ink">{rows.length > 1 ? "Strategies" : "Strategy"}</h2>
-          {rows.map((item) => {
-            // With the details hidden nothing is being edited, so no chip is picked out.
-            const isSelected = isEditorOpen && item.strategy.id === strategy?.id;
-            return (
-              <span
-                key={item.strategy.id}
-                className={cn("flex items-center rounded-full border text-sm font-medium", isSelected ? "border-ink bg-ink text-white" : "border-line-strong bg-surface text-ink-soft")}
-              >
-                <button
-                  type="button"
-                  aria-pressed={isSelected}
-                  title={isEditorOpen ? undefined : "Show this strategy's details"}
-                  onClick={() => onSelect(item.strategy.id)}
-                  className="flex items-center gap-1.5 rounded-l-full py-1 pl-3 pr-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                >
-                  <span aria-hidden className="size-2 rounded-full" style={{ background: seriesColor(item.strategy.id) }} />
-                  {item.strategy.name}
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Remove ${item.strategy.name}`}
-                  title="Remove this strategy"
-                  onClick={() => onRemove(item.strategy.id)}
-                  className={cn(
-                    "grid size-7 place-items-center rounded-full text-base leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-                    isSelected ? "text-white/70 hover:bg-white/15 hover:text-white" : "text-ink-muted hover:bg-rose-50 hover:text-loss",
-                  )}
-                >
-                  ×
-                </button>
-              </span>
-            );
-          })}
-          <button
-            type="button"
-            disabled={atLimit}
-            title={atLimit ? `You can compare up to ${MAX_STRATEGIES} strategies` : undefined}
-            onClick={onAdd}
-            className="ml-auto text-sm font-semibold text-accent underline-offset-2 hover:underline disabled:text-ink-muted disabled:no-underline"
-          >
-            {rows.length === 0 ? "+ Add a strategy" : "+ Compare with another"}
-          </button>
-          {rows.length > 0 ? (
+        {/* The heading and its two actions stay on one line; the strategies get their own row. */}
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-ink">{rows.length > 1 ? "Strategies" : "Strategy"}</h2>
+          <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              aria-expanded={isEditorOpen}
-              aria-controls="strategy-editor"
-              onClick={onToggleEditor}
-              className={cn(action, "flex items-center gap-1 hover:border-accent hover:text-accent")}
+              disabled={atLimit}
+              title={atLimit ? `You can compare up to ${MAX_STRATEGIES} strategies` : "Add another strategy to compare"}
+              onClick={onAdd}
+              className={cn(action, "border-accent-border bg-accent-faint text-accent-strong hover:bg-accent-soft")}
             >
-              {isEditorOpen ? "Hide details" : "Show details"}
-              <svg viewBox="0 0 20 20" aria-hidden className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
-                <path d={isEditorOpen ? "M5 12l5-5 5 5" : "M5 8l5 5 5-5"} />
-              </svg>
+              + Add strategy
             </button>
-          ) : null}
+            {rows.length > 0 ? (
+              <button
+                type="button"
+                aria-expanded={isEditorOpen}
+                aria-controls="strategy-editor"
+                onClick={onToggleEditor}
+                className={cn(action, "flex items-center gap-1 hover:border-accent hover:text-accent")}
+              >
+                {isEditorOpen ? "Hide" : "Show"}
+                <span className="hidden sm:inline">details</span>
+                <svg viewBox="0 0 20 20" aria-hidden className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round">
+                  <path d={isEditorOpen ? "M5 12l5-5 5 5" : "M5 8l5 5 5-5"} />
+                </svg>
+              </button>
+            ) : null}
+          </div>
         </div>
+
+        {rows.length > 0 ? (
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            {rows.map((item) => {
+              // With the details hidden nothing is being edited, so no chip is picked out.
+              const isSelected = isEditorOpen && item.strategy.id === strategy?.id;
+              return (
+                <span
+                  key={item.strategy.id}
+                  className={cn(
+                    "flex min-w-0 max-w-full items-center rounded-full border text-sm font-medium",
+                    isSelected ? "border-ink bg-ink text-white" : "border-line-strong bg-surface text-ink-soft hover:border-ink-muted",
+                  )}
+                >
+                  <button
+                    type="button"
+                    aria-pressed={isSelected}
+                    title={isEditorOpen ? undefined : "Show this strategy's details"}
+                    onClick={() => onSelect(item.strategy.id)}
+                    className="flex min-w-0 items-center gap-1.5 rounded-l-full py-1 pl-3 pr-1 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ background: seriesColor(item.strategy.id) }} />
+                    <span className="truncate">{item.strategy.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${item.strategy.name}`}
+                    title="Remove this strategy"
+                    onClick={() => onRemove(item.strategy.id)}
+                    className={cn(
+                      "mr-0.5 grid size-6 shrink-0 place-items-center rounded-full text-base leading-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+                      isSelected ? "text-white/70 hover:bg-white/15 hover:text-white" : "text-ink-muted hover:bg-rose-50 hover:text-loss",
+                    )}
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
 
         {strategy && info ? (
           <div id="strategy-editor" hidden={!isEditorOpen} className="mt-3 space-y-3">
